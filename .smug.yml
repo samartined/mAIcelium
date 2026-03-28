@@ -1,0 +1,38 @@
+session: mAIcelium
+root: ~/dev/mAIcelium
+
+windows:
+  - name: claude-code
+    layout: main-vertical
+    panes:
+      - commands:
+          - cd ~/dev/mAIcelium
+          - echo "🤖 Claude Code — planning & architecture"
+          - claude
+      - commands:
+          - cd ~/dev/mAIcelium
+          - watch -n5 cat WORKSPACE.md
+
+  - name: agents
+    layout: tiled
+    panes:
+      - commands:
+          - echo "🖱️  Cursor — implementation"
+          - cd ~/dev/mAIcelium
+      - commands:
+          - echo "🪐 Antigravity — refactor / review"
+          - cd ~/dev/mAIcelium
+      - commands:
+          - echo "🐚 Shell — scripts & git"
+          - cd ~/dev/mAIcelium
+
+  - name: projects
+    layout: even-horizontal
+    panes:
+      - commands:
+          - cd ~/dev/mAIcelium/projects && ls -la
+      - commands:
+          - echo "Quick commands:"
+          - echo "  bin/add_project.sh <name> <path>"
+          - echo "  bin/remove_project.sh <name>"
+          - echo "  bin/sync_symlinks.sh"

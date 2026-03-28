@@ -1,0 +1,5 @@
+name: add_project
+description: Add a project to the mAIcelium workspace
+prompt: |
+  Read the instructions in ./ai/commands/add_project.md and execute them.
+  User arguments: $ARGUMENTS

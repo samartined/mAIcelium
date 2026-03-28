@@ -1,0 +1,11 @@
+# Coding Standards
+
+- Use strict TypeScript in frontend projects
+- Prefer composition over inheritance
+- Pure functions whenever possible
+- Maximum 20 lines per function
+- Descriptive names, no abbreviations
+- Keep code self-documenting; comments only for non-obvious intent
+- DRY — extract shared logic into reusable utilities
+- Consistent error handling strategy per project
+- Prefer early returns over deep nesting

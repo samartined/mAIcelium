@@ -1,0 +1,1 @@
+../../ai/rules/commit-conventions.md

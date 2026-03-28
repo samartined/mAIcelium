@@ -1,0 +1,1 @@
+../../ai/rules/security-checklist.md

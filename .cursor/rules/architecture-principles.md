@@ -1,0 +1,1 @@
+../../ai/rules/architecture-principles.md
