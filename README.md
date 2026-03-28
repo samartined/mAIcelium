@@ -41,8 +41,10 @@ bin/init.sh
 cp repos/_registry.yaml.example repos/_registry.yaml
 # edit repos/_registry.yaml
 
-# 4. Plug in a project
+# 4. Plug in a project (from shell)
 bin/add_project.sh my-api ~/dev/my-api
+# or from inside an IDE with fuzzy matching:
+#   /add_project my-api
 
 # 5. Open this directory in your IDEs and start working
 ```
@@ -54,16 +56,18 @@ mAIcelium/
 ├── ai/                        # Single source of truth for AI agents
 │   ├── rules/                 # Global rules (coding standards, security, commits)
 │   ├── skills/                # Reusable capabilities
-│   │   ├── _common/           # Universal skills (code-review, planning, etc.)
+│   │   ├── _common/           # Universal skills (code-review, planning, workspace-guide, etc.)
 │   │   ├── _clients/          # Client-specific skills
 │   │   └── _domains/          # Tech stack skills (React, Python, DevOps)
 │   ├── commands/              # Agent command definitions
+│   │   └── scripts/           # Python scripts for fuzzy-matched commands
 │   └── prompts/               # Reusable prompt templates
 ├── bin/                       # Automation scripts
 │   ├── init.sh                # Initialize the workspace
 │   ├── add_project.sh         # Plug in a project
 │   ├── remove_project.sh      # Unplug a project
-│   └── sync_symlinks.sh       # Rebuild all symlinks
+│   ├── sync_symlinks.sh       # Rebuild all symlinks
+│   └── separate_git.sh        # Separate .git from workspace (optional)
 ├── projects/                  # Symlinks to active repos
 ├── repos/                     # Repository registry
 ├── .cursor/                   # Auto-generated Cursor config (symlinks)
@@ -90,12 +94,27 @@ mAIcelium/
 
 ## Key commands
 
+### Shell scripts
+
 | Command | Description |
 |---------|-------------|
 | `bin/init.sh` | Initialize a fresh workspace |
 | `bin/add_project.sh <name> <path>` | Plug in a project |
 | `bin/remove_project.sh <name>` | Unplug a project (original repo untouched) |
 | `bin/sync_symlinks.sh` | Rebuild all symlinks after changes |
+| `bin/separate_git.sh` | Move `.git` outside the workspace (avoids IDE git conflicts) |
+
+### IDE slash commands (with fuzzy matching)
+
+| Command | Description |
+|---------|-------------|
+| `/add_project <name>` | Fuzzy-match a project from the registry and plug it in |
+| `/remove_project <name>` | Fuzzy-match a linked project and unplug it |
+| `/list_projects` | Show all currently linked projects |
+| `/workspace_status` | Full workspace status (projects, rules, skills, symlinks) |
+| `/git_backup [message]` | Stage, commit, and push workspace changes |
+
+Slash commands use Python scripts with **fuzzy matching** — you can type approximate names and the system will resolve them or ask for clarification.
 
 ## License
 

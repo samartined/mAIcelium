@@ -1,0 +1,5 @@
+name: git_backup
+description: Stage, commit, and push workspace changes (supports separated git)
+prompt: |
+  Read the instructions in ./ai/commands/git_backup.md and execute them.
+  User arguments: $ARGUMENTS

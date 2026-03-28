@@ -15,3 +15,6 @@ WORKSPACE.md
 __pycache__/
 *.pyc
 .env
+
+# Generated git alias (contains local paths)
+bin/.git-alias.sh

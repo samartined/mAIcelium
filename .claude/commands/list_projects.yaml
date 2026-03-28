@@ -1,0 +1,4 @@
+name: list_projects
+description: List all projects linked into the workspace
+prompt: |
+  Read the instructions in ./ai/commands/list_projects.md and execute them.

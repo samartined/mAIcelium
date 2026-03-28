@@ -23,12 +23,15 @@ Check `WORKSPACE.md` to see which ones are active.
 1. Read WORKSPACE.md — know which projects are active.
 2. Ask the user which project to focus on if not specified.
 3. Work ONLY inside `projects/<project-name>/`.
-4. Do not modify anything in `ai/`, `.cursor/`, `.claude/`, or `.antigravity/`.
+4. Do not modify anything in `.cursor/`, `.claude/`, or `.antigravity/` — they are auto-generated.
+5. New AI resources (rules, skills, commands, prompts) go in `ai/` only. See `ai/skills/_common/workspace-guide/SKILL.md`.
 
 ## Available commands
-- `/add_project <name> <path>`  → runs `bin/add_project.sh`
-- `/remove_project <name>`      → runs `bin/remove_project.sh`
+- `/add_project <name>`         → fuzzy-matches registry, runs `bin/add_project.sh`
+- `/remove_project <name>`      → fuzzy-matches linked projects, runs `bin/remove_project.sh`
+- `/list_projects`              → shows all linked projects
 - `/workspace_status`           → current workspace state
+- `/git_backup [message]`       → stage, commit, push (supports separated git)
 
 ## Repository index
 Check `repos/_registry.yaml` for all available repos with their
