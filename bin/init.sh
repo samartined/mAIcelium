@@ -31,7 +31,8 @@ ln -sfn "../ai/rules"  "$ROOT/.antigravity/rules"
 ln -sfn "../ai/skills" "$ROOT/.antigravity/skills"
 echo "  ✔ Antigravity symlinks created"
 
-cat > "$ROOT/.claude/settings.json" << 'EOF'
+if [ ! -f "$ROOT/.claude/settings.json" ]; then
+  cat > "$ROOT/.claude/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": [
@@ -48,7 +49,10 @@ cat > "$ROOT/.claude/settings.json" << 'EOF'
   }
 }
 EOF
-echo "  ✔ .claude/settings.json created"
+  echo "  ✔ .claude/settings.json created"
+else
+  echo "  ✔ .claude/settings.json already exists (kept)"
+fi
 
 if [ ! -f "$ROOT/WORKSPACE.md" ]; then
   cat > "$ROOT/WORKSPACE.md" << WSEOF

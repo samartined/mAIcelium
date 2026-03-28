@@ -9,6 +9,8 @@
 # Dynamic workspace state
 WORKSPACE.md
 .claude/projects-context.md
+.claude/settings.json
+.claude/settings.local.json
 
 # IDE caches
 .DS_Store
