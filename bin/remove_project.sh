@@ -70,3 +70,7 @@ print("  ✔ WORKSPACE.md updated")
 # ── Regenerate Claude Code project context ────────────────────────────────────
 _regenerate_claude_context "$ROOT"
 echo "  ✔ Claude project context updated"
+
+# ── Regenerate multi-root workspace file ──────────────────────────────────────
+_regenerate_workspace_file "$ROOT"
+echo "  ✔ Workspace file updated (mAIcelium.code-workspace)"

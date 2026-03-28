@@ -2,6 +2,43 @@
 # Shared functions for mAIcelium scripts.
 # Source this file: source "$(dirname "$0")/_lib.sh"
 
+_regenerate_workspace_file() {
+  local root="$1"
+  local wsfile="$root/mAIcelium.code-workspace"
+
+  python3 -c '
+import json, os, sys
+
+root = sys.argv[1]
+projects_dir = os.path.join(root, "projects")
+
+folders = [{"path": ".", "name": "mAIcelium"}]
+
+if os.path.isdir(projects_dir):
+    for entry in sorted(os.listdir(projects_dir)):
+        link = os.path.join(projects_dir, entry)
+        if os.path.islink(link) and os.path.isdir(link):
+            real = os.path.realpath(link)
+            folders.append({"path": real, "name": entry})
+
+wsfile = os.path.join(root, "mAIcelium.code-workspace")
+existing = {}
+if os.path.isfile(wsfile):
+    try:
+        with open(wsfile) as f:
+            existing = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        pass
+
+existing["folders"] = folders
+existing.setdefault("settings", {})
+
+with open(wsfile, "w") as f:
+    json.dump(existing, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+' "$root"
+}
+
 _regenerate_claude_context() {
   local root="$1"
   local outfile="$root/.claude/projects-context.md"

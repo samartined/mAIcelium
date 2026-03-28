@@ -78,6 +78,10 @@ if [ -f "$ROOT/CLAUDE.md" ] && ! grep -q "projects-context.md" "$ROOT/CLAUDE.md"
   echo "  ✔ CLAUDE.md updated with project-context reference"
 fi
 
+# ── Multi-root workspace file ────────────────────────────────────────────────
+_regenerate_workspace_file "$ROOT"
+echo "  ✔ Workspace file regenerated"
+
 echo "✅ Symlinks synced."
 echo ""
 echo "Cursor rules:"
