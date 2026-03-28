@@ -6,6 +6,10 @@
 /repos/_registry.yaml
 !/repos/_registry.yaml.example
 
+# Auto-generated IDE symlinks (recreated by sync_symlinks.sh)
+.cursor/
+.antigravity/
+
 # Dynamic workspace state
 WORKSPACE.md
 *.code-workspace
