@@ -7,7 +7,7 @@
 
 ## Core principle
 
-> **Always write AI resources to the `ai/` directory, never to the symlinked
+> **Always write AI resources to the `mesh/` directory, never to the symlinked
 > dotfolders (`.cursor/`, `.claude/`, `.antigravity/`).**
 
 The dotfolders are auto-generated via symlinks. Any direct write to them will
@@ -18,11 +18,11 @@ inconsistencies between IDEs.
 
 | Resource  | Location                              | Format              |
 |-----------|---------------------------------------|----------------------|
-| Rules     | `ai/rules/<rule-name>.md`             | Markdown             |
-| Skills    | `ai/skills/<category>/<name>/SKILL.md`| Markdown with frontmatter |
-| Commands  | `ai/commands/<command-name>.md`       | Markdown             |
-| Scripts   | `ai/commands/scripts/<name>.py`       | Python               |
-| Prompts   | `ai/prompts/<prompt-name>.md`         | Markdown with placeholders |
+| Rules     | `mesh/rules/<rule-name>.md`             | Markdown             |
+| Skills    | `mesh/skills/<category>/<name>/SKILL.md`| Markdown with frontmatter |
+| Commands  | `mesh/commands/<command-name>.md`       | Markdown             |
+| Scripts   | `mesh/commands/scripts/<name>.py`       | Python               |
+| Prompts   | `mesh/prompts/<prompt-name>.md`         | Markdown with placeholders |
 
 ## Skill categories
 
@@ -55,16 +55,16 @@ status line:
 ## Symlink architecture
 
 ```
-ai/                          ← Single source of truth
+mesh/                          ← Single source of truth
 ├── rules/                   ← Global rules (all agents, all IDEs)
 ├── skills/                  ← Organized by category
 ├── commands/                ← Command definitions + scripts
 └── prompts/                 ← Reusable templates
 
-.cursor/rules/       → symlinks to ai/rules/*.md
-.cursor/skills-cursor/ → symlinks to ai/skills/_common/*/ and _domains/*/
-.antigravity/rules   → symlink to ai/rules/
-.antigravity/skills  → symlink to ai/skills/
+.cursor/rules/       → symlinks to mesh/rules/*.md
+.cursor/skills-cursor/ → symlinks to mesh/skills/_common/*/ and _domains/*/
+.antigravity/rules   → symlink to mesh/rules/
+.antigravity/skills  → symlink to mesh/skills/
 .claude/             → reads CLAUDE.md as entry point, projects-context.md for project rules
 ```
 

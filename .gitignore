@@ -18,5 +18,8 @@ __pycache__/
 *.pyc
 .env
 
+# Image backups (pre-rename originals)
+docs/assets/backup/
+
 # Generated git alias (contains local paths)
 bin/.git-alias.sh

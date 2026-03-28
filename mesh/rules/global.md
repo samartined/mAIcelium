@@ -6,7 +6,7 @@ defined by WORKSPACE.md. Never act on projects not listed in that file.
 
 ## Before any task
 1. Read WORKSPACE.md — know which projects are active.
-2. Read the relevant skills from ai/skills/.
+2. Read the relevant skills from mesh/skills/.
 3. Confirm with the user if there is any ambiguity about which project to affect.
 
 ## IDE responsibilities

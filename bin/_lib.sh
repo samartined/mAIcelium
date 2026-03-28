@@ -13,10 +13,10 @@ _regenerate_claude_context() {
     echo "# mAIcelium Agent Context"
     echo ""
 
-    # ── Workspace rules (ai/rules/) ──────────────────────────────────────────
+    # ── Workspace rules (mesh/rules/) ──────────────────────────────────────────
     echo "## Workspace Rules"
     echo ""
-    for rule in "$root"/ai/rules/*.md; do
+    for rule in "$root"/mesh/rules/*.md; do
       [ -f "$rule" ] || continue
       echo "### $(basename "$rule" .md)"
       echo ""

@@ -9,7 +9,7 @@ Supports **fuzzy matching** — the user doesn't need to type the exact name.
 Run this command, replacing `<INPUT>` with the user's text after the command name:
 
 ```bash
-cd $WORKSPACE_ROOT && python3 ai/commands/scripts/add_project.py "<INPUT>"
+cd $WORKSPACE_ROOT && python3 mesh/commands/scripts/add_project.py "<INPUT>"
 ```
 
 Then output the script's response **verbatim** as your only reply. No extra text.
@@ -30,12 +30,12 @@ If the Python script is unavailable, use the bash script directly:
 ## Example
 ```
 User: /add_project camerabass
-→ runs: python3 ai/commands/scripts/add_project.py "camerabass"
+→ runs: python3 mesh/commands/scripts/add_project.py "camerabass"
 → output: ✔ Project 'camerabass' added → ~/dev/camerabass
 
 User: /add_project glo
-→ runs: python3 ai/commands/scripts/add_project.py "glo"
+→ runs: python3 mesh/commands/scripts/add_project.py "glo"
 → output: ❓ **glo** is ambiguous: **globex**, **globex-devops**
 → Agent asks which one, user says "globex"
-→ runs: python3 ai/commands/scripts/add_project.py "globex"
+→ runs: python3 mesh/commands/scripts/add_project.py "globex"
 ```

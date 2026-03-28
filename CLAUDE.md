@@ -7,12 +7,12 @@ simultaneously in Cursor, Claude Code, and Antigravity.
 Projects connect via symlinks — they can live anywhere on disk.
 
 ## Rules — automatically injected
-All rules live in `./ai/rules/`. They are automatically inlined into
+All rules live in `./mesh/rules/`. They are automatically inlined into
 `.claude/projects-context.md` on every sync (SessionStart hook or
 `bin/sync_symlinks.sh`). Claude Code reads them without manual intervention.
 
 ## Available skills
-In `./ai/skills/`. Check the relevant SKILL.md before executing any task.
+In `./mesh/skills/`. Check the relevant SKILL.md before executing any task.
 - `_common/`  — universal skills
 - `_clients/` — client-specific skills
 - `_domains/` — tech stack skills
@@ -26,7 +26,7 @@ Check `WORKSPACE.md` to see which ones are active.
 2. Ask the user which project to focus on if not specified.
 3. Work ONLY inside `projects/<project-name>/`.
 4. Do not modify anything in `.cursor/`, `.claude/`, or `.antigravity/` — they are auto-generated.
-5. New AI resources (rules, skills, commands, prompts) go in `ai/` only. See `ai/skills/_common/workspace-guide/SKILL.md`.
+5. New AI resources (rules, skills, commands, prompts) go in `mesh/` only. See `mesh/skills/_common/workspace-guide/SKILL.md`.
 
 ## Available commands
 - `/add_project <name>`         → fuzzy-matches registry, runs `bin/add_project.sh`

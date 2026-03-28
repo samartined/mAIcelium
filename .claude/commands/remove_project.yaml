@@ -1,5 +1,5 @@
 name: remove_project
 description: Remove a project from the workspace (original repo is untouched)
 prompt: |
-  Read the instructions in ./ai/commands/remove_project.md and execute them.
+  Read the instructions in ./mesh/commands/remove_project.md and execute them.
   User arguments: $ARGUMENTS
