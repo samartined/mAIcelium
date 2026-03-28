@@ -6,8 +6,10 @@ simultaneously in Cursor, Claude Code, and Antigravity.
 
 Projects connect via symlinks — they can live anywhere on disk.
 
-## Rules — always read before acting
-All rules live in `./ai/rules/`. Apply them without exception.
+## Rules — automatically injected
+All rules live in `./ai/rules/`. They are automatically inlined into
+`.claude/projects-context.md` on every sync (SessionStart hook or
+`bin/sync_symlinks.sh`). Claude Code reads them without manual intervention.
 
 ## Available skills
 In `./ai/skills/`. Check the relevant SKILL.md before executing any task.
@@ -48,4 +50,7 @@ paths and tech stacks before running /add_project.
 Always respond in Spanish. Code and technical artifacts stay in English.
 
 ## Project-specific context
-For active project rules and skills, read `.claude/projects-context.md`.
+`.claude/projects-context.md` is auto-generated and contains all workspace
+rules and active project rules inlined. It is regenerated automatically via
+the `SessionStart` hook (runs `bin/sync_symlinks.sh` on every new conversation)
+and on every `/add_project` or `/remove_project`.
