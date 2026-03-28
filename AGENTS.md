@@ -1,18 +1,18 @@
 # Agent Configuration — mAIcelium
 
 ## Global rules for all agents
-- Always read `./ai/rules/global.md` before any action.
+- Always read `./mesh/rules/global.md` before any action.
 - Never modify files in `.cursor/`, `.claude/`, `.antigravity/` (auto-generated).
-- New AI resources go in `ai/` — see `ai/skills/_common/workspace-guide/SKILL.md`.
+- New AI resources go in `mesh/` — see `mesh/skills/_common/workspace-guide/SKILL.md`.
 - Only work inside the indicated project in `projects/`.
 - Never run `rm -rf` on symlink targets in `projects/`.
 
 ## Allowed permissions
 - Full read access to the workspace.
 - Write access only inside `projects/<active-project>/`.
-- Write access inside `ai/` for new rules, skills, commands, and prompts.
+- Write access inside `mesh/` for new rules, skills, commands, and prompts.
 - Execution of scripts in `bin/`.
-- Execution of Python scripts: `python3 ai/commands/scripts/*.py`.
+- Execution of Python scripts: `python3 mesh/commands/scripts/*.py`.
 
 ## Multi-agent coordination
 When two agents work on the same project simultaneously,

@@ -2,12 +2,12 @@
 
 ## Source of truth
 
-All AI configuration lives in `ai/`. The dotfolders (`.cursor/`, `.claude/`,
+All AI configuration lives in `mesh/`. The dotfolders (`.cursor/`, `.claude/`,
 `.antigravity/`) are **auto-generated mirrors** via symlinks. Never write
 directly to them.
 
 When creating or modifying any AI resource (rule, skill, command, prompt),
-always target the canonical path under `ai/`.
+always target the canonical path under `mesh/`.
 
 ## Naming
 
@@ -23,13 +23,13 @@ Slash command responses must end with a single emoji-prefixed status line:
 
 | What              | Where                                  |
 |-------------------|----------------------------------------|
-| Global rule       | `ai/rules/<name>.md`                  |
-| Universal skill   | `ai/skills/_common/<name>/SKILL.md`   |
-| Domain skill      | `ai/skills/_domains/<name>/SKILL.md`  |
-| Client skill      | `ai/skills/_clients/<name>/SKILL.md`  |
-| Command           | `ai/commands/<name>.md`               |
-| Script            | `ai/commands/scripts/<name>.py`       |
-| Prompt template   | `ai/prompts/<name>.md`                |
+| Global rule       | `mesh/rules/<name>.md`                  |
+| Universal skill   | `mesh/skills/_common/<name>/SKILL.md`   |
+| Domain skill      | `mesh/skills/_domains/<name>/SKILL.md`  |
+| Client skill      | `mesh/skills/_clients/<name>/SKILL.md`  |
+| Command           | `mesh/commands/<name>.md`               |
+| Script            | `mesh/commands/scripts/<name>.py`       |
+| Prompt template   | `mesh/prompts/<name>.md`                |
 
 ## Auto-generated files (do not edit)
 

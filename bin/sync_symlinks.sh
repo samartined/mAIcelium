@@ -24,18 +24,18 @@ if [ -n "$BROKEN" ]; then
 fi
 
 # ── Recreate mAIcelium global rules → .cursor/rules/ ────────────────────────
-for rule in "$ROOT"/ai/rules/*.md; do
+for rule in "$ROOT"/mesh/rules/*.md; do
   [ -f "$rule" ] || continue
   name=$(basename "$rule")
-  ln -sfn "../../ai/rules/$name" "$ROOT/.cursor/rules/$name"
+  ln -sfn "../../mesh/rules/$name" "$ROOT/.cursor/rules/$name"
 done
 
 # ── Recreate mAIcelium global skills → .cursor/skills-cursor/ ────────────────
-for skill_dir in "$ROOT"/ai/skills/_common/*/ "$ROOT"/ai/skills/_domains/*/; do
+for skill_dir in "$ROOT"/mesh/skills/_common/*/ "$ROOT"/mesh/skills/_domains/*/; do
   [ -d "$skill_dir" ] || continue
   name=$(basename "$skill_dir")
   domain=$(basename "$(dirname "$skill_dir")")
-  ln -sfn "../../ai/skills/$domain/$name" "$ROOT/.cursor/skills-cursor/$name"
+  ln -sfn "../../mesh/skills/$domain/$name" "$ROOT/.cursor/skills-cursor/$name"
 done
 
 # ── Recreate project-specific rules and skills ───────────────────────────────
@@ -66,8 +66,8 @@ for project_link in "$ROOT"/projects/*/; do
 done
 
 # ── Antigravity ──────────────────────────────────────────────────────────────
-ln -sfn "../ai/rules"  "$ROOT/.antigravity/rules"
-ln -sfn "../ai/skills" "$ROOT/.antigravity/skills"
+ln -sfn "../mesh/rules"  "$ROOT/.antigravity/rules"
+ln -sfn "../mesh/skills" "$ROOT/.antigravity/skills"
 
 # ── Claude Code: regenerate project context ──────────────────────────────────
 _regenerate_claude_context "$ROOT"

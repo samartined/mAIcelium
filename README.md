@@ -14,16 +14,16 @@ When you work with multiple AI-powered IDEs (Cursor, Claude Code, Antigravity), 
 
 mAIcelium provides a single workspace directory where:
 
-- **One source of truth** (`ai/`) holds all rules, skills, prompts, and commands.
+- **One source of truth** (`mesh/`) holds all rules, skills, prompts, and commands.
 - **Symlinks** distribute that knowledge to each IDE in the format it expects.
 - **Projects plug in and out** without copying files — just symlinks to your real repos.
 - **Scripts automate everything** — no manual symlink management.
 
 ```mermaid
 graph LR
-    AI["ai/"] -->|symlinks| Cursor[".cursor/"]
-    AI -->|"CLAUDE.md"| Claude[".claude/"]
-    AI -->|symlinks| Antigravity[".antigravity/"]
+    Mesh["mesh/"] -->|symlinks| Cursor[".cursor/"]
+    Mesh -->|"CLAUDE.md"| Claude[".claude/"]
+    Mesh -->|symlinks| Antigravity[".antigravity/"]
     Projects["projects/"] -->|symlinks| Repos["Your repos"]
 ```
 
@@ -53,7 +53,7 @@ bin/add_project.sh my-api ~/dev/my-api
 
 ```
 mAIcelium/
-├── ai/                        # Single source of truth for AI agents
+├── mesh/                        # Single source of truth for AI agents
 │   ├── rules/                 # Global rules (coding standards, security, commits)
 │   ├── skills/                # Reusable capabilities
 │   │   ├── _common/           # Universal skills (code-review, planning, workspace-guide, etc.)
@@ -83,7 +83,7 @@ mAIcelium/
 | IDE | Role | How it connects |
 |-----|------|----------------|
 | **Cursor** | Code implementation | Symlinks in `.cursor/rules/` and `.cursor/skills-cursor/` |
-| **Claude Code** | Planning, architecture, analysis | Reads `CLAUDE.md` → navigates to `ai/` directly |
+| **Claude Code** | Planning, architecture, analysis | Reads `CLAUDE.md` → navigates to `mesh/` directly |
 | **Antigravity** | Refactoring, review, scoped tasks | Symlinks in `.antigravity/` |
 
 ## Documentation

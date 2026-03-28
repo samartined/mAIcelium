@@ -3,32 +3,32 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "🍄 Initializing mAIcelium at: $ROOT"
 
-mkdir -p "$ROOT"/ai/skills/{_common/{code-review,git-workflow,testing,planning,documentation},_clients,_domains/{frontend-react,backend-python,devops}}
-mkdir -p "$ROOT"/ai/{rules,prompts,commands}
+mkdir -p "$ROOT"/mesh/skills/{_common/{code-review,git-workflow,testing,planning,documentation},_clients,_domains/{frontend-react,backend-python,devops}}
+mkdir -p "$ROOT"/mesh/{rules,prompts,commands}
 mkdir -p "$ROOT"/{.cursor/{rules,skills-cursor},.claude/commands,.antigravity,projects,repos,bin}
-touch "$ROOT/projects/.gitkeep" "$ROOT/ai/skills/_clients/.gitkeep"
+touch "$ROOT/projects/.gitkeep" "$ROOT/mesh/skills/_clients/.gitkeep"
 
 echo "  → Creating Cursor symlinks..."
-for rule in "$ROOT"/ai/rules/*.md; do
+for rule in "$ROOT"/mesh/rules/*.md; do
   [ -f "$rule" ] || continue
   name=$(basename "$rule")
-  ln -sfn "../../ai/rules/$name" "$ROOT/.cursor/rules/$name"
+  ln -sfn "../../mesh/rules/$name" "$ROOT/.cursor/rules/$name"
 done
-for skill_dir in "$ROOT"/ai/skills/_common/*/; do
+for skill_dir in "$ROOT"/mesh/skills/_common/*/; do
   [ -d "$skill_dir" ] || continue
   name=$(basename "$skill_dir")
-  ln -sfn "../../ai/skills/_common/$name" "$ROOT/.cursor/skills-cursor/$name"
+  ln -sfn "../../mesh/skills/_common/$name" "$ROOT/.cursor/skills-cursor/$name"
 done
-for skill_dir in "$ROOT"/ai/skills/_domains/*/; do
+for skill_dir in "$ROOT"/mesh/skills/_domains/*/; do
   [ -d "$skill_dir" ] || continue
   name=$(basename "$skill_dir")
-  ln -sfn "../../ai/skills/_domains/$name" "$ROOT/.cursor/skills-cursor/$name"
+  ln -sfn "../../mesh/skills/_domains/$name" "$ROOT/.cursor/skills-cursor/$name"
 done
 echo "  ✔ Cursor symlinks created"
 
 echo "  → Creating Antigravity symlinks..."
-ln -sfn "../ai/rules"  "$ROOT/.antigravity/rules"
-ln -sfn "../ai/skills" "$ROOT/.antigravity/skills"
+ln -sfn "../mesh/rules"  "$ROOT/.antigravity/rules"
+ln -sfn "../mesh/skills" "$ROOT/.antigravity/skills"
 echo "  ✔ Antigravity symlinks created"
 
 if [ ! -f "$ROOT/.claude/settings.json" ]; then
@@ -44,7 +44,7 @@ if [ ! -f "$ROOT/.claude/settings.json" ]; then
       "Bash(rm:*)",
       "Bash(mkdir:*)",
       "Bash(bash:bin/*)",
-      "Bash(python3:ai/commands/scripts/*)"
+      "Bash(python3:mesh/commands/scripts/*)"
     ]
   }
 }

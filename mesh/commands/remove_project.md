@@ -9,7 +9,7 @@ Supports **fuzzy matching** against currently linked projects.
 Run this command, replacing `<INPUT>` with the user's text after the command name:
 
 ```bash
-cd $WORKSPACE_ROOT && python3 ai/commands/scripts/remove_project.py "<INPUT>"
+cd $WORKSPACE_ROOT && python3 mesh/commands/scripts/remove_project.py "<INPUT>"
 ```
 
 Then output the script's response **verbatim** as your only reply. No extra text.
