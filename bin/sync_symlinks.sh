@@ -30,12 +30,38 @@ for rule in "$ROOT"/mesh/rules/*.md; do
   ln -sfn "../../mesh/rules/$name" "$ROOT/.cursor/rules/$name"
 done
 
+# ── Recreate mAIcelium domain rules → .cursor/rules/ ───────────────────────
+for domain_dir in "$ROOT"/mesh/rules/_domains/*/; do
+  [ -d "$domain_dir" ] || continue
+  domain=$(basename "$domain_dir")
+  for rule in "$domain_dir"*.md; do
+    [ -f "$rule" ] || continue
+    name=$(basename "$rule")
+    ln -sfn "../../mesh/rules/_domains/$domain/$name" "$ROOT/.cursor/rules/domain--${domain}--${name}"
+  done
+done
+
 # ── Recreate mAIcelium global skills → .cursor/skills-cursor/ ────────────────
-for skill_dir in "$ROOT"/mesh/skills/_common/*/ "$ROOT"/mesh/skills/_domains/*/; do
+# _common skills: direct children (e.g., _common/planning/)
+for skill_dir in "$ROOT"/mesh/skills/_common/*/; do
   [ -d "$skill_dir" ] || continue
   name=$(basename "$skill_dir")
-  domain=$(basename "$(dirname "$skill_dir")")
-  ln -sfn "../../mesh/skills/$domain/$name" "$ROOT/.cursor/skills-cursor/$name"
+  ln -sfn "../../mesh/skills/_common/$name" "$ROOT/.cursor/skills-cursor/$name"
+done
+
+# _domains skills: support both flat (e.g., _domains/devops/) and nested
+# (e.g., _domains/obsidian/json-canvas/). A domain folder is a skill if it
+# contains SKILL.md directly; otherwise its children are individual skills.
+for domain_dir in "$ROOT"/mesh/skills/_domains/*/; do
+  [ -d "$domain_dir" ] || continue
+  domain=$(basename "$domain_dir")
+  if [ -f "$domain_dir/SKILL.md" ]; then
+    # Flat domain: the folder itself is the skill
+    ln -sfn "../../mesh/skills/_domains/$domain" "$ROOT/.cursor/skills-cursor/$domain"
+  else
+    # Nested domain: each child folder is a skill; link parent as single entry
+    ln -sfn "../../mesh/skills/_domains/$domain" "$ROOT/.cursor/skills-cursor/$domain"
+  fi
 done
 
 # ── Recreate project-specific rules and skills ───────────────────────────────

@@ -21,12 +21,13 @@ Slash command responses must end with a single emoji-prefixed status line:
 
 ## File placement quick reference
 
-| What              | Where                                  |
-|-------------------|----------------------------------------|
-| Global rule       | `mesh/rules/<name>.md`                  |
-| Universal skill   | `mesh/skills/_common/<name>/SKILL.md`   |
-| Domain skill      | `mesh/skills/_domains/<name>/SKILL.md`  |
-| Client skill      | `mesh/skills/_clients/<name>/SKILL.md`  |
+| What              | Where                                         |
+|-------------------|-----------------------------------------------|
+| Global rule       | `mesh/rules/<name>.md`                         |
+| Domain rule       | `mesh/rules/_domains/<domain>/<name>.md`       |
+| Universal skill   | `mesh/skills/_common/<name>/SKILL.md`          |
+| Domain skill      | `mesh/skills/_domains/<domain>/<name>/SKILL.md`|
+| Client skill      | `mesh/skills/_clients/<name>/SKILL.md`         |
 | Command           | `mesh/commands/<name>.md`               |
 | Script            | `mesh/commands/scripts/<name>.py`       |
 | Prompt template   | `mesh/prompts/<name>.md`                |

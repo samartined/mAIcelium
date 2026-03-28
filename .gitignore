@@ -14,7 +14,6 @@
 WORKSPACE.md
 *.code-workspace
 .claude/projects-context.md
-.claude/settings.json
 .claude/settings.local.json
 
 # IDE caches

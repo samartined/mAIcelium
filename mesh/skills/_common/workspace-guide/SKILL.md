@@ -16,13 +16,14 @@ inconsistencies between IDEs.
 
 ## File organization
 
-| Resource  | Location                              | Format              |
-|-----------|---------------------------------------|----------------------|
-| Rules     | `mesh/rules/<rule-name>.md`             | Markdown             |
-| Skills    | `mesh/skills/<category>/<name>/SKILL.md`| Markdown with frontmatter |
-| Commands  | `mesh/commands/<command-name>.md`       | Markdown             |
-| Scripts   | `mesh/commands/scripts/<name>.py`       | Python               |
-| Prompts   | `mesh/prompts/<prompt-name>.md`         | Markdown with placeholders |
+| Resource       | Location                                        | Format              |
+|----------------|------------------------------------------------|----------------------|
+| Global rules   | `mesh/rules/<name>.md`                          | Markdown             |
+| Domain rules   | `mesh/rules/_domains/<domain>/<name>.md`        | Markdown             |
+| Skills         | `mesh/skills/<category>/<name>/SKILL.md`        | Markdown with frontmatter |
+| Commands       | `mesh/commands/<name>.md`                       | Markdown             |
+| Scripts        | `mesh/commands/scripts/<name>.py`               | Python               |
+| Prompts        | `mesh/prompts/<name>.md`                        | Markdown with placeholders |
 
 ## Skill categories
 
@@ -57,11 +58,15 @@ status line:
 ```
 mesh/                          ← Single source of truth
 ├── rules/                   ← Global rules (all agents, all IDEs)
+│   └── _domains/            ← Domain-scoped rules (e.g., software/)
 ├── skills/                  ← Organized by category
+│   ├── _common/             ← Universal skills
+│   ├── _domains/            ← Tech-stack skills (e.g., obsidian/, backend-python/)
+│   └── _clients/            ← Client-specific skills
 ├── commands/                ← Command definitions + scripts
 └── prompts/                 ← Reusable templates
 
-.cursor/rules/       → symlinks to mesh/rules/*.md
+.cursor/rules/       → symlinks to mesh/rules/*.md + _domains/*/*.md (prefixed domain--)
 .cursor/skills-cursor/ → symlinks to mesh/skills/_common/*/ and _domains/*/
 .antigravity/rules   → symlink to mesh/rules/
 .antigravity/skills  → symlink to mesh/skills/
