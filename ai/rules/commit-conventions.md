@@ -1,0 +1,23 @@
+# Commit Conventions
+
+## Format
+<type>(<scope>): <short description>
+
+## Valid types
+- feat:     new feature
+- fix:      bug fix
+- docs:     documentation only
+- refactor: no functional change
+- test:     add or fix tests
+- chore:    maintenance, dependencies
+
+## Rules
+- Subject line: imperative mood, lowercase, no period, max 72 chars
+- Body (optional): explain WHY, not WHAT
+- One logical change per commit
+
+## Examples
+feat(auth): add Google OAuth login
+fix(api): handle timeout on /users endpoint
+docs(readme): update setup instructions
+test(cart): add edge case for empty cart checkout

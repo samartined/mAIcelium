@@ -1,0 +1,27 @@
+# Repository index — mycelium
+# Agents check this file before running /add_project.
+# Update it every time you clone a new repo.
+#
+# Copy this file to _registry.yaml and fill in your repos:
+#   cp repos/_registry.yaml.example repos/_registry.yaml
+
+clients:
+  # example-client:
+  #   description: "Client description"
+  #   repos:
+  #     api:
+  #       path: ~/repos/example-client/api
+  #       tech: [python, fastapi, postgres]
+  #     frontend:
+  #       path: ~/repos/example-client/frontend
+  #       tech: [react, typescript, tailwind]
+
+personal:
+  # example-project:
+  #   path: ~/projects/example
+  #   tech: [python]
+
+development:
+  # tools:
+  #   path: ~/dev/tools
+  #   tech: []

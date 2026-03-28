@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -e
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/bin/_lib.sh"
+echo "🔄 Syncing symlinks..."
+
+# ── Clean broken symlinks ────────────────────────────────────────────────────
+BROKEN=$(find "$ROOT/.cursor/rules" -xtype l 2>/dev/null)
+if [ -n "$BROKEN" ]; then
+  echo "⚠️  Removing broken symlinks in .cursor/rules/:"
+  echo "$BROKEN" | while read -r link; do
+    echo "  - $(basename "$link")"
+    rm "$link"
+  done
+fi
+
+BROKEN=$(find "$ROOT/.cursor/skills-cursor" -xtype l 2>/dev/null)
+if [ -n "$BROKEN" ]; then
+  echo "⚠️  Removing broken symlinks in .cursor/skills-cursor/:"
+  echo "$BROKEN" | while read -r link; do
+    echo "  - $(basename "$link")"
+    rm "$link"
+  done
+fi
+
+# ── Recreate mAIcelium global rules → .cursor/rules/ ────────────────────────
+for rule in "$ROOT"/ai/rules/*.md; do
+  [ -f "$rule" ] || continue
+  name=$(basename "$rule")
+  ln -sfn "../../ai/rules/$name" "$ROOT/.cursor/rules/$name"
+done
+
+# ── Recreate mAIcelium global skills → .cursor/skills-cursor/ ────────────────
+for skill_dir in "$ROOT"/ai/skills/_common/*/ "$ROOT"/ai/skills/_domains/*/; do
+  [ -d "$skill_dir" ] || continue
+  name=$(basename "$skill_dir")
+  domain=$(basename "$(dirname "$skill_dir")")
+  ln -sfn "../../ai/skills/$domain/$name" "$ROOT/.cursor/skills-cursor/$name"
+done
+
+# ── Recreate project-specific rules and skills ───────────────────────────────
+for project_link in "$ROOT"/projects/*/; do
+  [ -d "$project_link" ] || continue
+  project_name=$(basename "$project_link")
+  repo_path=$(realpath "$project_link")
+
+  # Project rules
+  if [ -d "$repo_path/.cursor/rules" ]; then
+    for rule in "$repo_path"/.cursor/rules/*; do
+      [ -f "$rule" ] || continue
+      rulename=$(basename "$rule")
+      ln -sfn "$rule" "$ROOT/.cursor/rules/${project_name}--${rulename}"
+    done
+  fi
+
+  # Project skills (.cursor/skills/ and .cursor/skills-cursor/)
+  for skills_dir in "$repo_path/.cursor/skills" "$repo_path/.cursor/skills-cursor"; do
+    [ -d "$skills_dir" ] || continue
+    for skill_dir in "$skills_dir"/*/; do
+      [ -d "$skill_dir" ] || continue
+      skillname=$(basename "$skill_dir")
+      [ -L "$ROOT/.cursor/skills-cursor/${project_name}--${skillname}" ] && continue
+      ln -sfn "$skill_dir" "$ROOT/.cursor/skills-cursor/${project_name}--${skillname}"
+    done
+  done
+done
+
+# ── Antigravity ──────────────────────────────────────────────────────────────
+ln -sfn "../ai/rules"  "$ROOT/.antigravity/rules"
+ln -sfn "../ai/skills" "$ROOT/.antigravity/skills"
+
+# ── Claude Code: regenerate project context ──────────────────────────────────
+_regenerate_claude_context "$ROOT"
+
+# ── Claude Code: ensure CLAUDE.md references project context (idempotent) ────
+if [ -f "$ROOT/CLAUDE.md" ] && ! grep -q "projects-context.md" "$ROOT/CLAUDE.md"; then
+  printf '\n## Project-specific context\nFor active project rules and skills, read `.claude/projects-context.md`.\n' >> "$ROOT/CLAUDE.md"
+  echo "  ✔ CLAUDE.md updated with project-context reference"
+fi
+
+echo "✅ Symlinks synced."
+echo ""
+echo "Cursor rules:"
+ls -la "$ROOT/.cursor/rules/"
+echo ""
+echo "Cursor skills:"
+ls -la "$ROOT/.cursor/skills-cursor/"

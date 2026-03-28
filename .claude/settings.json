@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls *)",
+      "Bash(cat WORKSPACE.md)",
+      "Bash(cat repos/_registry.yaml)",
+      "Bash(cat ai/*)",
+      "Bash(cat projects/*)",
+      "Bash(cat CLAUDE.md)",
+      "Bash(cat AGENTS.md)",
+      "Bash(find projects/*)",
+      "Bash(find ai/*)",
+      "Bash(realpath *)",
+      "Bash(ln -sfn *)",
+      "Bash(rm projects/*)",
+      "Bash(rm .cursor/rules/*)",
+      "Bash(rm .cursor/skills-cursor/*)",
+      "Bash(mkdir *)",
+      "Bash(bash bin/*)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -r *)",
+      "Bash(cat */.env)",
+      "Bash(cat ~/.ssh/*)"
+    ]
+  }
+}

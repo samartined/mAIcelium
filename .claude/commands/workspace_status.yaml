@@ -1,0 +1,4 @@
+name: workspace_status
+description: Show current workspace status
+prompt: |
+  Read the instructions in ./ai/commands/workspace_status.md and execute them.

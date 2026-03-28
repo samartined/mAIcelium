@@ -1,0 +1,17 @@
+# Plugged projects (symlinks to external repos)
+/projects/*
+!/projects/.gitkeep
+
+# Local registry (contains user-specific paths)
+/repos/_registry.yaml
+!/repos/_registry.yaml.example
+
+# Dynamic workspace state
+WORKSPACE.md
+.claude/projects-context.md
+
+# IDE caches
+.DS_Store
+__pycache__/
+*.pyc
+.env

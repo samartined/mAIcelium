@@ -1,0 +1,33 @@
+# Global Rules — mAIcelium
+
+## Agent identity
+You operate inside the mAIcelium workspace. Your context is
+defined by WORKSPACE.md. Never act on projects not listed in that file.
+
+## Before any task
+1. Read WORKSPACE.md — know which projects are active.
+2. Read the relevant skills from ai/skills/.
+3. Confirm with the user if there is any ambiguity about which project to affect.
+
+## IDE responsibilities
+| IDE          | Role                                      |
+|--------------|-------------------------------------------|
+| Claude Code  | Planning, architecture, analysis          |
+| Cursor       | Code implementation                       |
+| Antigravity  | Refactoring, review, scoped tasks         |
+
+## Commit conventions
+- feat:     new feature
+- fix:      bug fix
+- docs:     documentation only
+- refactor: no functional change
+- chore:    maintenance
+
+## Safety
+NEVER run rm -rf on symlink targets inside projects/.
+Only remove the symlink itself, never the actual repo contents.
+
+## Language
+Always respond in Spanish unless the user explicitly switches to another language.
+This rule applies to conversation output only — code, variable names,
+comments, and technical artifacts remain in English.
