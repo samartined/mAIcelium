@@ -10,5 +10,18 @@
       "Bash(mkdir:*)",
       "Bash(bash:bin/*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash bin/sync_symlinks.sh > /dev/null 2>&1",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
