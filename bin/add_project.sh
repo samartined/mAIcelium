@@ -110,6 +110,10 @@ print("  ✔ WORKSPACE.md updated")
 _regenerate_claude_context "$ROOT"
 echo "  ✔ Claude project context updated"
 
+# ── Regenerate multi-root workspace file ──────────────────────────────────────
+_regenerate_workspace_file "$ROOT"
+echo "  ✔ Workspace file updated (mAIcelium.code-workspace)"
+
 echo ""
 echo "Active projects:"
 ls -la "$ROOT/projects/" | grep "^l"

@@ -75,7 +75,8 @@ mAIcelium/
 ├── .antigravity/              # Auto-generated Antigravity config (symlinks)
 ├── CLAUDE.md                  # Entry point for Claude Code agents
 ├── AGENTS.md                  # Agent permissions and coordination rules
-└── WORKSPACE.md               # Dynamic state — active projects list
+├── WORKSPACE.md               # Dynamic state — active projects list
+└── mAIcelium.code-workspace   # Auto-generated multi-root workspace (git-ignored)
 ```
 
 ## IDE responsibilities
@@ -91,6 +92,16 @@ mAIcelium/
 - **[Architecture](docs/architecture.md)** — How the system works, with diagrams
 - **[Getting Started](docs/getting-started.md)** — Step-by-step walkthrough with examples
 - **[Reference](docs/reference.md)** — Scripts, commands, rules, and skills reference
+
+## Multi-root workspace (Source Control for injected projects)
+
+By default, opening mAIcelium as a folder only shows its own git changes. To see **each injected project's Source Control** separately, use the auto-generated multi-root workspace:
+
+1. Plug in your projects as usual (`bin/add_project.sh`)
+2. Open Cursor/VSCode via **File → Open Workspace from File…** → select `mAIcelium.code-workspace`
+3. Each project appears as a separate root with its own Source Control panel
+
+The `.code-workspace` file is regenerated automatically by `add_project.sh`, `remove_project.sh`, and `sync_symlinks.sh`. It is git-ignored since its content depends on which projects each user has active.
 
 ## Key commands
 
