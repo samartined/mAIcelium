@@ -42,7 +42,8 @@ cat > "$ROOT/.claude/settings.json" << 'EOF'
       "Bash(ln:*)",
       "Bash(rm:*)",
       "Bash(mkdir:*)",
-      "Bash(bash:bin/*)"
+      "Bash(bash:bin/*)",
+      "Bash(python3:ai/commands/scripts/*)"
     ]
   }
 }
@@ -66,6 +67,11 @@ if [ ! -f "$ROOT/repos/_registry.yaml" ] && [ -f "$ROOT/repos/_registry.yaml.exa
   cp "$ROOT/repos/_registry.yaml.example" "$ROOT/repos/_registry.yaml"
   echo "  ✔ repos/_registry.yaml created from template"
 fi
+
+echo "  → Creating smug symlink..."
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/smug"
+ln -sfn "$ROOT/.smug.yml" "${XDG_CONFIG_HOME:-$HOME/.config}/smug/mAIcelium.yml"
+echo "  ✔ smug symlink created"
 
 chmod +x "$ROOT"/bin/*.sh
 echo "  ✔ Script permissions set"

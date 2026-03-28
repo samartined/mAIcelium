@@ -122,11 +122,24 @@ You can open the workspace in multiple IDEs simultaneously — that's the whole 
 
 ## Step 5: Plug in a project
 
-When you want to work on a specific project, plug it into the workspace:
+When you want to work on a specific project, plug it into the workspace.
+
+**From the terminal:**
 
 ```bash
 bin/add_project.sh my-api ~/dev/acme-api
 ```
+
+**From inside an IDE (with fuzzy matching):**
+
+Use the slash command `/add_project`. You only need to type an approximate name — the system matches it against `repos/_registry.yaml`:
+
+```
+/add_project acme       → exact match if "acme" exists
+/add_project ac         → fuzzy match, may ask to disambiguate
+```
+
+If the input is ambiguous, the agent will show candidates and ask you to pick one.
 
 **What happens behind the scenes:**
 
@@ -261,6 +274,28 @@ Each project's rules and skills are imported with their own prefix, so there are
 4. Plug in the projects you need
 
 The workspace is designed to be portable — only the `.gitignored` files contain machine-specific paths.
+
+### Separating `.git` from the workspace (optional)
+
+When multiple projects are linked, the workspace `.git` can conflict with the linked projects' own git contexts. To avoid this:
+
+```bash
+bin/separate_git.sh
+```
+
+This moves `.git` to a sibling directory (`mAIcelium-git-backup/`) and creates a shell alias (`maicelium-git`) so you can still run git operations:
+
+```bash
+# Add to your shell profile (.bashrc / .zshrc)
+source ~/dev/mAIcelium/bin/.git-alias.sh
+
+# Then use it
+maicelium-git status
+maicelium-git add -A && maicelium-git commit -m "update skills"
+maicelium-git push
+```
+
+Alternatively, use `/git_backup` from within the IDE to stage, commit, and push in one step.
 
 ---
 
