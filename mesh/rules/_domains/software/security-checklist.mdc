@@ -1,3 +1,8 @@
+---
+description: Security checklist for commits, authentication, input/output, infrastructure, and containers
+alwaysApply: true
+---
+
 # Security Checklist
 
 ## Before every commit
