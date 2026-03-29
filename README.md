@@ -123,6 +123,7 @@ The `.code-workspace` file is regenerated automatically by `add_project.sh`, `re
 | `/remove_project <name>` | Fuzzy-match a linked project and unplug it |
 | `/list_projects` | Show all currently linked projects |
 | `/workspace_status` | Full workspace status (projects, rules, skills, symlinks) |
+| `/project_health` | Diagnostic health check across all linked projects |
 | `/git_backup [message]` | Stage, commit, and push workspace changes |
 
 Slash commands use Python scripts with **fuzzy matching** — you can type approximate names and the system will resolve them or ask for clarification.
@@ -134,3 +135,4 @@ MIT
 ---
 
 <sub>Cursor, Claude, and Antigravity are trademarks of their respective owners. This project is not affiliated with or endorsed by Anysphere, Anthropic, or Google.</sub>
+ 
