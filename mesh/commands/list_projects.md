@@ -1,3 +1,7 @@
+---
+description: >-
+  Show all projects currently linked into the workspace.
+---
 # Command: /list_projects
 
 ## Purpose

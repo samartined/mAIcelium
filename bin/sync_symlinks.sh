@@ -91,9 +91,49 @@ for project_link in "$ROOT"/projects/*/; do
   done
 done
 
-# ── Antigravity ──────────────────────────────────────────────────────────────
-ln -sfn "../mesh/rules"  "$ROOT/.antigravity/rules"
-ln -sfn "../mesh/skills" "$ROOT/.antigravity/skills"
+# ── Antigravity (.agents/) ───────────────────────────────────────────────────
+rm -rf "$ROOT/.antigravity"  # Remove legacy configuration
+mkdir -p "$ROOT/.agents/skills"
+mkdir -p "$ROOT/.agents/workflows"
+
+# Clean broken symlinks in .agents/skills/
+BROKEN=$(find "$ROOT/.agents/skills" -xtype l 2>/dev/null)
+if [ -n "$BROKEN" ]; then
+  echo "⚠️  Removing broken symlinks in .agents/skills/:"
+  echo "$BROKEN" | while read -r link; do
+    echo "  - $(basename "$link")"
+    rm "$link"
+  done
+fi
+
+# Flatten _common skills → .agents/skills/
+for skill_dir in "$ROOT"/mesh/skills/_common/*/; do
+  [ -d "$skill_dir" ] || continue
+  name=$(basename "$skill_dir")
+  ln -sfn "../../mesh/skills/_common/$name" "$ROOT/.agents/skills/$name"
+done
+
+# Flatten _domains skills
+for domain_dir in "$ROOT"/mesh/skills/_domains/*/; do
+  [ -d "$domain_dir" ] || continue
+  domain=$(basename "$domain_dir")
+  if [ -f "$domain_dir/SKILL.md" ]; then
+    ln -sfn "../../mesh/skills/_domains/$domain" "$ROOT/.agents/skills/$domain"
+  else
+    for skill_dir in "$domain_dir"*/; do
+      [ -d "$skill_dir" ] || continue
+      skillname=$(basename "$skill_dir")
+      ln -sfn "../../../mesh/skills/_domains/$domain/$skillname" "$ROOT/.agents/skills/${domain}--${skillname}"
+    done
+  fi
+done
+
+# Map commands to workflows
+for cmd_file in "$ROOT"/mesh/commands/*.md; do
+  [ -f "$cmd_file" ] || continue
+  name=$(basename "$cmd_file")
+  ln -sfn "../../mesh/commands/$name" "$ROOT/.agents/workflows/$name"
+done
 
 # ── Claude Code: regenerate project context ──────────────────────────────────
 _regenerate_claude_context "$ROOT"

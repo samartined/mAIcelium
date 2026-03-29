@@ -1,3 +1,8 @@
+---
+name: refactoring
+description: >-
+  When improving code structure without changing behavior: reducing complexity, eliminating duplication, preparing for a new feature, or addressing review feedback. This is the primary skill for Antigravity's role (refactoring, review, scoped tasks).
+---
 # Refactoring Skill
 
 ## When to use

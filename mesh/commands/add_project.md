@@ -1,3 +1,7 @@
+---
+description: >-
+  Add a project (repository) to the mAIcelium workspace.
+---
 # Command: /add_project
 
 ## Purpose

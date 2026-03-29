@@ -1,3 +1,8 @@
+---
+name: git-workflow
+description: >-
+  When branching, committing, creating PRs, resolving conflicts, or performing any git operation inside the mAIcelium workspace.
+---
 # Git Workflow Skill
 
 ## When to use

@@ -1,3 +1,8 @@
+---
+name: code-review
+description: >-
+  When the user asks to review code, a PR, a diff, or a specific function.
+---
 # Code Review Skill
 
 ## When to use

@@ -1,3 +1,8 @@
+---
+name: debug
+description: >-
+  When investigating bug reports, unexpected behavior, test failures, or production incidents. Complements the `debug-issue` prompt template.
+---
 # Debug Skill
 
 ## When to use

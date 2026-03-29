@@ -2,7 +2,7 @@
 
 ## Global rules for all agents
 - Always read `./mesh/rules/global.md` before any action.
-- Never modify files in `.cursor/`, `.claude/`, `.antigravity/` (auto-generated).
+- Never modify files in `.cursor/`, `.claude/`, `.agents/` (auto-generated).
 - New AI resources go in `mesh/` — see `mesh/skills/_common/workspace-guide/SKILL.md`.
 - Only work inside the indicated project in `projects/`.
 - Never run `rm -rf` on symlink targets in `projects/`.

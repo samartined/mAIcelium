@@ -1,3 +1,7 @@
+---
+description: >-
+  Stage, commit, and push all changes in the mAIcelium workspace to GitHub
+---
 # Command: /git_backup
 
 ## Purpose

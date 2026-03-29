@@ -1,3 +1,8 @@
+---
+name: workspace-guide
+description: >-
+  - When an agent needs to create or modify AI configuration (rules, skills, commands, prompts). - When an agent is unsure where to place a new file in the workspace. - Automatically applied as orientation for any agent starting work in this workspace.
+---
 # Skill: Workspace Guide
 
 ## When to use
@@ -8,7 +13,7 @@
 ## Core principle
 
 > **Always write AI resources to the `mesh/` directory, never to the symlinked
-> dotfolders (`.cursor/`, `.claude/`, `.antigravity/`).**
+> dotfolders (`.cursor/`, `.claude/`, `.agents/`).**
 
 The dotfolders are auto-generated via symlinks. Any direct write to them will
 either be overwritten on the next `bin/sync_symlinks.sh` run or create
@@ -68,14 +73,14 @@ mesh/                          ← Single source of truth
 
 .cursor/rules/       → symlinks to mesh/rules/*.md + _domains/*/*.md (prefixed domain--)
 .cursor/skills-cursor/ → symlinks to mesh/skills/_common/*/ and _domains/*/
-.antigravity/rules   → symlink to mesh/rules/
-.antigravity/skills  → symlink to mesh/skills/
+.agents/skills/      → symlink to flattened mesh/skills/
+.agents/workflows/   → symlink to mesh/commands/
 .claude/             → reads CLAUDE.md as entry point, projects-context.md for project rules
 ```
 
 ## What NOT to do
 
-- ❌ Never edit files directly in `.cursor/`, `.claude/`, or `.antigravity/`.
+- ❌ Never edit files directly in `.cursor/`, `.claude/`, or `.agents/`.
 - ❌ Never create new rules/skills in the dotfolders.
 - ❌ Never move or rename files in dotfolders (they're symlinks).
 - ❌ Never delete symlinks manually — use `bin/sync_symlinks.sh` to rebuild.

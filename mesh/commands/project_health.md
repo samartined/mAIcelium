@@ -1,3 +1,7 @@
+---
+description: >-
+  Execute standard workflow for project_health
+---
 # Command: /project_health
 
 ## Description

@@ -1,3 +1,8 @@
+---
+name: testing
+description: >-
+  When writing tests, reviewing test coverage, designing a test strategy, or evaluating whether existing tests are sufficient.
+---
 # Testing Skill
 
 ## When to use
