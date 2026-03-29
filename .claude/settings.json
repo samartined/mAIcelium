@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash bin/sync_symlinks.sh > /dev/null 2>&1",
+            "command": "bash bin/sync_symlinks.sh > /dev/null 2>&1 && cat .claude/projects-context.md",
             "timeout": 5
           }
         ]

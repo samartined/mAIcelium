@@ -61,3 +61,6 @@ Always respond in Spanish. Code and technical artifacts stay in English.
 rules and active project rules inlined. It is regenerated automatically via
 the `SessionStart` hook (runs `bin/sync_symlinks.sh` on every new conversation)
 and on every `/add_project` or `/remove_project`.
+
+**At the start of every session, read `.claude/projects-context.md`** to load
+the active workspace rules and project-specific context before doing any work.
