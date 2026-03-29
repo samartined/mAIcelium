@@ -5,7 +5,7 @@ source "$ROOT/bin/_lib.sh"
 echo "🔄 Syncing symlinks..."
 
 # ── Clean broken symlinks ────────────────────────────────────────────────────
-BROKEN=$(find "$ROOT/.cursor/rules" -xtype l 2>/dev/null)
+BROKEN=$(find -L "$ROOT/.cursor/rules" -type l 2>/dev/null)
 if [ -n "$BROKEN" ]; then
   echo "⚠️  Removing broken symlinks in .cursor/rules/:"
   echo "$BROKEN" | while read -r link; do
@@ -14,7 +14,7 @@ if [ -n "$BROKEN" ]; then
   done
 fi
 
-BROKEN=$(find "$ROOT/.cursor/skills-cursor" -xtype l 2>/dev/null)
+BROKEN=$(find -L "$ROOT/.cursor/skills-cursor" -type l 2>/dev/null)
 if [ -n "$BROKEN" ]; then
   echo "⚠️  Removing broken symlinks in .cursor/skills-cursor/:"
   echo "$BROKEN" | while read -r link; do
@@ -97,7 +97,7 @@ mkdir -p "$ROOT/.agents/skills"
 mkdir -p "$ROOT/.agents/workflows"
 
 # Clean broken symlinks in .agents/skills/
-BROKEN=$(find "$ROOT/.agents/skills" -xtype l 2>/dev/null)
+BROKEN=$(find -L "$ROOT/.agents/skills" -type l 2>/dev/null)
 if [ -n "$BROKEN" ]; then
   echo "⚠️  Removing broken symlinks in .agents/skills/:"
   echo "$BROKEN" | while read -r link; do
