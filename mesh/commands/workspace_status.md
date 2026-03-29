@@ -1,3 +1,7 @@
+---
+description: >-
+  Show the complete workspace status.
+---
 # Command: /workspace_status
 
 ## Purpose

@@ -1,3 +1,8 @@
+---
+name: security-review
+description: >-
+  When reviewing code with security implications: authentication, payment handling, data processing, API endpoints, dependency updates, Docker configurations, or before deploying to production. This skill is an **active analysis process**. For a quick pre-commit checklist, see `mesh/rules/_domains/software/security-checklist.md`.
+---
 # Security Review Skill
 
 ## When to use

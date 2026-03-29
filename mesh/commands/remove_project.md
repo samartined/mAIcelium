@@ -1,3 +1,7 @@
+---
+description: >-
+  Remove a project from the workspace. The original repo is never touched.
+---
 # Command: /remove_project
 
 ## Purpose

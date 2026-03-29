@@ -1,3 +1,8 @@
+---
+name: documentation
+description: >-
+  When writing or updating READMEs, API documentation, changelogs, inline documentation, or propagating knowledge to techcorpus.
+---
 # Documentation Skill
 
 ## When to use

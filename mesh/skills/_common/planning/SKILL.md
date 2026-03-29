@@ -1,3 +1,8 @@
+---
+name: planning
+description: >-
+  When the user requests a plan, roadmap, feature breakdown, task estimation, or pre-implementation analysis.
+---
 # Planning Skill
 
 ## When to use
