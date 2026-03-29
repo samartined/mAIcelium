@@ -254,10 +254,13 @@ The `/git_backup` agent command supports both modes (normal and separated) autom
 
 ## Security model
 
+- **PreToolUse hooks (claude):** The workspace implements mechanical protection before actions execute:
+  - `bin/hooks/guard-bash.sh` blocks destructive bash commands (e.g., `rm -rf /`, `git push --force`).
+  - `bin/hooks/guard-write.sh` protects sensitive and auto-generated files (e.g., `WORKSPACE.md`, `.env`, lockfiles).
 - Agents can **only write** inside `projects/<active-project>/` and `mesh/` (for new rules, skills, commands, prompts).
 - Agents must **never modify** `.cursor/`, `.claude/`, or `.antigravity/` — these are auto-generated.
 - Scripts **never run** `rm -rf` on symlink targets — only the symlink is removed.
-- `.claude/settings.json` defines allowed bash operations including `python3 mesh/commands/scripts/*`.
+- `.claude/settings.json` defines allowed bash operations including `python3 mesh/commands/scripts/*` and wires the protection hooks.
 - The `.gitignore` excludes `projects/` (contains user-specific symlinks), `WORKSPACE.md` (dynamic state), `repos/_registry.yaml` (contains local paths), `.claude/projects-context.md` (auto-generated), and `bin/.git-alias.sh` (contains local paths).
 
 ## Multi-agent coordination

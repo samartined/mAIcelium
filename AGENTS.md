@@ -12,6 +12,7 @@
 - Write access only inside `projects/<active-project>/`.
 - Write access inside `mesh/` for new rules, skills, commands, and prompts.
 - Execution of scripts in `bin/`.
+- Execution of scripts in `bin/hooks/` (PreToolUse security checks).
 - Execution of Python scripts: `python3 mesh/commands/scripts/*.py`.
 
 ## Multi-agent coordination
