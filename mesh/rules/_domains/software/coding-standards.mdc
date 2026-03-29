@@ -1,3 +1,8 @@
+---
+description: Coding standards and style conventions for software projects in this workspace
+alwaysApply: true
+---
+
 # Coding Standards
 
 - Use strict TypeScript in frontend projects

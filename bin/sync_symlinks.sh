@@ -24,7 +24,7 @@ if [ -n "$BROKEN" ]; then
 fi
 
 # ── Recreate mAIcelium global rules → .cursor/rules/ ────────────────────────
-for rule in "$ROOT"/mesh/rules/*.md; do
+for rule in "$ROOT"/mesh/rules/*.mdc; do
   [ -f "$rule" ] || continue
   name=$(basename "$rule")
   ln -sfn "../../mesh/rules/$name" "$ROOT/.cursor/rules/$name"
@@ -34,10 +34,38 @@ done
 for domain_dir in "$ROOT"/mesh/rules/_domains/*/; do
   [ -d "$domain_dir" ] || continue
   domain=$(basename "$domain_dir")
-  for rule in "$domain_dir"*.md; do
+  for rule in "$domain_dir"*.mdc; do
     [ -f "$rule" ] || continue
     name=$(basename "$rule")
     ln -sfn "../../mesh/rules/_domains/$domain/$name" "$ROOT/.cursor/rules/domain--${domain}--${name}"
+  done
+done
+
+# ── Recreate mAIcelium rules → .agents/rules/ (Antigravity) ─────────────────
+mkdir -p "$ROOT/.agents/rules"
+
+BROKEN=$(find -L "$ROOT/.agents/rules" -type l 2>/dev/null)
+if [ -n "$BROKEN" ]; then
+  echo "⚠️  Removing broken symlinks in .agents/rules/:"
+  echo "$BROKEN" | while read -r link; do
+    echo "  - $(basename "$link")"
+    rm "$link"
+  done
+fi
+
+for rule in "$ROOT"/mesh/rules/*.mdc; do
+  [ -f "$rule" ] || continue
+  name=$(basename "$rule")
+  ln -sfn "../../mesh/rules/$name" "$ROOT/.agents/rules/$name"
+done
+
+for domain_dir in "$ROOT"/mesh/rules/_domains/*/; do
+  [ -d "$domain_dir" ] || continue
+  domain=$(basename "$domain_dir")
+  for rule in "$domain_dir"*.mdc; do
+    [ -f "$rule" ] || continue
+    name=$(basename "$rule")
+    ln -sfn "../../mesh/rules/_domains/$domain/$name" "$ROOT/.agents/rules/domain--${domain}--${name}"
   done
 done
 

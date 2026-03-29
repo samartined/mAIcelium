@@ -1,3 +1,8 @@
+---
+description: Conventional Commits format for all repositories in this workspace
+alwaysApply: true
+---
+
 # Commit Conventions
 
 ## Format
