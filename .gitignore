@@ -9,6 +9,7 @@
 # Auto-generated IDE symlinks (recreated by sync_symlinks.sh)
 .cursor/
 .agents/
+.mcp.json
 
 # Dynamic workspace state
 WORKSPACE.md
