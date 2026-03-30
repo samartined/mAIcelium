@@ -41,6 +41,17 @@ for domain_dir in "$ROOT"/mesh/rules/_domains/*/; do
   done
 done
 
+# _clients rules → .cursor/rules/<client>--<name>
+for client_dir in "$ROOT"/mesh/rules/_clients/*/; do
+  [ -d "$client_dir" ] || continue
+  client=$(basename "$client_dir")
+  for rule in "$client_dir"*.mdc; do
+    [ -f "$rule" ] || continue
+    name=$(basename "$rule")
+    ln -sfn "../../mesh/rules/_clients/$client/$name" "$ROOT/.cursor/rules/${client}--${name}"
+  done
+done
+
 # ── Recreate mAIcelium rules → .agents/rules/ (Antigravity) ─────────────────
 mkdir -p "$ROOT/.agents/rules"
 
@@ -69,6 +80,17 @@ for domain_dir in "$ROOT"/mesh/rules/_domains/*/; do
   done
 done
 
+# _clients rules → .agents/rules/<client>--<name>
+for client_dir in "$ROOT"/mesh/rules/_clients/*/; do
+  [ -d "$client_dir" ] || continue
+  client=$(basename "$client_dir")
+  for rule in "$client_dir"*.mdc; do
+    [ -f "$rule" ] || continue
+    name=$(basename "$rule")
+    ln -sfn "../../mesh/rules/_clients/$client/$name" "$ROOT/.agents/rules/${client}--${name}"
+  done
+done
+
 # ── Recreate mAIcelium global skills → .cursor/skills-cursor/ ────────────────
 # _common skills: direct children (e.g., _common/planning/)
 for skill_dir in "$ROOT"/mesh/skills/_common/*/; do
@@ -90,6 +112,17 @@ for domain_dir in "$ROOT"/mesh/skills/_domains/*/; do
     # Nested domain: each child folder is a skill; link parent as single entry
     ln -sfn "../../mesh/skills/_domains/$domain" "$ROOT/.cursor/skills-cursor/$domain"
   fi
+done
+
+# _clients skills → .cursor/skills-cursor/<client>--<skill>
+for client_dir in "$ROOT"/mesh/skills/_clients/*/; do
+  [ -d "$client_dir" ] || continue
+  client=$(basename "$client_dir")
+  for skill_dir in "$client_dir"*/; do
+    [ -d "$skill_dir" ] || continue
+    skillname=$(basename "$skill_dir")
+    ln -sfn "../../mesh/skills/_clients/$client/$skillname" "$ROOT/.cursor/skills-cursor/${client}--${skillname}"
+  done
 done
 
 # ── Recreate project-specific rules and skills ───────────────────────────────
@@ -116,6 +149,15 @@ for project_link in "$ROOT"/projects/*/; do
       [ -L "$ROOT/.cursor/skills-cursor/${project_name}--${skillname}" ] && continue
       ln -sfn "$skill_dir" "$ROOT/.cursor/skills-cursor/${project_name}--${skillname}"
     done
+  done
+
+  # Project data directories (.cursor/plans, .cursor/bitacora, .cursor/config, etc.)
+  # Symlinked into .agents/projects/<project>/ for Antigravity access
+  for data_dir in plans bitacora config agents docs; do
+    full_data_dir="$repo_path/.cursor/$data_dir"
+    [ -d "$full_data_dir" ] || continue
+    mkdir -p "$ROOT/.agents/projects/$project_name"
+    ln -sfn "$full_data_dir" "$ROOT/.agents/projects/$project_name/$data_dir"
   done
 done
 
@@ -156,12 +198,68 @@ for domain_dir in "$ROOT"/mesh/skills/_domains/*/; do
   fi
 done
 
+# Flatten _clients skills → .agents/skills/<client>--<skill>
+for client_dir in "$ROOT"/mesh/skills/_clients/*/; do
+  [ -d "$client_dir" ] || continue
+  client=$(basename "$client_dir")
+  for skill_dir in "$client_dir"*/; do
+    [ -d "$skill_dir" ] || continue
+    skillname=$(basename "$skill_dir")
+    ln -sfn "../../../mesh/skills/_clients/$client/$skillname" "$ROOT/.agents/skills/${client}--${skillname}"
+  done
+done
+
 # Map commands to workflows
 for cmd_file in "$ROOT"/mesh/commands/*.md; do
   [ -f "$cmd_file" ] || continue
   name=$(basename "$cmd_file")
   ln -sfn "../../mesh/commands/$name" "$ROOT/.agents/workflows/$name"
 done
+
+# ── MCP configurations ───────────────────────────────────────────────────────
+# Generate IDE-specific MCP config from mesh/mcp/*.json canonical definitions.
+# Cursor and Claude Code share the same mcpServers format.
+# Antigravity (.agents/mcp.json) uses the same format — verify against their docs if needed.
+if ls "$ROOT"/mesh/mcp/*.json > /dev/null 2>&1; then
+  python3 -c '
+import json, os, sys
+
+root = sys.argv[1]
+mcp_dir = os.path.join(root, "mesh", "mcp")
+
+servers = {}
+for fname in sorted(os.listdir(mcp_dir)):
+    if not fname.endswith(".json"):
+        continue
+    with open(os.path.join(mcp_dir, fname)) as f:
+        entry = json.load(f)
+    name = entry.get("name", fname.replace(".json", ""))
+    servers[name] = entry.get("config", {})
+
+output = {"mcpServers": servers}
+
+# Claude Code: .mcp.json at workspace root (project-scoped, no secrets)
+with open(os.path.join(root, ".mcp.json"), "w") as f:
+    json.dump(output, f, indent=2)
+    f.write("\n")
+
+# Cursor: .cursor/mcp.json (workspace-level, complements global ~/.cursor/mcp.json)
+cursor_dir = os.path.join(root, ".cursor")
+os.makedirs(cursor_dir, exist_ok=True)
+with open(os.path.join(cursor_dir, "mcp.json"), "w") as f:
+    json.dump(output, f, indent=2)
+    f.write("\n")
+
+# Antigravity: .agents/mcp.json (same format — adjust if their spec differs)
+agents_dir = os.path.join(root, ".agents")
+os.makedirs(agents_dir, exist_ok=True)
+with open(os.path.join(agents_dir, "mcp.json"), "w") as f:
+    json.dump(output, f, indent=2)
+    f.write("\n")
+
+print(f"  \u2714 MCP config generated ({len(servers)} server(s)): {list(servers.keys())}")
+' "$ROOT"
+fi
 
 # ── Claude Code: regenerate project context ──────────────────────────────────
 _regenerate_claude_context "$ROOT"

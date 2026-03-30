@@ -78,10 +78,10 @@ _regenerate_claude_context() {
       echo "### $pname"
       echo ""
 
-      # Inline project rules
+      # Rules: repo-native (.cursor/rules/) + mesh client (mesh/rules/_clients/<project>/)
       local has_rules=false
-      local rules_dir="$repo_path/.cursor/rules"
-      if [ -d "$rules_dir" ]; then
+      for rules_dir in "$repo_path/.cursor/rules" "$root/mesh/rules/_clients/$pname"; do
+        [ -d "$rules_dir" ] || continue
         for rule in "$rules_dir"/*; do
           [ -f "$rule" ] || continue
           if [ "$has_rules" = false ]; then
@@ -93,28 +93,46 @@ _regenerate_claude_context() {
           rulename=$(basename "$rule")
           echo "##### $rulename"
           echo ""
-          # Strip YAML frontmatter before inlining
           sed -n '/^---$/,/^---$/!p' "$rule"
           echo ""
         done
-      fi
+      done
 
-      # List project skills
+      # Skills: repo-native (.cursor/skills/) + mesh client (mesh/skills/_clients/<project>/)
       local has_skills=false
-      for skills_dir in "$repo_path/.cursor/skills" "$repo_path/.cursor/skills-cursor"; do
+      for skills_dir in "$repo_path/.cursor/skills" "$repo_path/.cursor/skills-cursor" "$root/mesh/skills/_clients/$pname"; do
         [ -d "$skills_dir" ] || continue
         for skill_dir in "$skills_dir"/*/; do
           [ -d "$skill_dir" ] || continue
           local skillname
           skillname=$(basename "$skill_dir")
+          local skill_file="$skill_dir/SKILL.md"
+          [ -f "$skill_file" ] || continue
           if [ "$has_skills" = false ]; then
             echo "#### Skills"
             echo ""
             has_skills=true
           fi
-          echo "- \`projects/$pname/.cursor/skills/$skillname/SKILL.md\`"
+          echo "##### $skillname"
+          echo ""
+          sed -n '/^---$/,/^---$/!p' "$skill_file"
+          echo ""
         done
       done
+
+      # Project data directories (plans, bitacora, config, agents, docs)
+      local has_data=false
+      for data_dir in plans bitacora config agents docs; do
+        local full_data_dir="$repo_path/.cursor/$data_dir"
+        [ -d "$full_data_dir" ] || continue
+        if [ "$has_data" = false ]; then
+          echo "#### Project Data (accessible via symlink)"
+          echo ""
+          has_data=true
+        fi
+        echo "- \`projects/$pname/.cursor/$data_dir/\`"
+      done
+      [ "$has_data" = true ] && echo ""
 
       if [ "$has_rules" = false ] && [ "$has_skills" = false ]; then
         echo "_No rules or skills found for this project._"
