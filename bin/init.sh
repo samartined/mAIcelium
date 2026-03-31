@@ -5,11 +5,11 @@ echo "🍄 Initializing mAIcelium at: $ROOT"
 
 mkdir -p "$ROOT"/mesh/skills/{_common/{code-review,git-workflow,testing,planning,documentation},_clients,_domains/{frontend-react,backend-python,devops}}
 mkdir -p "$ROOT"/mesh/{rules,prompts,commands}
-mkdir -p "$ROOT"/{.cursor/{rules,skills-cursor},.claude/commands,.antigravity,projects,repos,bin}
+mkdir -p "$ROOT"/{.cursor/{rules,skills-cursor},.claude/commands,.agents,projects,repos,bin}
 touch "$ROOT/projects/.gitkeep" "$ROOT/mesh/skills/_clients/.gitkeep"
 
 echo "  → Creating Cursor symlinks..."
-for rule in "$ROOT"/mesh/rules/*.md; do
+for rule in "$ROOT"/mesh/rules/*.mdc; do
   [ -f "$rule" ] || continue
   name=$(basename "$rule")
   ln -sfn "../../mesh/rules/$name" "$ROOT/.cursor/rules/$name"
@@ -26,10 +26,24 @@ for skill_dir in "$ROOT"/mesh/skills/_domains/*/; do
 done
 echo "  ✔ Cursor symlinks created"
 
-echo "  → Creating Antigravity symlinks..."
-ln -sfn "../mesh/rules"  "$ROOT/.antigravity/rules"
-ln -sfn "../mesh/skills" "$ROOT/.antigravity/skills"
-echo "  ✔ Antigravity symlinks created"
+echo "  → Creating Antigravity (.agents/) symlinks..."
+mkdir -p "$ROOT/.agents/rules" "$ROOT/.agents/skills" "$ROOT/.agents/workflows"
+for rule in "$ROOT"/mesh/rules/*.mdc; do
+  [ -f "$rule" ] || continue
+  name=$(basename "$rule")
+  ln -sfn "../../mesh/rules/$name" "$ROOT/.agents/rules/$name"
+done
+for skill_dir in "$ROOT"/mesh/skills/_common/*/; do
+  [ -d "$skill_dir" ] || continue
+  name=$(basename "$skill_dir")
+  ln -sfn "../../mesh/skills/_common/$name" "$ROOT/.agents/skills/$name"
+done
+for cmd_file in "$ROOT"/mesh/commands/*.md; do
+  [ -f "$cmd_file" ] || continue
+  name=$(basename "$cmd_file")
+  ln -sfn "../../mesh/commands/$name" "$ROOT/.agents/workflows/$name"
+done
+echo "  ✔ Antigravity (.agents/) symlinks created"
 
 if [ ! -f "$ROOT/.claude/settings.json" ]; then
   cat > "$ROOT/.claude/settings.json" << 'EOF'
