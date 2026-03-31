@@ -6,7 +6,7 @@
 
 ## Overview
 
-mAIcelium is a centralized workspace that lets multiple AI-powered IDEs share a single source of truth for rules, skills, prompts, and commands. Instead of duplicating configuration across `.cursor/`, `.claude/`, and `.antigravity/`, everything lives in one place — `mesh/` — and gets distributed to each IDE through the mechanism it understands.
+mAIcelium is a centralized workspace that lets multiple AI-powered IDEs share a single source of truth for rules, skills, prompts, and commands. Instead of duplicating configuration across `.cursor/`, `.claude/`, and `.agents/`, everything lives in one place — `mesh/` — and gets distributed to each IDE through the mechanism it understands.
 
 The name is a play on "mycelium" — the underground fungal mesh that connects trees in a forest, allowing them to share nutrients and signals — with "AI" embedded in the word. Similarly, this workspace connects IDEs and projects through a shared AI knowledge layer.
 
@@ -28,13 +28,14 @@ graph TD
     Root --> Repos["repos/"]
     Root --> CursorDir[".cursor/"]
     Root --> ClaudeDir[".claude/"]
-    Root --> AntigravityDir[".antigravity/"]
+    Root --> AgentsDir[".agents/"]
     Root --> ConfigFiles["CLAUDE.md / AGENTS.md / WORKSPACE.md"]
 
     Mesh --> Rules["rules/"]
     Mesh --> Skills["skills/"]
     Mesh --> Commands["commands/"]
     Mesh --> Prompts["prompts/"]
+    Mesh --> MCP["mcp/"]
 
     Skills --> Common["_common/"]
     Skills --> Clients["_clients/"]
@@ -56,10 +57,11 @@ graph TD
 
 | Directory | Purpose |
 |-----------|---------|
-| `mesh/rules/` | Global rules that every agent must follow: coding standards, commit conventions, security checklists, architecture principles. |
+| `mesh/rules/` | Rules (`.mdc` files with frontmatter) that agents must follow: coding standards, commit conventions, security checklists, architecture principles. Domain rules live in `_domains/`. |
 | `mesh/skills/` | Reusable capabilities. Each skill has a `SKILL.md` with instructions the agent reads before performing a task. |
 | `mesh/commands/` | Agent command definitions (e.g., what happens when a user types `/add_project`). Includes `scripts/` with Python implementations for fuzzy matching. |
 | `mesh/prompts/` | Reusable prompt templates with `{{placeholders}}` for common tasks (PR review, debugging, feature planning). |
+| `mesh/mcp/` | IDE-agnostic MCP server definitions (JSON). `sync_symlinks.sh` merges them into `.mcp.json`, `.cursor/mcp.json`, and `.agents/mcp.json`. |
 | `bin/` | Bash scripts that automate workspace operations. |
 | `projects/` | Symlinks to active repos. This is where agents work — they never touch files outside their project. |
 | `repos/` | YAML registry of all available repos with paths, tech stacks, and metadata. |
@@ -77,10 +79,10 @@ Each IDE has a different mechanism for discovering rules and skills. mAIcelium a
 Cursor scans `.cursor/rules/` for rule files and `.cursor/skills-cursor/` for skill directories. mAIcelium creates **individual symlinks** for each rule and skill:
 
 ```
-.cursor/rules/global.md            → ../../mesh/rules/global.md
-.cursor/rules/coding-standards.md  → ../../mesh/rules/coding-standards.md
-.cursor/skills-cursor/code-review  → ../../mesh/skills/_common/code-review
-.cursor/skills-cursor/planning     → ../../mesh/skills/_common/planning
+.cursor/rules/global.mdc            → ../../mesh/rules/global.mdc
+.cursor/rules/coding-standards.mdc   → ../../mesh/rules/_domains/software/coding-standards.mdc
+.cursor/skills-cursor/code-review    → ../../mesh/skills/_common/code-review
+.cursor/skills-cursor/planning       → ../../mesh/skills/_common/planning
 ```
 
 When a project is plugged in, its rules and skills are also symlinked with a prefix:
@@ -102,12 +104,18 @@ The `projects-context.md` file is **auto-generated** by the scripts. It lists ev
 
 ### Antigravity
 
-Antigravity uses **directory-level symlinks** — simpler than Cursor's per-file approach:
+Antigravity uses `.agents/` with per-file symlinks for rules, flattened skills, workflows mapped from commands, and project data:
 
 ```
-.antigravity/rules  → ../mesh/rules
-.antigravity/skills → ../mesh/skills
+.agents/rules/global.mdc          → ../../mesh/rules/global.mdc
+.agents/skills/planning            → ../../mesh/skills/_common/planning
+.agents/skills/devops--terraform   → ../../../mesh/skills/_domains/devops/terraform-workflow
+.agents/workflows/add_project.md   → ../../mesh/commands/add_project.md
+.agents/projects/<name>/plans      → <repo>/.cursor/plans
+.agents/mcp.json                   (generated from mesh/mcp/*.json)
 ```
+
+Legacy `.antigravity/` directories are automatically removed by `sync_symlinks.sh`.
 
 ## Project lifecycle
 
@@ -133,6 +141,7 @@ sequenceDiagram
     Script->>FS: Symlink project skills to .cursor/skills-cursor/my-api--*
     Script->>WS: Add entry with name, path, timestamp
     Script->>Claude: Regenerate .claude/projects-context.md
+    Script->>FS: Regenerate mAIcelium.code-workspace
     Script->>User: Done — project connected
 ```
 
@@ -155,6 +164,7 @@ sequenceDiagram
     Note over FS: Original repo at ~/dev/my-api is untouched
     Script->>WS: Remove entry from project list
     Script->>Claude: Regenerate .claude/projects-context.md
+    Script->>FS: Regenerate mAIcelium.code-workspace
     Script->>User: Done — project disconnected
 ```
 
@@ -166,7 +176,17 @@ sequenceDiagram
 - Symlinks are broken (e.g., after moving the workspace)
 - You want to ensure everything is consistent
 
-It performs a full cleanup and recreation cycle for all three IDEs.
+It performs a full cleanup and recreation cycle:
+
+1. Cleans broken symlinks in `.cursor/rules/` and `.cursor/skills-cursor/`
+2. Recreates global, domain, and client rule symlinks for Cursor and `.agents/`
+3. Recreates skill symlinks for Cursor (per-category) and `.agents/skills/` (flattened)
+4. Re-imports rules and skills from all currently plugged-in projects
+5. Maps commands to `.agents/workflows/` and project data to `.agents/projects/`
+6. Generates MCP configs from `mesh/mcp/*.json` for all three IDEs
+7. Regenerates `.claude/projects-context.md`
+8. Regenerates `mAIcelium.code-workspace`
+9. Removes legacy `.antigravity/` if present
 
 ## Rules and skills taxonomy
 
@@ -175,12 +195,14 @@ graph TD
     Mesh["mesh/"] --> RulesDir["rules/"]
     Mesh --> SkillsDir["skills/"]
 
-    RulesDir --> Global["global.md — Agent identity and workflow"]
-    RulesDir --> Coding["coding-standards.md — Code quality"]
-    RulesDir --> Commits["commit-conventions.md — Conventional Commits"]
-    RulesDir --> Security["security-checklist.md — Pre-commit security"]
-    RulesDir --> Architecture["architecture-principles.md — Design guidelines"]
-    RulesDir --> WsConventions["workspace-conventions.md — Source of truth & naming"]
+    RulesDir --> Global["global.mdc — Agent identity and workflow"]
+    RulesDir --> Coding["coding-standards.mdc — Code quality"]
+    RulesDir --> Commits["commit-conventions.mdc — Conventional Commits"]
+    RulesDir --> Security["security-checklist.mdc — Pre-commit security"]
+    RulesDir --> Architecture["architecture-principles.mdc — Design guidelines"]
+    RulesDir --> WsConventions["workspace-conventions.mdc — Source of truth and naming"]
+    RulesDir --> AiLang["ai-files-language.mdc — AI config files in English"]
+    RulesDir --> Identity["maicelium-identity.mdc — Framework identity"]
 
     SkillsDir --> CommonDir["_common/ — Universal"]
     SkillsDir --> ClientsDir["_clients/ — Per-client"]
@@ -192,6 +214,10 @@ graph TD
     CommonDir --> GW["git-workflow"]
     CommonDir --> TE["testing"]
     CommonDir --> DO["documentation"]
+    CommonDir --> DB["debug"]
+    CommonDir --> RF["refactoring"]
+    CommonDir --> SR["security-review"]
+    CommonDir --> CW["cursor-workspace-migration"]
 
     DomainsDir --> FR["frontend-react"]
     DomainsDir --> BP["backend-python"]
@@ -200,7 +226,7 @@ graph TD
 
 ### How rules work
 
-Rules are markdown files in `mesh/rules/`. Every agent reads `global.md` before any task. Other rules are applied contextually — `security-checklist.md` before commits, `coding-standards.md` when writing code, etc.
+Rules are `.mdc` files (markdown with frontmatter) in `mesh/rules/`. Rules with `alwaysApply: true` in their frontmatter are injected automatically into every agent context. Domain-specific rules live in `mesh/rules/_domains/` (e.g., `software/coding-standards.mdc`).
 
 Rules are **prescriptive** — they tell the agent what it must do or avoid.
 
@@ -223,12 +249,16 @@ mesh/skills/_common/code-review/
 
 ## Auto-generated files
 
-Two files in the workspace are generated by scripts and should never be edited manually:
+Several files and directories in the workspace are generated by scripts and should never be edited manually:
 
-| File | Generated by | Purpose |
-|------|-------------|---------|
+| File / Directory | Generated by | Purpose |
+|-----------------|-------------|---------|
 | `WORKSPACE.md` | `add_project.sh` / `remove_project.sh` | Lists active projects with paths and timestamps |
-| `.claude/projects-context.md` | `_lib.sh` → `_regenerate_claude_context()` | Lists rules and skills of active projects for Claude Code |
+| `.claude/projects-context.md` | `_lib.sh` → `_regenerate_claude_context()` | Inlines rules and skills of active projects for Claude Code |
+| `.cursor/rules/`, `.cursor/skills-cursor/` | `sync_symlinks.sh` | Per-file symlinks from `mesh/` for Cursor |
+| `.agents/` | `sync_symlinks.sh` | Rules, skills, workflows, project data, and MCP for Antigravity |
+| `.mcp.json`, `.cursor/mcp.json`, `.agents/mcp.json` | `sync_symlinks.sh` | MCP server configs generated from `mesh/mcp/*.json` |
+| `mAIcelium.code-workspace` | `_lib.sh` → `_regenerate_workspace_file()` | Multi-root VS Code workspace file |
 
 ## Fuzzy matching
 
@@ -258,7 +288,7 @@ The `/git_backup` agent command supports both modes (normal and separated) autom
   - `bin/hooks/guard-bash.sh` blocks destructive bash commands (e.g., `rm -rf /`, `git push --force`).
   - `bin/hooks/guard-write.sh` protects sensitive and auto-generated files (e.g., `WORKSPACE.md`, `.env`, lockfiles).
 - Agents can **only write** inside `projects/<active-project>/` and `mesh/` (for new rules, skills, commands, prompts).
-- Agents must **never modify** `.cursor/`, `.claude/`, or `.antigravity/` — these are auto-generated.
+- Agents must **never modify** `.cursor/`, `.claude/`, or `.agents/` — these are auto-generated.
 - Scripts **never run** `rm -rf` on symlink targets — only the symlink is removed.
 - `.claude/settings.json` defines allowed bash operations including `python3 mesh/commands/scripts/*` and wires the protection hooks.
 - The `.gitignore` excludes `projects/` (contains user-specific symlinks), `WORKSPACE.md` (dynamic state), `repos/_registry.yaml` (contains local paths), `.claude/projects-context.md` (auto-generated), and `bin/.git-alias.sh` (contains local paths).

@@ -34,13 +34,15 @@ bin/init.sh
 
 **What happens behind the scenes:**
 
-1. Creates the full directory structure (`mesh/`, `projects/`, `repos/`, `.cursor/`, `.claude/`, `.antigravity/`).
-2. Creates symlinks from `mesh/rules/` → `.cursor/rules/` (one per rule file).
-3. Creates symlinks from `mesh/skills/` → `.cursor/skills-cursor/` (one per skill directory).
-4. Creates directory symlinks for Antigravity: `.antigravity/rules` → `mesh/rules`, `.antigravity/skills` → `mesh/skills`.
-5. Generates `.claude/settings.json` with safe default permissions.
-6. Creates `WORKSPACE.md` if it doesn't exist.
-7. Copies `repos/_registry.yaml.example` → `repos/_registry.yaml` if needed.
+1. Creates the full directory structure (`mesh/`, `projects/`, `repos/`, `.cursor/`, `.claude/`).
+2. Creates symlinks from `mesh/rules/*.md` → `.cursor/rules/` (one per rule file).
+3. Creates symlinks from `mesh/skills/_common/` and `_domains/` → `.cursor/skills-cursor/` (one per skill directory).
+4. Generates `.claude/settings.json` with safe default permissions (if it doesn't already exist).
+5. Creates `WORKSPACE.md` if it doesn't exist.
+6. Copies `repos/_registry.yaml.example` → `repos/_registry.yaml` if needed.
+7. Creates a smug symlink for tmux session management.
+
+After running `init.sh`, run `bin/sync_symlinks.sh` to complete the setup — it creates the `.agents/` directory for Antigravity, generates MCP configs, and processes `.mdc` rule files.
 
 **Expected output:**
 
@@ -52,6 +54,8 @@ bin/init.sh
   ✔ Antigravity symlinks created
   ✔ .claude/settings.json created
   ✔ WORKSPACE.md created
+  → Creating smug symlink...
+  ✔ smug symlink created
   ✔ Script permissions set
 
 ✅ mAIcelium initialized successfully.
@@ -108,7 +112,7 @@ Open the `mAIcelium/` directory in your IDE(s) of choice. Each IDE will automati
 
 - **Cursor** reads `.cursor/rules/` and `.cursor/skills-cursor/`.
 - **Claude Code** reads `CLAUDE.md` at the root.
-- **Antigravity** reads `.antigravity/rules` and `.antigravity/skills`.
+- **Antigravity** reads `.agents/rules/`, `.agents/skills/`, and `.agents/workflows/`.
 
 You can open the workspace in multiple IDEs simultaneously — that's the whole point. Each one has a defined role:
 
@@ -173,14 +177,14 @@ Now all three IDEs can see the project and its specific rules.
 
 ## Step 6: Work inside the project
 
-Once a project is plugged in, all agent work happens inside `projects/<project-name>/`. The agents know this from the rules in `mesh/rules/global.md`.
+Once a project is plugged in, all agent work happens inside `projects/<project-name>/`. The agents know this from the rules in `mesh/rules/global.mdc`.
 
 **Example workflow in Cursor:**
 
 1. Open any file under `projects/my-api/`.
 2. The agent automatically applies global rules (coding standards, security checklist) plus any project-specific rules (`my-api--eslint-rules.mdc`).
 3. When the agent needs a capability (e.g., code review), it reads the relevant skill from `mesh/skills/`.
-4. Commits follow the conventions in `mesh/rules/commit-conventions.md`.
+4. Commits follow the conventions in `mesh/rules/commit-conventions.mdc`.
 
 **Example workflow in Claude Code:**
 
@@ -231,12 +235,15 @@ bin/sync_symlinks.sh
 
 This script:
 
-1. Removes broken symlinks in `.cursor/rules/` and `.cursor/skills-cursor/`
-2. Recreates all global rule and skill symlinks from `mesh/`
-3. Re-imports rules and skills from all currently plugged-in projects
-4. Recreates Antigravity directory symlinks
-5. Regenerates `.claude/projects-context.md`
-6. Ensures `CLAUDE.md` references `projects-context.md` (idempotent)
+1. Removes broken symlinks in `.cursor/rules/`, `.cursor/skills-cursor/`, and `.agents/`
+2. Recreates all global, domain, and client rule symlinks for Cursor and `.agents/`
+3. Recreates skill symlinks for Cursor and `.agents/skills/` (flattened)
+4. Re-imports rules and skills from all currently plugged-in projects
+5. Maps commands to `.agents/workflows/` and project data to `.agents/projects/`
+6. Generates MCP configs from `mesh/mcp/*.json` for all three IDEs
+7. Regenerates `.claude/projects-context.md`
+8. Regenerates `mAIcelium.code-workspace`
+9. Removes legacy `.antigravity/` if present
 
 ---
 
@@ -244,7 +251,7 @@ This script:
 
 ### Adding a new global rule
 
-1. Create a markdown file in `mesh/rules/`, e.g., `mesh/rules/testing-standards.md`
+1. Create an `.mdc` file in `mesh/rules/`, e.g., `mesh/rules/testing-standards.mdc`
 2. Run `bin/sync_symlinks.sh` to distribute it to all IDEs
 3. All agents now follow the new rule
 
@@ -283,7 +290,7 @@ When multiple projects are linked, the workspace `.git` can conflict with the li
 bin/separate_git.sh
 ```
 
-This moves `.git` to a sibling directory (`mAIcelium-git-backup/`) and creates a shell alias (`maicelium-git`) so you can still run git operations:
+This moves `.git` to a sibling directory (`<workspace>-git-backup/`) and creates a shell alias (`maicelium-git`) so you can still run git operations:
 
 ```bash
 # Add to your shell profile (.bashrc / .zshrc)
