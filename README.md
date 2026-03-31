@@ -23,7 +23,7 @@ mAIcelium provides a single workspace directory where:
 graph LR
     Mesh["mesh/"] -->|symlinks| Cursor[".cursor/"]
     Mesh -->|"CLAUDE.md"| Claude[".claude/"]
-    Mesh -->|symlinks| Antigravity[".antigravity/"]
+    Mesh -->|symlinks| Agents[".agents/"]
     Projects["projects/"] -->|symlinks| Repos["Your repos"]
 ```
 
@@ -72,7 +72,7 @@ mAIcelium/
 ├── repos/                     # Repository registry
 ├── .cursor/                   # Auto-generated Cursor config (symlinks)
 ├── .claude/                   # Claude Code config + auto-generated context
-├── .antigravity/              # Auto-generated Antigravity config (symlinks)
+├── .agents/                   # Auto-generated Antigravity config (symlinks)
 ├── CLAUDE.md                  # Entry point for Claude Code agents
 ├── AGENTS.md                  # Agent permissions and coordination rules
 ├── WORKSPACE.md               # Dynamic state — active projects list
@@ -85,7 +85,7 @@ mAIcelium/
 |-----|------|----------------|
 | **Cursor** | Code implementation | Symlinks in `.cursor/rules/` and `.cursor/skills-cursor/` |
 | **Claude Code** | Planning, architecture, analysis | Reads `CLAUDE.md` → navigates to `mesh/` directly |
-| **Antigravity** | Refactoring, review, scoped tasks | Symlinks in `.antigravity/` |
+| **Antigravity** | Refactoring, review, scoped tasks | Symlinks in `.agents/` (rules, skills, workflows, MCP) |
 
 ## Documentation
 
