@@ -120,7 +120,7 @@ _regenerate_claude_context() {
         done
       done
 
-      # Project data directories (plans, bitacora, config, agents, docs)
+      # List project data directories (plans, bitacora, config, agents)
       local has_data=false
       for data_dir in plans bitacora config agents docs; do
         local full_data_dir="$repo_path/.cursor/$data_dir"
