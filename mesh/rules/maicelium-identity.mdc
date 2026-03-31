@@ -1,0 +1,133 @@
+---
+description: What mAIcelium is — framework identity, architecture, scripts, commands, and safety hooks for all agents
+alwaysApply: true
+---
+
+# What is mAIcelium
+
+mAIcelium is a multi-IDE, multi-project AI workspace orchestration framework.
+Its goal is to let multiple AI agents (Claude Code, Cursor, Antigravity) collaborate
+on multiple software projects simultaneously, with a single source of truth for
+AI configuration.
+
+## Core idea
+
+A central private repository (`mAIcelium-private`) acts as the **control plane**:
+- It holds all AI rules, skills, commands, prompts, and MCP definitions under `mesh/`.
+- Real project repositories connect as **symlinks** under `projects/`.
+- IDE-specific dotfolders (`.cursor/`, `.claude/`, `.agents/`) are auto-generated
+  mirrors of `mesh/` — they are never edited directly.
+
+```
+mAIcelium/
+├── mesh/              ← Single source of truth for all AI config
+│   ├── rules/         ← Rules injected into every agent context
+│   ├── skills/        ← Operational playbooks agents can follow
+│   ├── commands/      ← Slash commands + Python scripts
+│   ├── prompts/       ← Reusable prompt templates
+│   └── mcp/           ← MCP server definitions (IDE-agnostic)
+├── projects/          ← Symlinks to real project repos on disk
+├── repos/
+│   └── _registry.yaml ← Index of all available repos (check before /add_project)
+├── bin/               ← Workspace management scripts
+│   ├── init.sh           ← One-time workspace setup
+│   ├── add_project.sh    ← Link a new project repo
+│   ├── remove_project.sh ← Unlink a project repo
+│   ├── sync_symlinks.sh  ← Regenerate all dotfolder mirrors + MCP configs
+│   ├── separate_git.sh   ← Move .git out of workspace root (separated git mode)
+│   ├── _lib.sh           ← Shared bash library for all scripts
+│   └── hooks/
+│       ├── guard-bash.sh   ← PreToolUse: blocks dangerous shell commands
+│       └── guard-write.sh  ← PreToolUse: blocks writes to protected files
+├── WORKSPACE.md       ← Auto-generated: active projects + their inlined rules
+└── CLAUDE.md          ← Claude Code entry point
+```
+
+## The three-IDE model
+
+| IDE          | Role                               | Primary strength          |
+|--------------|------------------------------------|---------------------------|
+| Claude Code  | Planning, architecture, analysis   | Long-context reasoning    |
+| Cursor       | Code implementation                | Inline edits, Agent mode  |
+| Antigravity  | Refactoring, review, scoped tasks  | Focused transformations   |
+
+Each IDE runs independently but reads the same rules and skills from `mesh/`.
+
+## How rules and skills reach agents
+
+1. `bin/sync_symlinks.sh` (runs on every `SessionStart`) regenerates symlinks from
+   `mesh/rules/` and `mesh/skills/` into each IDE's dotfolder.
+2. Rules with `alwaysApply: true` are injected automatically into every agent context.
+3. Skills are on-demand playbooks — agents read the relevant `SKILL.md` before a task.
+4. `.claude/projects-context.md` is a pre-inlined version of all active project rules,
+   generated for Claude Code.
+
+## Available slash commands
+
+These commands are defined in `mesh/commands/` and available in all IDEs:
+
+| Command | Script | Purpose |
+|---------|--------|---------|
+| `/add_project <name>` | `scripts/add_project.py` | Fuzzy-match registry, link project repo |
+| `/remove_project <name>` | `scripts/remove_project.py` | Unlink a project repo |
+| `/list_projects` | `scripts/list_projects.py` | Show all linked projects |
+| `/workspace_status` | `scripts/list_projects.py` | Full workspace state overview |
+| `/project_health` | `scripts/project_health.py` | Diagnostic health check across projects |
+| `/git_backup [msg]` | bash (bin/) | Stage, commit, push workspace changes |
+
+Always check `repos/_registry.yaml` before running `/add_project` — it lists all
+available repos with their paths and tech stacks.
+
+## Safety hooks (PreToolUse)
+
+Two hooks run automatically before every tool call in Claude Code:
+
+**`guard-bash.sh`** blocks shell commands that:
+- Use `rm -rf` targeting root, home, or wildcard paths (safe targets like `node_modules` are allowed)
+- Execute destructive SQL (`DROP TABLE`, `TRUNCATE`)
+
+**`guard-write.sh`** blocks writes/edits to:
+- `.env` files (may contain secrets)
+- `.git/` internals
+- Auto-generated files: `WORKSPACE.md`, `mAIcelium.code-workspace`, `.claude/projects-context.md`
+- Agent settings: `.claude/settings.json`, `.claude/settings.local.json`
+- Auto-generated dotfolders: `.cursor/`, `.antigravity/`
+- Lockfiles: `package-lock.json`, `yarn.lock`, `poetry.lock`, etc.
+
+If a tool call is blocked by a hook, the reason will be shown. The fix is always to
+target `mesh/` instead of the protected path, or use the appropriate `bin/` script.
+
+## Separated git mode
+
+`bin/separate_git.sh` moves `.git` out of the workspace root into a sibling directory
+(`mAIcelium-git-backup/`). This prevents Cursor from treating the workspace root as a
+git repo and showing all project files as uncommitted changes.
+
+When separated git mode is active, all git commands on the workspace must use:
+```bash
+git --git-dir=../mAIcelium-git-backup/.git --work-tree=. <command>
+```
+The `/git_backup` command handles this automatically. Never run bare `git` commands
+in the workspace root if `.git` is absent.
+
+## Project lifecycle
+
+```
+# Link a new repo
+bin/add_project.sh <name>        → creates symlink in projects/, updates WORKSPACE.md
+
+# Remove a linked repo
+bin/remove_project.sh <name>     → removes symlink, updates WORKSPACE.md
+
+# Rebuild all mirrors after any mesh/ change
+bin/sync_symlinks.sh             → regenerates .cursor/, .claude/, .agents/, .mcp.json
+```
+
+## What agents must never do
+
+- Edit anything in `.cursor/`, `.claude/`, or `.agents/` — they are auto-generated.
+- Run `rm -rf` on symlink targets inside `projects/` — that destroys the real repo.
+- Create AI resources (rules, skills, commands) outside of `mesh/`.
+- Act on projects not listed in `WORKSPACE.md`.
+- Run bare `git` commands in the workspace root when separated git mode is active.
+- Modify `WORKSPACE.md` or `.claude/projects-context.md` by hand — use `bin/` scripts.
