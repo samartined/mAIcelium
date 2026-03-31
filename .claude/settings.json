@@ -8,7 +8,8 @@
       "Bash(ln:*)",
       "Bash(rm:*)",
       "Bash(mkdir:*)",
-      "Bash(bash:bin/*)"
+      "Bash(bash:bin/*)",
+      "Bash(bash:bin/hooks/*)"
     ]
   },
   "hooks": {
@@ -19,6 +20,28 @@
             "type": "command",
             "command": "bash bin/sync_symlinks.sh > /dev/null 2>&1 && cat .claude/projects-context.md",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash bin/hooks/guard-bash.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash bin/hooks/guard-write.sh",
+            "timeout": 3
           }
         ]
       }

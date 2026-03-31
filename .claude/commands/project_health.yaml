@@ -1,0 +1,5 @@
+name: project_health
+description: Run health checks across all linked projects and workspace
+prompt: |
+  Read the instructions in ./mesh/commands/project_health.md and execute them.
+  Pass $ARGUMENTS if the user provided any.
