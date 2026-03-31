@@ -25,7 +25,7 @@ Run `git rev-parse --git-dir` to confirm which repository you are operating on.
 - Keep branches short-lived — merge or rebase frequently.
 
 ## Commit conventions
-Follow `mesh/rules/commit-conventions.md`:
+Follow `mesh/rules/commit-conventions.mdc`:
 - Format: `<type>(<scope>): <description>`
 - Imperative mood, lowercase, no period, max 72 chars.
 - Body explains **why**, not what.

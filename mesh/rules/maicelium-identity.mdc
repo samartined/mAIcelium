@@ -91,7 +91,7 @@ Two hooks run automatically before every tool call in Claude Code:
 - `.git/` internals
 - Auto-generated files: `WORKSPACE.md`, `mAIcelium.code-workspace`, `.claude/projects-context.md`
 - Agent settings: `.claude/settings.json`, `.claude/settings.local.json`
-- Auto-generated dotfolders: `.cursor/`, `.antigravity/`
+- Auto-generated dotfolders: `.cursor/`, `.agents/`
 - Lockfiles: `package-lock.json`, `yarn.lock`, `poetry.lock`, etc.
 
 If a tool call is blocked by a hook, the reason will be shown. The fix is always to
