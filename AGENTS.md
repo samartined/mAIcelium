@@ -1,7 +1,7 @@
 # Agent Configuration — mAIcelium
 
 ## Global rules for all agents
-- Always read `./mesh/rules/global.md` before any action.
+- Always read `./mesh/rules/global.mdc` before any action.
 - Never modify files in `.cursor/`, `.claude/`, `.agents/` (auto-generated).
 - New AI resources go in `mesh/` — see `mesh/skills/_common/workspace-guide/SKILL.md`.
 - Only work inside the indicated project in `projects/`.
