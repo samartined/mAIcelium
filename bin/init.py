@@ -1,9 +1,65 @@
 #!/usr/bin/env python3
 import os
+import sys
 import stat
 from datetime import datetime, timezone
 
 from _lib import resolve_root, is_windows, create_link
+
+def setup_cli_path(root):
+    if not sys.stdout.isatty() or not sys.stdin.isatty():
+        return
+    
+    print("\n🍄 Would you like to add 'mai' to your system PATH?")
+    print("   This allows you to type 'mai' from anywhere without './'")
+    try:
+        reply = input("   Add to PATH? [Y/n] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+        
+    if reply in ['n', 'no']:
+        return
+
+    if not is_windows():
+        shell = os.environ.get("SHELL", "")
+        if "zsh" in shell:
+            rc_file = os.path.expanduser("~/.zshrc")
+        elif "bash" in shell:
+            rc_file = os.path.expanduser("~/.bashrc")
+        else:
+            rc_file = os.path.expanduser("~/.profile")
+            
+        path_line = f'\n# mAIcelium CLI\nexport PATH="{root}:$PATH"\n'
+        
+        already_there = False
+        if os.path.isfile(rc_file):
+            with open(rc_file, "r") as f:
+                if f'PATH="{root}' in f.read() or f'{root}:$PATH' in f.read():
+                    already_there = True
+                    
+        if not already_there:
+            with open(rc_file, "a") as f:
+                f.write(path_line)
+            print(f"  ✔ Added to {rc_file}")
+            print(f"  ⚠️  Please run 'source {rc_file}' or open a new terminal to use 'mai'")
+        else:
+            print(f"  ✔ Already present in {rc_file}")
+            
+    else:
+        import subprocess
+        try:
+            ps_cmd = '[Environment]::GetEnvironmentVariable("PATH", "User")'
+            user_path = subprocess.check_output(['powershell', '-NoProfile', '-Command', ps_cmd], text=True).strip()
+            if root not in user_path:
+                new_path = f"{root};{user_path}" if user_path else root
+                set_cmd = f'[Environment]::SetEnvironmentVariable("PATH", "{new_path}", "User")'
+                subprocess.run(['powershell', '-NoProfile', '-Command', set_cmd], check=True)
+                print("  ✔ Added to Windows User PATH")
+                print("  ⚠️  Please restart your terminal to use 'mai'")
+            else:
+                print("  ✔ Already present in Windows User PATH")
+        except Exception as e:
+            print(f"  ❌ Failed to update Windows PATH: {e}")
 
 def make_executable(path):
     if not is_windows() and os.path.isfile(path):
@@ -111,10 +167,14 @@ def main():
         for f in os.listdir(bin_dir):
             if f.endswith(".sh") or f.endswith(".py"):
                 make_executable(os.path.join(bin_dir, f))
+        # Ensure mai is executable too
+        make_executable(os.path.join(root, "mai"))
         print("  ✔ Script permissions set")
 
     print("\n✅ mAIcelium initialized successfully.")
     print("   Next step: open this directory in your IDEs")
+    
+    setup_cli_path(root)
 
 if __name__ == "__main__":
     main()
