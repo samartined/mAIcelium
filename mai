@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""🍄 mAIcelium Universal CLI Wrapper"""
+import sys
+import os
+import subprocess
+
+def print_help():
+    print("🍄 mAIcelium CLI (mai)")
+    print("Usage: mai <command> [args...]")
+    print("")
+    print("Commands:")
+    print("  init                  Initialize a new mAIcelium workspace")
+    print("  add <name> <path>     Plug in a project (symlink)")
+    print("  remove <name>         Unplug a project")
+    print("  sync                  Restructure and sync all symlinks, rules & skills")
+    print("  git                   Separate workspace .git to avoid conflicts")
+    print("")
+    sys.exit(1)
+
+def main():
+    if len(sys.argv) < 2:
+        print_help()
+
+    cmd = sys.argv[1].lower()
+    args = sys.argv[2:]
+
+    # Ensure we always find the root relative to this CLI file
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    bin_dir = os.path.join(root_dir, "bin")
+
+    # Friendly command mapping for the CLI
+    mapping = {
+        "init": "init.py",
+        "add": "add_project.py",
+        "add_project": "add_project.py",
+        "remove": "remove_project.py",
+        "remove_project": "remove_project.py",
+        "rm": "remove_project.py",
+        "sync": "sync_symlinks.py",
+        "git": "separate_git.py"
+    }
+
+    if cmd in ["-h", "--help", "help", "/?"]:
+        print_help()
+
+    if cmd not in mapping:
+        print(f"❌ Unknown command: {cmd}")
+        print_help()
+
+    script = os.path.join(bin_dir, mapping[cmd])
+    
+    try:
+        result = subprocess.run([sys.executable, script] + args)
+        sys.exit(result.returncode)
+    except KeyboardInterrupt:
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
