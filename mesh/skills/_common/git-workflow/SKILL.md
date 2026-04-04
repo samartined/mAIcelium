@@ -13,7 +13,7 @@ any git operation inside the mAIcelium workspace.
 Before any git operation, determine where you are:
 1. **Inside `projects/<name>/`** — use that repo's `.git` directly.
 2. **Workspace root** — check if separated git mode is active
-   (`bin/.git-alias.sh` exists). If so, use the alias or pass
+   (`bin/.git-alias.py` exists). If so, use the alias or pass
    `--git-dir` and `--work-tree` explicitly.
 
 Run `git rev-parse --git-dir` to confirm which repository you are operating on.

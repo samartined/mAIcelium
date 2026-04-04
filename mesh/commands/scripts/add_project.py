@@ -4,7 +4,7 @@
 Usage: add_project.py "<user_input>"
 
 Resolves the project name against repos/_registry.yaml entries,
-then delegates to bin/add_project.sh for the actual linking.
+then delegates to bin/add_project.py for the actual linking.
 """
 import os
 import re

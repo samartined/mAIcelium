@@ -58,10 +58,22 @@ def main():
       "Bash(ln:*)",
       "Bash(rm:*)",
       "Bash(mkdir:*)",
-      "Bash(bash:bin/*)",
+      "Bash(python3:bin/*)",
       "Bash(python3:mesh/commands/scripts/*)",
-      "Bash(python:bin/*)",
-      "Bash(python3:bin/*)"
+      "Bash(python:bin/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 bin/sync_symlinks.py > /dev/null 2>&1",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }''')

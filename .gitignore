@@ -6,7 +6,7 @@
 /repos/_registry.yaml
 !/repos/_registry.yaml.example
 
-# Auto-generated IDE symlinks (recreated by sync_symlinks.sh)
+# Auto-generated IDE symlinks (recreated by sync_symlinks.py)
 .cursor/
 .agents/
 
@@ -26,4 +26,4 @@ __pycache__/
 docs/assets/backup/
 
 # Generated git alias (contains local paths)
-bin/.git-alias.sh
+bin/.git-alias.py

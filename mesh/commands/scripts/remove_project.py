@@ -4,7 +4,7 @@
 Usage: remove_project.py "<user_input>"
 
 Resolves the project name against currently linked projects,
-then delegates to bin/remove_project.sh.
+then delegates to bin/remove_project.py.
 """
 import os
 import sys

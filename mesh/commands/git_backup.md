@@ -9,7 +9,7 @@ Stage, commit, and push all changes in the mAIcelium workspace to GitHub
 using the separated git directory (if configured).
 
 ## Prerequisites
-The `.git` directory must have been separated using `bin/separate_git.sh`.
+The `.git` directory must have been separated using `bin/separate_git.py`.
 If `.git` still exists in the workspace root, use regular git commands instead.
 
 ## Instructions

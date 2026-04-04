@@ -16,7 +16,7 @@ description: >-
 > dotfolders (`.cursor/`, `.claude/`, `.agents/`).**
 
 The dotfolders are auto-generated via symlinks. Any direct write to them will
-either be overwritten on the next `bin/sync_symlinks.sh` run or create
+either be overwritten on the next `bin/sync_symlinks.py` run or create
 inconsistencies between IDEs.
 
 ## File organization
@@ -83,5 +83,5 @@ mesh/                          ← Single source of truth
 - ❌ Never edit files directly in `.cursor/`, `.claude/`, or `.agents/`.
 - ❌ Never create new rules/skills in the dotfolders.
 - ❌ Never move or rename files in dotfolders (they're symlinks).
-- ❌ Never delete symlinks manually — use `bin/sync_symlinks.sh` to rebuild.
+- ❌ Never delete symlinks manually — use `bin/sync_symlinks.py` to rebuild.
 - ❌ Never modify `WORKSPACE.md` or `.claude/projects-context.md` by hand — they're auto-generated.

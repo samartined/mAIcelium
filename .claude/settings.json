@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash bin/sync_symlinks.sh > /dev/null 2>&1",
+            "command": "python3 bin/sync_symlinks.py > /dev/null 2>&1",
             "timeout": 5
           }
         ]
