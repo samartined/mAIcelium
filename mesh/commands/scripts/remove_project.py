@@ -57,11 +57,11 @@ def main():
         print(f"Linked projects: {', '.join(linked)}")
         sys.exit(1)
 
-    # Delegate to the existing bash script
+    # Delegate to the Python script
     import subprocess
 
     result = subprocess.run(
-        [os.path.join(ROOT, "bin", "remove_project.sh"), match],
+        [sys.executable, os.path.join(ROOT, "bin", "remove_project.py"), match],
         capture_output=False,
     )
     sys.exit(result.returncode)

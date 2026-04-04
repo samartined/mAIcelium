@@ -133,9 +133,9 @@ def main():
         print(f"⚠️ **{match}** is already linked.")
         sys.exit(0)
 
-    # Delegate to the existing bash script
+    # Delegate to the Python script
     result = subprocess.run(
-        [os.path.join(ROOT, "bin", "add_project.sh"), match, repo_path],
+        [sys.executable, os.path.join(ROOT, "bin", "add_project.py"), match, repo_path],
         capture_output=False,
     )
     sys.exit(result.returncode)

@@ -29,7 +29,7 @@ This gives you the workspace structure with all the scripts, rules, and skills a
 ## Step 2: Initialize the workspace
 
 ```bash
-bin/init.sh
+bin/init.py
 ```
 
 **What happens behind the scenes:**
@@ -127,7 +127,7 @@ When you want to work on a specific project, plug it into the workspace.
 **From the terminal:**
 
 ```bash
-bin/add_project.sh my-api ~/dev/acme-api
+bin/add_project.py my-api ~/dev/acme-api
 ```
 
 **From inside an IDE (with fuzzy matching):**
@@ -195,7 +195,7 @@ Once a project is plugged in, all agent work happens inside `projects/<project-n
 When you're done working on a project:
 
 ```bash
-bin/remove_project.sh my-api
+bin/remove_project.py my-api
 ```
 
 **What happens behind the scenes:**
@@ -226,7 +226,7 @@ bin/remove_project.sh my-api
 If you've added new rules or skills to `mesh/`, or if symlinks got broken (e.g., after moving the workspace directory), rebuild everything:
 
 ```bash
-bin/sync_symlinks.sh
+bin/sync_symlinks.py
 ```
 
 This script:
@@ -245,14 +245,14 @@ This script:
 ### Adding a new global rule
 
 1. Create a markdown file in `mesh/rules/`, e.g., `mesh/rules/testing-standards.md`
-2. Run `bin/sync_symlinks.sh` to distribute it to all IDEs
+2. Run `bin/sync_symlinks.py` to distribute it to all IDEs
 3. All agents now follow the new rule
 
 ### Adding a new skill
 
 1. Create a directory in the appropriate category, e.g., `mesh/skills/_domains/go/`
 2. Add a `SKILL.md` with instructions for the agent
-3. Run `bin/sync_symlinks.sh`
+3. Run `bin/sync_symlinks.py`
 4. Agents can now use the skill when working on relevant tasks
 
 ### Working on multiple projects simultaneously
@@ -260,8 +260,8 @@ This script:
 You can plug in multiple projects at once:
 
 ```bash
-bin/add_project.sh api ~/dev/acme-api
-bin/add_project.sh frontend ~/dev/acme-frontend
+bin/add_project.py api ~/dev/acme-api
+bin/add_project.py frontend ~/dev/acme-frontend
 ```
 
 Each project's rules and skills are imported with their own prefix, so there are no conflicts. Agents are instructed to ask which project to focus on if it's ambiguous.
@@ -269,7 +269,7 @@ Each project's rules and skills are imported with their own prefix, so there are
 ### Moving to a new machine
 
 1. Clone the mAIcelium repo
-2. Run `bin/init.sh`
+2. Run `bin/init.py`
 3. Create your `repos/_registry.yaml` with local paths
 4. Plug in the projects you need
 
@@ -280,7 +280,7 @@ The workspace is designed to be portable — only the `.gitignored` files contai
 When multiple projects are linked, the workspace `.git` can conflict with the linked projects' own git contexts. To avoid this:
 
 ```bash
-bin/separate_git.sh
+bin/separate_git.py
 ```
 
 This moves `.git` to a sibling directory (`mAIcelium-git-backup/`) and creates a shell alias (`maicelium-git`) so you can still run git operations:

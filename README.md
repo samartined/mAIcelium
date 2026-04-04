@@ -35,14 +35,14 @@ git clone https://github.com/your-user/mAIcelium.git
 cd mAIcelium
 
 # 2. Initialize the workspace
-bin/init.sh
+bin/init.py
 
 # 3. Register your repos (edit with your actual paths)
 cp repos/_registry.yaml.example repos/_registry.yaml
 # edit repos/_registry.yaml
 
 # 4. Plug in a project (from shell)
-bin/add_project.sh my-api ~/dev/my-api
+bin/add_project.py my-api ~/dev/my-api
 # or from inside an IDE with fuzzy matching:
 #   /add_project my-api
 
@@ -63,11 +63,11 @@ mAIcelium/
 │   │   └── scripts/           # Python scripts for fuzzy-matched commands
 │   └── prompts/               # Reusable prompt templates
 ├── bin/                       # Automation scripts
-│   ├── init.sh                # Initialize the workspace
-│   ├── add_project.sh         # Plug in a project
-│   ├── remove_project.sh      # Unplug a project
-│   ├── sync_symlinks.sh       # Rebuild all symlinks
-│   └── separate_git.sh        # Separate .git from workspace (optional)
+│   ├── init.py                # Initialize the workspace
+│   ├── add_project.py         # Plug in a project
+│   ├── remove_project.py      # Unplug a project
+│   ├── sync_symlinks.py       # Rebuild all symlinks
+│   └── separate_git.py        # Separate .git from workspace (optional)
 ├── projects/                  # Symlinks to active repos
 ├── repos/                     # Repository registry
 ├── .cursor/                   # Auto-generated Cursor config (symlinks)
@@ -97,11 +97,11 @@ mAIcelium/
 
 By default, opening mAIcelium as a folder only shows its own git changes. To see **each injected project's Source Control** separately, use the auto-generated multi-root workspace:
 
-1. Plug in your projects as usual (`bin/add_project.sh`)
+1. Plug in your projects as usual (`bin/add_project.py`)
 2. Open Cursor/VSCode via **File → Open Workspace from File…** → select `mAIcelium.code-workspace`
 3. Each project appears as a separate root with its own Source Control panel
 
-The `.code-workspace` file is regenerated automatically by `add_project.sh`, `remove_project.sh`, and `sync_symlinks.sh`. It is git-ignored since its content depends on which projects each user has active.
+The `.code-workspace` file is regenerated automatically by `add_project.py`, `remove_project.py`, and `sync_symlinks.py`. It is git-ignored since its content depends on which projects each user has active.
 
 ## Key commands
 
@@ -109,11 +109,11 @@ The `.code-workspace` file is regenerated automatically by `add_project.sh`, `re
 
 | Command | Description |
 |---------|-------------|
-| `bin/init.sh` | Initialize a fresh workspace |
-| `bin/add_project.sh <name> <path>` | Plug in a project |
-| `bin/remove_project.sh <name>` | Unplug a project (original repo untouched) |
-| `bin/sync_symlinks.sh` | Rebuild all symlinks after changes |
-| `bin/separate_git.sh` | Move `.git` outside the workspace (avoids IDE git conflicts) |
+| `bin/init.py` | Initialize a fresh workspace |
+| `bin/add_project.py <name> <path>` | Plug in a project |
+| `bin/remove_project.py <name>` | Unplug a project (original repo untouched) |
+| `bin/sync_symlinks.py` | Rebuild all symlinks after changes |
+| `bin/separate_git.py` | Move `.git` outside the workspace (avoids IDE git conflicts) |
 
 ### IDE slash commands (with fuzzy matching)
 
