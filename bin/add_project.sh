@@ -2,6 +2,7 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/bin/_lib.sh"
+_load_conventions "$ROOT"
 CODE_ONLY=false
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
@@ -43,11 +44,11 @@ ln -sfn "$REPO_PATH" "$LINK"
 echo "✔ Project '$NAME' added → $REPO_PATH"
 
 if [ "$CODE_ONLY" = false ]; then
-  # ── Import project-specific Cursor rules ───────────────────────────────────
-  PROJECT_CURSOR_RULES="$REPO_PATH/.cursor/rules"
-  if [ -d "$PROJECT_CURSOR_RULES" ]; then
+  # ── Import project-specific rules ─────────────────────────────────────────
+  PROJECT_RULES_DIR="$REPO_PATH/$MESH_PROJECT_DATA_DIR/$MESH_PROJECT_RULES_SUBDIR"
+  if [ -d "$PROJECT_RULES_DIR" ]; then
     echo "  → Importing project rules..."
-    for rule in "$PROJECT_CURSOR_RULES"/*; do
+    for rule in "$PROJECT_RULES_DIR"/*; do
       [ -f "$rule" ] || continue
       rulename=$(basename "$rule")
       ln -sfn "$rule" "$ROOT/.cursor/rules/${NAME}--${rulename}"
@@ -56,33 +57,20 @@ if [ "$CODE_ONLY" = false ]; then
     echo "  ✔ Project rules imported"
   fi
 
-  # ── Import project-specific Cursor skills ──────────────────────────────────
-  PROJECT_CURSOR_SKILLS="$REPO_PATH/.cursor/skills"
-  if [ -d "$PROJECT_CURSOR_SKILLS" ]; then
-    echo "  → Importing project skills..."
-    for skill_dir in "$PROJECT_CURSOR_SKILLS"/*/; do
+  # ── Import project-specific skills (all configured skills subdirs) ─────────
+  for skills_subdir in $MESH_PROJECT_SKILLS_SUBDIRS; do
+    PROJECT_SKILLS_DIR="$REPO_PATH/$MESH_PROJECT_DATA_DIR/$skills_subdir"
+    [ -d "$PROJECT_SKILLS_DIR" ] || continue
+    echo "  → Importing project skills ($skills_subdir/)..."
+    for skill_dir in "$PROJECT_SKILLS_DIR"/*/; do
       [ -d "$skill_dir" ] || continue
       skillname=$(basename "$skill_dir")
-      ln -sfn "$skill_dir" "$ROOT/.cursor/skills-cursor/${NAME}--${skillname}"
-      echo "    + ${NAME}--${skillname}"
-    done
-    echo "  ✔ Project skills imported"
-  fi
-
-  # Also check .cursor/skills-cursor/ (alternative location)
-  PROJECT_CURSOR_SKILLS_ALT="$REPO_PATH/.cursor/skills-cursor"
-  if [ -d "$PROJECT_CURSOR_SKILLS_ALT" ]; then
-    echo "  → Importing project skills (skills-cursor/)..."
-    for skill_dir in "$PROJECT_CURSOR_SKILLS_ALT"/*/; do
-      [ -d "$skill_dir" ] || continue
-      skillname=$(basename "$skill_dir")
-      # Skip if already imported from .cursor/skills/
       [ -L "$ROOT/.cursor/skills-cursor/${NAME}--${skillname}" ] && continue
       ln -sfn "$skill_dir" "$ROOT/.cursor/skills-cursor/${NAME}--${skillname}"
       echo "    + ${NAME}--${skillname}"
     done
-    echo "  ✔ Project skills imported"
-  fi
+    echo "  ✔ Project skills imported ($skills_subdir/)"
+  done
 else
   echo "  ⏭ Skipping rules/skills import (--code-only)"
 fi

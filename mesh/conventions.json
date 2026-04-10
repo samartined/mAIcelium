@@ -1,0 +1,6 @@
+{
+  "project_data_dir": ".cursor",
+  "project_data_subdirs": ["plans", "bitacora", "config", "agents", "docs"],
+  "project_rules_subdir": "rules",
+  "project_skills_subdirs": ["skills", "skills-cursor"]
+}
