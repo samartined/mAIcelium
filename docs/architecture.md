@@ -292,14 +292,37 @@ At sync time, `sync_symlinks.sh`:
 - Links `<layer>/skills/*/` → `.cursor/skills-cursor/<client>--*/` and `.agents/skills/<client>--*/`
 - Includes layer content in `.claude/projects-context.md` for any project whose name matches the layer's `client`
 
+### Core layer — externalizing common and domain content
+
+The `_common` skills and `_domains` rules/skills that ship with `mesh/` can also be moved to a standalone layer repo. This makes them independently versionable and swappable, just like any other layer.
+
+When a layer holds content that mirrors the `mesh/` internal structure (`rules/_domains/`, `skills/_common/`, `skills/_domains/`), the simplest integration is to replace the corresponding directories in `mesh/` with symlinks pointing into the layer:
+
+```
+mesh/rules/_domains      → symlink → mesh/layers/core/rules/_domains/
+mesh/skills/_common/<x>  → symlink → mesh/layers/core/skills/_common/<x>/
+mesh/skills/_domains     → symlink → mesh/layers/core/skills/_domains/
+```
+
+`sync_symlinks.sh` follows symlinks transparently, so no script changes are needed. The result is identical to having the content directly in `mesh/`.
+
+What stays in `mesh/` regardless:
+
+| Content | Why |
+|---------|-----|
+| `global.mdc`, `maicelium-identity.mdc`, `workspace-conventions.mdc` | Framework identity and workspace mechanics |
+| `ai-files-language.mdc`, `commit-conventions.mdc` | Universal engineering conventions |
+| `skills/workspace-guide`, `skills/cursor-workspace-migration` | Framework-specific onboarding |
+
 ### Separation of concerns
 
 | Scope | Where it lives | Visibility |
 |-------|---------------|------------|
-| Universal rules/skills | `mesh/` (this repo) | Public |
-| Context-specific rules/skills | `mesh-<name>/` (separate repo) | As needed |
+| Framework identity and workspace mechanics | `mesh/` (this repo) | Public |
+| Domain rules and common/domain skills | `mesh/layers/core/` (standalone repo) | Swappable |
+| Context-specific rules/skills | `mesh/layers/<name>/` (separate repo) | As needed |
 
-This keeps the public workspace clean and lets each context-specific layer live in its own repository with its own access controls and git history.
+This keeps the workspace composable at every level: swap the core layer to change the baseline knowledge, add client layers for engagement-specific context.
 
 ## Auto-generated files
 
