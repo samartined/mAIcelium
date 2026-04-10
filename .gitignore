@@ -2,6 +2,11 @@
 /projects/*
 !/projects/.gitkeep
 
+# Mesh layers (standalone git repos living inside mesh/layers/)
+# Each layer is its own repo — not tracked by the workspace repo
+/mesh/layers/*
+!/mesh/layers/.gitkeep
+
 # Local registry (contains user-specific paths)
 /repos/_registry.yaml
 !/repos/_registry.yaml.example

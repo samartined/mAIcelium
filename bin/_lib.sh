@@ -67,7 +67,12 @@ try:
                 layers.append(current)
             current = {'name': stripped.split(':', 1)[1].strip()}
         elif stripped.startswith('path:') and current is not None:
-            current['path'] = os.path.expanduser(stripped.split(':', 1)[1].strip())
+            raw = stripped.split(':', 1)[1].strip()
+            expanded = os.path.expanduser(raw)
+            # Resolve relative paths from the workspace root
+            if not os.path.isabs(expanded):
+                expanded = os.path.join(root, expanded)
+            current['path'] = os.path.normpath(expanded)
         elif stripped.startswith('client:') and current is not None:
             current['client'] = stripped.split(':', 1)[1].strip()
         elif stripped.startswith('repo:') and current is not None:
