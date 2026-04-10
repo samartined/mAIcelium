@@ -143,8 +143,12 @@ for domain_dir in "$ROOT"/mesh/skills/_domains/*/; do
     # Flat domain: the folder itself is the skill
     ln -sfn "../../mesh/skills/_domains/$domain" "$ROOT/.cursor/skills-cursor/$domain"
   else
-    # Nested domain: each child folder is a skill; link parent as single entry
-    ln -sfn "../../mesh/skills/_domains/$domain" "$ROOT/.cursor/skills-cursor/$domain"
+    # Nested domain: link each child skill individually (domain--skillname)
+    for skill_dir in "$domain_dir"*/; do
+      [ -d "$skill_dir" ] || continue
+      skillname=$(basename "$skill_dir")
+      ln -sfn "../../mesh/skills/_domains/$domain/$skillname" "$ROOT/.cursor/skills-cursor/${domain}--${skillname}"
+    done
   fi
 done
 
