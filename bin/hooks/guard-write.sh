@@ -55,7 +55,7 @@ case "$REL_PATH" in
 esac
 
 # ── Auto-generated IDE dotfolders ────────────────────────────────────────────
-if echo "$REL_PATH" | grep -qE '^\.(cursor|antigravity)/'; then
+if echo "$REL_PATH" | grep -qE '^\.(cursor|agents|antigravity)/'; then
   block "Protected path: $REL_PATH is auto-generated via symlinks. Write to mesh/ instead."
 fi
 
