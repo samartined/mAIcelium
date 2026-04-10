@@ -2,6 +2,8 @@
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/bin/_lib.sh"
+_load_conventions "$ROOT"
+MESH_LAYERS="$(_load_mesh_layers "$ROOT")"
 echo "🔄 Syncing symlinks..."
 
 # ── Clean broken symlinks ────────────────────────────────────────────────────
@@ -41,7 +43,7 @@ for domain_dir in "$ROOT"/mesh/rules/_domains/*/; do
   done
 done
 
-# _clients rules → .cursor/rules/<client>--<name>
+# _clients rules → .cursor/rules/<client>--<name>  (legacy: mesh/_clients/ fallback)
 for client_dir in "$ROOT"/mesh/rules/_clients/*/; do
   [ -d "$client_dir" ] || continue
   client=$(basename "$client_dir")
@@ -51,6 +53,37 @@ for client_dir in "$ROOT"/mesh/rules/_clients/*/; do
     ln -sfn "../../mesh/rules/_clients/$client/$name" "$ROOT/.cursor/rules/${client}--${name}"
   done
 done
+
+# ── Mesh layer rules → .cursor/rules/ and .agents/rules/ ─────────────────────
+python3 - "$ROOT" "$MESH_LAYERS" <<'PYEOF'
+import json, os, sys
+
+root, layers_json = sys.argv[1], sys.argv[2]
+layers = json.loads(layers_json)
+
+cursor_rules = os.path.join(root, ".cursor", "rules")
+agents_rules = os.path.join(root, ".agents", "rules")
+
+for layer in layers:
+    client = layer.get('client', layer['name'])
+    layer_path = layer.get('path', '')
+    if not layer_path or not os.path.isdir(layer_path):
+        print(f"  ⚠️  Layer '{layer['name']}' not found: {layer_path}")
+        continue
+    rules_dir = os.path.join(layer_path, 'rules')
+    if not os.path.isdir(rules_dir):
+        continue
+    for fname in sorted(os.listdir(rules_dir)):
+        if not fname.endswith('.mdc'):
+            continue
+        src = os.path.join(rules_dir, fname)
+        for dst_dir in [cursor_rules, agents_rules]:
+            dst = os.path.join(dst_dir, f"{client}--{fname}")
+            if os.path.islink(dst) or os.path.exists(dst):
+                os.remove(dst)
+            os.symlink(src, dst)
+    print(f"  ✔ Layer '{layer['name']}' rules linked ({client}--*)")
+PYEOF
 
 # ── Recreate mAIcelium rules → .agents/rules/ (Antigravity) ─────────────────
 mkdir -p "$ROOT/.agents/rules"
@@ -80,7 +113,7 @@ for domain_dir in "$ROOT"/mesh/rules/_domains/*/; do
   done
 done
 
-# _clients rules → .agents/rules/<client>--<name>
+# _clients rules → .agents/rules/<client>--<name>  (legacy: mesh/_clients/ fallback)
 for client_dir in "$ROOT"/mesh/rules/_clients/*/; do
   [ -d "$client_dir" ] || continue
   client=$(basename "$client_dir")
@@ -90,6 +123,7 @@ for client_dir in "$ROOT"/mesh/rules/_clients/*/; do
     ln -sfn "../../mesh/rules/_clients/$client/$name" "$ROOT/.agents/rules/${client}--${name}"
   done
 done
+# (Layer rules already linked above in the shared Python block)
 
 # ── Recreate mAIcelium global skills → .cursor/skills-cursor/ ────────────────
 # _common skills: direct children (e.g., _common/planning/)
@@ -132,16 +166,17 @@ for project_link in "$ROOT"/projects/*/; do
   repo_path=$(realpath "$project_link")
 
   # Project rules
-  if [ -d "$repo_path/.cursor/rules" ]; then
-    for rule in "$repo_path"/.cursor/rules/*; do
+  if [ -d "$repo_path/$MESH_PROJECT_DATA_DIR/$MESH_PROJECT_RULES_SUBDIR" ]; then
+    for rule in "$repo_path/$MESH_PROJECT_DATA_DIR/$MESH_PROJECT_RULES_SUBDIR"/*; do
       [ -f "$rule" ] || continue
       rulename=$(basename "$rule")
       ln -sfn "$rule" "$ROOT/.cursor/rules/${project_name}--${rulename}"
     done
   fi
 
-  # Project skills (.cursor/skills/ and .cursor/skills-cursor/)
-  for skills_dir in "$repo_path/.cursor/skills" "$repo_path/.cursor/skills-cursor"; do
+  # Project skills (all configured skills subdirs)
+  for skills_subdir in $MESH_PROJECT_SKILLS_SUBDIRS; do
+    skills_dir="$repo_path/$MESH_PROJECT_DATA_DIR/$skills_subdir"
     [ -d "$skills_dir" ] || continue
     for skill_dir in "$skills_dir"/*/; do
       [ -d "$skill_dir" ] || continue
@@ -151,10 +186,9 @@ for project_link in "$ROOT"/projects/*/; do
     done
   done
 
-  # Project data directories (.cursor/plans, .cursor/bitacora, .cursor/config, etc.)
-  # Symlinked into .agents/projects/<project>/ for Antigravity access
-  for data_dir in plans bitacora config agents docs; do
-    full_data_dir="$repo_path/.cursor/$data_dir"
+  # Project data directories — symlinked into .agents/projects/<project>/ for Antigravity access
+  for data_dir in $MESH_PROJECT_DATA_SUBDIRS; do
+    full_data_dir="$repo_path/$MESH_PROJECT_DATA_DIR/$data_dir"
     [ -d "$full_data_dir" ] || continue
     mkdir -p "$ROOT/.agents/projects/$project_name"
     ln -sfn "$full_data_dir" "$ROOT/.agents/projects/$project_name/$data_dir"
@@ -198,7 +232,7 @@ for domain_dir in "$ROOT"/mesh/skills/_domains/*/; do
   fi
 done
 
-# Flatten _clients skills → .agents/skills/<client>--<skill>
+# Flatten _clients skills → .agents/skills/<client>--<skill>  (legacy: mesh/_clients/ fallback)
 for client_dir in "$ROOT"/mesh/skills/_clients/*/; do
   [ -d "$client_dir" ] || continue
   client=$(basename "$client_dir")
@@ -208,6 +242,36 @@ for client_dir in "$ROOT"/mesh/skills/_clients/*/; do
     ln -sfn "../../../mesh/skills/_clients/$client/$skillname" "$ROOT/.agents/skills/${client}--${skillname}"
   done
 done
+
+# ── Mesh layer skills → .cursor/skills-cursor/ and .agents/skills/ ────────────
+python3 - "$ROOT" "$MESH_LAYERS" <<'PYEOF'
+import json, os, sys
+
+root, layers_json = sys.argv[1], sys.argv[2]
+layers = json.loads(layers_json)
+
+cursor_skills = os.path.join(root, ".cursor", "skills-cursor")
+agents_skills = os.path.join(root, ".agents", "skills")
+
+for layer in layers:
+    client = layer.get('client', layer['name'])
+    layer_path = layer.get('path', '')
+    if not layer_path or not os.path.isdir(layer_path):
+        continue
+    skills_dir = os.path.join(layer_path, 'skills')
+    if not os.path.isdir(skills_dir):
+        continue
+    for skill_name in sorted(os.listdir(skills_dir)):
+        src = os.path.join(skills_dir, skill_name)
+        if not os.path.isdir(src):
+            continue
+        for dst_dir in [cursor_skills, agents_skills]:
+            dst = os.path.join(dst_dir, f"{client}--{skill_name}")
+            if os.path.islink(dst) or os.path.exists(dst):
+                os.remove(dst)
+            os.symlink(src, dst)
+    print(f"  ✔ Layer '{layer['name']}' skills linked ({client}--*)")
+PYEOF
 
 # Map commands to workflows
 for cmd_file in "$ROOT"/mesh/commands/*.md; do

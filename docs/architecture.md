@@ -12,11 +12,12 @@ The name is a play on "mycelium" — the underground fungal mesh that connects t
 
 ## Core principles
 
-1. **Single source of truth** — All AI agent knowledge lives in `mesh/`. No IDE-specific folder is the canonical source.
+1. **Single source of truth** — All AI agent knowledge lives in `mesh/` (or mesh layer repos). No IDE-specific folder is the canonical source.
 2. **Plug and unplug** — Projects connect via symlinks. The original repos are never modified or moved.
 3. **IDE-agnostic knowledge** — Rules and skills are written once, consumed by all IDEs.
 4. **Zero manual sync** — Scripts handle all symlink creation, cleanup, and context generation.
 5. **Safe by design** — Scripts never run `rm -rf` on symlink targets. Only the symlink itself is removed.
+6. **Composable mesh** — Context-specific rules and skills live in isolated mesh layer repos. Each layer is a standalone git repo that the workspace assembles at sync time.
 
 ## Directory structure
 
@@ -246,6 +247,59 @@ mesh/skills/_common/code-review/
 - **`_common/`** — Skills that apply to any project regardless of tech stack.
 - **`_clients/`** — Skills specific to a particular client or engagement.
 - **`_domains/`** — Skills tied to a technology (React, Python, DevOps, etc.).
+
+## Mesh layers
+
+The built-in `mesh/` directory contains rules and skills that apply universally (global rules, domain rules, common skills). For context-specific knowledge — such as rules and skills tied to a particular engagement, domain, or organizational scope — you can use **mesh layers**: external git repos that the workspace assembles alongside the built-in mesh.
+
+### Layer structure
+
+A mesh layer is a plain git repo with `rules/` and/or `skills/` directories:
+
+```
+mesh-<name>/
+├── rules/
+│   └── *.mdc           # rules scoped to this layer
+└── skills/
+    └── <skill-name>/
+        └── SKILL.md
+```
+
+### WORKSPACE.md
+
+Layers are declared in the `mesh_layers:` section of `WORKSPACE.md`:
+
+```yaml
+mesh_layers:
+- name: my-layer
+  path: ~/Dev/mesh-my-layer
+  client: my-layer        # prefix used when symlinking (e.g. my-layer--rule.mdc)
+  repo: https://github.com/org/mesh-my-layer  # optional, for documentation
+```
+
+### Adding a layer
+
+```bash
+bin/add_mesh_layer.sh <name> <path> [--client <prefix>] [--repo <url>]
+```
+
+This registers the layer in `WORKSPACE.md` and runs `sync_symlinks.sh` to link its content into all IDEs.
+
+### How layers are assembled
+
+At sync time, `sync_symlinks.sh`:
+- Links `<layer>/rules/*.mdc` → `.cursor/rules/<client>--*.mdc` and `.agents/rules/<client>--*.mdc`
+- Links `<layer>/skills/*/` → `.cursor/skills-cursor/<client>--*/` and `.agents/skills/<client>--*/`
+- Includes layer content in `.claude/projects-context.md` for any project whose name matches the layer's `client`
+
+### Separation of concerns
+
+| Scope | Where it lives | Visibility |
+|-------|---------------|------------|
+| Universal rules/skills | `mesh/` (this repo) | Public |
+| Context-specific rules/skills | `mesh-<name>/` (separate repo) | As needed |
+
+This keeps the public workspace clean and lets each context-specific layer live in its own repository with its own access controls and git history.
 
 ## Auto-generated files
 
