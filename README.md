@@ -14,7 +14,7 @@ When you work with multiple AI-powered IDEs (Cursor, Claude Code, Antigravity), 
 
 mAIcelium provides a single workspace directory where:
 
-- **One source of truth** (`mesh/`) holds all rules, skills, prompts, and commands.
+- **One source of truth** (`mesh/`) orchestrates all rules, skills, prompts, and commands, including optional layer repos mounted under `mesh/layers/`.
 - **Symlinks** distribute that knowledge to each IDE in the format it expects.
 - **Projects plug in and out** without copying files — just symlinks to your real repos.
 - **Scripts automate everything** — no manual symlink management.
@@ -53,12 +53,14 @@ bin/add_project.sh my-api ~/dev/my-api
 
 ```
 mAIcelium/
-├── mesh/                        # Single source of truth for AI agents
-│   ├── rules/                 # Global rules (coding standards, security, commits)
-│   ├── skills/                # Reusable capabilities
-│   │   ├── _common/           # Universal skills (code-review, planning, workspace-guide, etc.)
+├── mesh/                        # Source-of-truth orchestrator for AI assets
+│   ├── layers/                # Optional standalone layer repos (for reusable/client context)
+│   │   └── core/              # Example: reusable domain rules + common/domain skills
+│   ├── rules/                 # Framework rules + mounted domain rules
+│   ├── skills/                # Framework skills + mounted reusable/domain skills
+│   │   ├── _common/           # Universal skills (some may be symlink-mounted from layers)
 │   │   ├── _clients/          # Client-specific skills
-│   │   └── _domains/          # Tech stack skills (React, Python, DevOps)
+│   │   └── _domains/          # Tech stack skills (often symlink-mounted from layers)
 │   ├── commands/              # Agent command definitions
 │   │   └── scripts/           # Python scripts for fuzzy-matched commands
 │   └── prompts/               # Reusable prompt templates
@@ -92,6 +94,8 @@ mAIcelium/
 - **[Architecture](docs/architecture.md)** — How the system works, with diagrams
 - **[Getting Started](docs/getting-started.md)** — Step-by-step walkthrough with examples
 - **[Reference](docs/reference.md)** — Scripts, commands, rules, and skills reference
+
+> Note: `mesh/` can include direct framework-owned content and symlink-mounted content from `mesh/layers/*`. If a path appears as a symlink in your IDE, that is expected behavior.
 
 ## Multi-root workspace (Source Control for injected projects)
 

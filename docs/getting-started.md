@@ -35,14 +35,14 @@ bin/init.sh
 **What happens behind the scenes:**
 
 1. Creates the full directory structure (`mesh/`, `projects/`, `repos/`, `.cursor/`, `.claude/`).
-2. Creates symlinks from `mesh/rules/*.md` → `.cursor/rules/` (one per rule file).
-3. Creates symlinks from `mesh/skills/_common/` and `_domains/` → `.cursor/skills-cursor/` (one per skill directory).
+2. Prepares framework-owned paths in `mesh/` and supports mounted layer paths (for example, `mesh/layers/core` feeding `mesh/rules/_domains` or `mesh/skills/_domains` through symlinks).
+3. Creates initial IDE symlinks from `mesh/rules/*.mdc` and `mesh/skills/` categories into Cursor paths.
 4. Generates `.claude/settings.json` with safe default permissions (if it doesn't already exist).
 5. Creates `WORKSPACE.md` if it doesn't exist.
 6. Copies `repos/_registry.yaml.example` → `repos/_registry.yaml` if needed.
 7. Creates a smug symlink for tmux session management.
 
-After running `init.sh`, run `bin/sync_symlinks.sh` to complete the setup — it creates the `.agents/` directory for Antigravity, generates MCP configs, and processes `.mdc` rule files.
+After running `init.sh`, run `bin/sync_symlinks.sh` to complete the setup — it creates `.agents/`, generates MCP configs, processes `.mdc` rule files, and resolves any layer-mounted content.
 
 **Expected output:**
 
@@ -227,7 +227,7 @@ bin/remove_project.sh my-api
 
 ## Step 8: Sync when needed
 
-If you've added new rules or skills to `mesh/`, or if symlinks got broken (e.g., after moving the workspace directory), rebuild everything:
+If you've added new rules or skills to `mesh/` or `mesh/layers/`, or if symlinks got broken (e.g., after moving the workspace directory), rebuild everything:
 
 ```bash
 bin/sync_symlinks.sh
@@ -236,8 +236,8 @@ bin/sync_symlinks.sh
 This script:
 
 1. Removes broken symlinks in `.cursor/rules/`, `.cursor/skills-cursor/`, and `.agents/`
-2. Recreates all global, domain, and client rule symlinks for Cursor and `.agents/`
-3. Recreates skill symlinks for Cursor and `.agents/skills/` (flattened)
+2. Recreates framework, domain, and client rule symlinks for Cursor and `.agents/`
+3. Recreates skill symlinks for Cursor and `.agents/skills/` (including layer-mounted skills)
 4. Re-imports rules and skills from all currently plugged-in projects
 5. Maps commands to `.agents/workflows/` and project data to `.agents/projects/`
 6. Generates MCP configs from `mesh/mcp/*.json` for all three IDEs
@@ -255,12 +255,16 @@ This script:
 2. Run `bin/sync_symlinks.sh` to distribute it to all IDEs
 3. All agents now follow the new rule
 
+If the rule belongs to reusable domain content managed in a layer, add it in that layer repo (for example `mesh/layers/core/rules/_domains/...`) and keep `mesh/` as mount points.
+
 ### Adding a new skill
 
 1. Create a directory in the appropriate category, e.g., `mesh/skills/_domains/go/`
 2. Add a `SKILL.md` with instructions for the agent
 3. Run `bin/sync_symlinks.sh`
 4. Agents can now use the skill when working on relevant tasks
+
+If `_common` or `_domains` is mounted from a layer in your setup, create the skill in the layer path (for example `mesh/layers/core/skills/_domains/go/`) rather than inside the mounted symlink.
 
 ### Working on multiple projects simultaneously
 
