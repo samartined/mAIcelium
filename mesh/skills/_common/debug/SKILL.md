@@ -48,7 +48,7 @@ Apply the **minimal fix** that addresses the root cause:
 ## Step 6: Prevent
 - Write a test that would have caught this bug (regression test).
 - Consider if the root cause could affect other code paths.
-- If the finding is significant, propose documenting it in techcorpus.
+- If the finding is significant, propose documenting the root cause and fix.
 
 ## Multi-project context
 - Verify which project the bug is in: check if you are looking at the

@@ -1,13 +1,13 @@
 ---
 name: documentation
 description: >-
-  When writing or updating READMEs, API documentation, changelogs, inline documentation, or propagating knowledge to techcorpus.
+  When writing or updating READMEs, API documentation, changelogs, or inline documentation.
 ---
 # Documentation Skill
 
 ## When to use
 When writing or updating READMEs, API documentation, changelogs,
-inline documentation, or propagating knowledge to techcorpus.
+or inline documentation.
 
 ## README structure
 A good README answers: what is this, how do I use it, how do I contribute?
@@ -50,13 +50,6 @@ Add comments only for:
 - Workarounds with links to the issue they address.
 - Non-obvious side effects or constraints.
 - Public API contracts (parameters, return values, exceptions).
-
-## Knowledge propagation to techcorpus
-When solving a non-trivial problem or learning something reusable:
-1. Check if it belongs in techcorpus (the knowledge vault).
-2. Use the `obsidian-markdown` skill for proper formatting.
-3. Place it in the appropriate area (backend, devops, tools, etc.).
-4. Link related notes with wikilinks.
 
 ## Language
 AI configuration files (rules, skills, references) must be in English
