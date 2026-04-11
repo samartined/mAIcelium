@@ -133,7 +133,7 @@ After the incident is resolved:
    - Runbook step that was missing
    - Code or config fix to prevent recurrence
 4. Update the operations bitacora with the full entry
-5. If the root cause is reusable knowledge, document in techcorpus
+5. If the root cause is reusable knowledge, document it in the project wiki or runbook
 
 ## What the agent must NOT do during an incident
 

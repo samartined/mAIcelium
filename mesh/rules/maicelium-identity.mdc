@@ -12,7 +12,7 @@ AI configuration.
 
 ## Core idea
 
-A central private repository (`mAIcelium-private`) acts as the **control plane**:
+A central repository acts as the **control plane**:
 - It holds all AI rules, skills, commands, prompts, and MCP definitions under `mesh/`.
 - Real project repositories connect as **symlinks** under `projects/`.
 - IDE-specific dotfolders (`.cursor/`, `.claude/`, `.agents/`) are auto-generated

@@ -14,4 +14,4 @@ Relevant logs: {{LOGS}}
 3. **Hypothesize** — formulate ranked hypotheses (most probable first)
 4. **Verify** — propose verification steps for each hypothesis (one at a time)
 5. **Fix** — suggest a minimal fix with an explanation of why it works
-6. **Prevent** — propose a regression test and, if relevant, document in techcorpus
+6. **Prevent** — propose a regression test and document the root cause
