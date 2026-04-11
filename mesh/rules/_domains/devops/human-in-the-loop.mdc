@@ -1,0 +1,90 @@
+---
+description: Human approval required for all destructive, state-modifying, or client-facing operations
+alwaysApply: true
+---
+
+# Human-in-the-Loop Enforcement
+
+ALL destructive, state-modifying, or client-facing operations REQUIRE explicit human approval before execution. When in doubt: STOP and ASK.
+
+## Terraform — Non-Negotiable Rules
+
+- NEVER run `terraform apply` — the agent proposes code and plan; the human applies
+- NEVER run `terraform destroy` — list every resource that will be destroyed and wait for approval
+- NEVER run `terraform state mv`, `terraform state rm`, or `terraform import` without explicit instruction
+- NEVER run `terraform force-unlock` without documenting the lock ID and confirming no apply is active
+- NEVER change backend configuration or provider credentials without confirmation
+- ALWAYS show the full `terraform plan` output before any proposed apply
+- ALWAYS enumerate what will be **created**, **modified**, and **destroyed** before proposing changes
+- If `terraform plan` shows unexpected drift or unintended resources — STOP, report, do not proceed
+
+### `-target` is a first-class tool in multi-team repos
+
+Real IaC repos accumulate unsynchronized drift from multiple operators. Running a
+plain `terraform plan` surfaces resources modified by others — which could be
+applied accidentally alongside the session's intended changes, including destructive ones.
+
+**The agent SHOULD propose `-target` flags** scoped to the exact resources written
+in the current session. This is not a workaround — it is the standard safe practice
+for collaborative IaC environments.
+
+`terraform plan -target=...` may be run by the agent (or proposed for the operator
+to run). `terraform apply -target=...` remains human-only, always.
+
+## gcloud CLI — Mutations Require Approval
+
+Read-only commands (`list`, `describe`, `get`, `export`) may be run freely for investigation.
+
+The following `gcloud` commands MUST NOT be run without explicit instruction:
+- Any command with `create`, `delete`, `update`, `patch`, `remove`, `set`
+- `add-iam-policy-binding` / `remove-iam-policy-binding`
+- `gcloud compute firewall-rules` mutations
+- `gcloud iam service-accounts keys create` — prefer Workload Identity Federation
+- `gcloud secrets versions add` or any Secret Manager write
+- `gcloud billing` changes
+- `gcloud sql instances` restart, delete, or clone
+
+## IAM Operations
+
+- NEVER grant IAM roles without presenting the exact binding: principal, role, resource scope, and reason
+- NEVER grant primitive roles (`roles/owner`, `roles/editor`) — propose least-privilege equivalents
+- NEVER delete or disable service accounts without approval and a documented rollback plan
+- NEVER rotate service account keys without approval
+- When modifying IAM bindings, ALWAYS show the before/after state
+
+## Cloud Resources — Destructive Operations
+
+Any operation that deletes or overwrites persistent data requires explicit approval:
+- Cloud SQL instance deletion, restart, or wipe
+- GCS bucket deletion or bulk object delete
+- BigQuery dataset or table deletion
+- Cloud Run service or revision deletion
+- VPC, subnet, or firewall rule deletion
+- Artifact Registry repository deletion
+- Secret Manager secret deletion or version destroy
+
+## Secrets and Credentials
+
+- NEVER expose secret values in output, logs, plan files, or comments
+- NEVER decrypt SOPS files without stating which file and why
+- NEVER create service account JSON key files unless Workload Identity Federation is impossible and the human explicitly approves
+- NEVER commit any credential, token, or key to version control
+
+## Client Communication (Jira / Email)
+
+- NEVER send Jira comments without presenting the draft for human review
+- NEVER transition tickets without confirming the target status
+- NEVER create or modify issues without showing proposed content
+- NEVER send notifications or emails on behalf of the operator
+
+## Execution Protocol
+
+Before executing any plan:
+1. Present the complete plan: files to change, resources affected, risks
+2. Wait for explicit confirmation: "approved", "proceed", "sí", "yes"
+3. Execute step by step, reporting after each step
+4. If any step fails or produces unexpected output — STOP and report before continuing
+5. After completion, present a summary of what changed
+
+Approval for step N does NOT imply approval for step N+1.
+Each risky step requires its own confirmation.

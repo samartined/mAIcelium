@@ -1,0 +1,75 @@
+---
+description: GCP architecture principles, project hierarchy, IAM design, and service conventions
+alwaysApply: false
+globs: "**/*.tf,**/settings/**/*.yaml"
+---
+
+# GCP Architecture Principles
+
+## Project Hierarchy
+
+- Resources are organized: Organization → Folders → Projects
+- Each environment (pre, pro, ops) is a **separate GCP project** — never mix environments
+- Project IDs follow pattern: `{client}--{digital_asset}--{env}--{suffix}`
+- Folders group projects by client or business unit, not by environment
+
+## IAM Design
+
+- **Principle of least privilege**: grant only what the workload strictly needs
+- Prefer **predefined roles** over primitive roles (`roles/owner`, `roles/editor`, `roles/viewer`)
+- Prefer **Workload Identity Federation** over service account JSON key files
+- Service accounts are workload identities — one SA per service, not per developer
+- Service account naming: `{purpose}-{env}` (e.g., `cb-api-pro`, `run-worker-pre`)
+- Scope bindings at the narrowest resource level possible (secret > project)
+- Enable `google_project_iam_audit_config` for `DATA_READ`, `DATA_WRITE`, `ADMIN_READ`
+
+## Networking
+
+- Each project has its own VPC or connects via Shared VPC from a host project
+- Serverless services (Cloud Run, Cloud Functions) use **VPC Access Connectors** to reach private resources
+- Firewall rules: deny-all default, allow-specific-inbound pattern
+- NEVER use `0.0.0.0/0` as ingress source in production without documented justification
+- Private Google Access enabled on subnets that need GCP APIs without public internet
+- Use **Private Service Connect** or VPC peering for cross-project connectivity
+- Cloud NAT for egress from private VMs that need internet access
+
+## Compute / Cloud Run
+
+- Container images from **Artifact Registry** — never Docker Hub in production
+- Cloud Run: `--allow-unauthenticated` only for genuinely public endpoints
+- CPU and memory limits set explicitly — never rely on defaults
+- Min/max instances configured for expected traffic patterns
+- VPC connector attached when accessing Cloud SQL, Memorystore, or other private resources
+- Secrets injected via Secret Manager **volume mounts**, not environment variables with plaintext values
+
+## Storage
+
+- GCS: uniform bucket-level access, `public_access_prevention = "enforced"` unless explicitly public
+- Cloud SQL: **private IP only** in production; no public IP; automated backups and point-in-time recovery enabled
+- BigQuery: column-level security for PII; authorized views for cross-dataset access
+- Encryption at rest: Google-managed keys by default; CMEK for regulated/sensitive data
+- Lifecycle policies on GCS buckets to control cost
+
+## Observability
+
+- Cloud Logging: **structured JSON logs**; log sinks to BigQuery for long-term retention
+- Cloud Monitoring: uptime checks, error rate alerts, latency SLOs for production services
+- Cloud Trace: enabled for Cloud Run and Cloud Functions
+- Budget alerts configured on billing accounts with escalation thresholds
+- Log-based metrics for security events (IAM changes, secret access, failed auth)
+
+## Multi-Environment Pattern
+
+- Terraform workspaces: `pre` and `pro` (sometimes `ops` for ops/system resources)
+- All per-environment config in `settings/{workspace}.yaml`
+- `default.yaml` holds shared base values; per-env YAML overrides selectively
+- State backends: separate GCS bucket per environment, separate object prefix per component
+- Resource names always include `${terraform.workspace}` suffix for environment separation
+
+## Cost Controls
+
+- Labels on all resources: `env`, `service`, `owner`, `cost-center`
+- Cloud Run: set `max_instance_count` — unbounded auto-scaling is a cost risk
+- BigQuery: project-level cost controls and per-user query quotas
+- Flag idle resources: Cloud Run services with zero invocations or BigQuery tables with zero queries for 14+ days
+- Evaluate Committed Use Discounts for predictable Cloud SQL and GCE workloads

@@ -1,0 +1,33 @@
+---
+description: Clean Architecture and design principles for software projects in this workspace
+alwaysApply: true
+---
+
+# Architecture Principles
+
+## General design
+- Clear separation of concerns (SRP)
+- Dependencies always point inward (Clean Architecture)
+- Interfaces over concrete implementations
+- Dependency injection over direct instantiation
+
+## Project structure
+- Organize by domain/feature, not by file type
+- Keep modules as decoupled as possible
+- One clear entry point per service/application
+
+## APIs
+- RESTful with URL versioning (/api/v1/)
+- Consistent responses: { data, error, meta }
+- Validate at the boundary (input edges)
+- Document with OpenAPI/Swagger
+
+## Data
+- Versioned migrations, never manual DB changes
+- Separate business logic from data access (Repository pattern)
+- Explicit indexes for frequent queries
+
+## Scalability
+- Design stateless by default
+- Configuration via environment variables
+- Structured logging (JSON) with appropriate levels
