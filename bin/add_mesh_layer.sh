@@ -52,8 +52,13 @@ import sys, os
 root, name, path, client, repo = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 wf = os.path.join(root, "WORKSPACE.md")
 
-with open(wf) as f:
-    content = f.read()
+import datetime
+now = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+if not os.path.exists(wf):
+    content = "# Active workspace\n\nprojects: []\n\ncreated: {}\n".format(now)
+else:
+    with open(wf) as f:
+        content = f.read()
 
 # Build entry
 entry_lines = [f"- name: {name}", f"  path: {path}", f"  client: {client}"]

@@ -84,11 +84,13 @@ python3 -c '
 import sys, datetime, os
 root, name, repo_path = sys.argv[1], sys.argv[2], sys.argv[3]
 wf = os.path.join(root, "WORKSPACE.md")
-with open(wf) as f:
-    content = f.read()
-entry = "- name: {}\n  path: {}\n  added: {}".format(
-    name, repo_path, datetime.datetime.now(datetime.UTC).isoformat()
-)
+now = datetime.datetime.now(datetime.UTC).isoformat()
+if not os.path.exists(wf):
+    content = "# Active workspace\n\nprojects: []\n\ncreated: {}\n".format(now)
+else:
+    with open(wf) as f:
+        content = f.read()
+entry = "- name: {}\n  path: {}\n  added: {}".format(name, repo_path, now)
 if "projects: []" in content:
     content = content.replace("projects: []", "projects:\n" + entry)
 else:
