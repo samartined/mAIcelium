@@ -285,6 +285,31 @@ bin/add_mesh_layer.sh <name> <path> [--client <prefix>] [--repo <url>]
 
 This registers the layer in `WORKSPACE.md` and runs `sync_symlinks.sh` to link its content into all IDEs.
 
+### Removing a layer
+
+```bash
+bin/remove_mesh_layer.sh <name>
+```
+
+Removes all `client--*` symlinks from `.cursor/` and `.agents/`, cleans the `WORKSPACE.md` entry, and regenerates the Claude Code context. The layer repo on disk is left untouched.
+
+### Setting up on a new machine
+
+Clone the workspace, then clone each layer repo into `mesh/layers/` and register it:
+
+```bash
+git clone git@github.com:your-org/maicelium ~/Dev/mAIcelium
+cd ~/Dev/mAIcelium
+
+# Clone each layer into mesh/layers/
+git clone git@github.com:your-org/mesh-acme mesh/layers/acme
+
+# Register and sync
+bin/add_mesh_layer.sh acme mesh/layers/acme --client acme
+```
+
+`mesh/layers/` is gitignored — each layer is a standalone repo cloned independently.
+
 ### How layers are assembled
 
 At sync time, `sync_symlinks.sh`:
