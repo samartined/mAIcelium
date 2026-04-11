@@ -83,6 +83,10 @@ import sys, os
 root, name = sys.argv[1], sys.argv[2]
 wf = os.path.join(root, "WORKSPACE.md")
 
+if not os.path.exists(wf):
+    print("  ⏭ WORKSPACE.md does not exist, skipping")
+    sys.exit(0)
+
 with open(wf) as f:
     lines = f.readlines()
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/bin/_lib.sh"
 echo "🍄 Initializing mAIcelium at: $ROOT"
 
 mkdir -p "$ROOT"/mesh/skills/{_common/{code-review,debug,documentation,git-workflow,planning,refactoring,security-review,testing,workspace-guide,cursor-workspace-migration},_clients,_domains/{frontend-react,backend-python,devops,obsidian}}
@@ -95,6 +96,14 @@ echo "  ✔ smug symlink created"
 
 chmod +x "$ROOT"/bin/*.sh
 echo "  ✔ Script permissions set"
+
+echo "  → Generating workspace file..."
+_regenerate_workspace_file "$ROOT"
+echo "  ✔ Workspace file created (mAIcelium.code-workspace)"
+
+echo "  → Generating Claude project context..."
+_regenerate_claude_context "$ROOT"
+echo "  ✔ Claude project context created"
 
 echo ""
 echo "✅ mAIcelium initialized successfully."

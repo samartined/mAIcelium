@@ -51,20 +51,23 @@ python3 -c '
 import sys, os
 root, name = sys.argv[1], sys.argv[2]
 wf = os.path.join(root, "WORKSPACE.md")
-with open(wf) as f:
-    lines = f.readlines()
-out, skip = [], False
-for line in lines:
-    if line.strip().startswith("- name: " + name):
-        skip = True
-    elif skip and line.startswith("  "):
-        continue
-    else:
-        skip = False
-        out.append(line)
-with open(wf, "w") as f:
-    f.writelines(out)
-print("  ✔ WORKSPACE.md updated")
+if not os.path.exists(wf):
+    print("  ⏭ WORKSPACE.md does not exist, skipping")
+else:
+    with open(wf) as f:
+        lines = f.readlines()
+    out, skip = [], False
+    for line in lines:
+        if line.strip().startswith("- name: " + name):
+            skip = True
+        elif skip and line.startswith("  "):
+            continue
+        else:
+            skip = False
+            out.append(line)
+    with open(wf, "w") as f:
+        f.writelines(out)
+    print("  ✔ WORKSPACE.md updated")
 ' "$ROOT" "$NAME"
 
 # ── Regenerate Claude Code project context ────────────────────────────────────
