@@ -43,6 +43,10 @@ fi
 ln -sfn "$REPO_PATH" "$LINK"
 echo "✔ Project '$NAME' added → $REPO_PATH"
 
+# Ensure IDE directories exist (may not if init.sh hasn't been run yet)
+mkdir -p "$ROOT/.cursor/rules" "$ROOT/.cursor/skills-cursor"
+mkdir -p "$ROOT/.agents/rules" "$ROOT/.agents/skills"
+
 if [ "$CODE_ONLY" = false ]; then
   # ── Import project-specific rules ─────────────────────────────────────────
   PROJECT_RULES_DIR="$REPO_PATH/$MESH_PROJECT_DATA_DIR/$MESH_PROJECT_RULES_SUBDIR"

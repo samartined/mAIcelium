@@ -1,0 +1,58 @@
+---
+description: Terraform and GCP conventions for IaC repositories in this workspace
+globs: "**/*.tf"
+alwaysApply: false
+---
+
+# Terraform / GCP Conventions
+
+## State Management
+- Backend is ALWAYS GCS (`backend "gcs"`) defined in `providers.tf` or `versions.tf`
+- NEVER use local state
+- Each project has its own state bucket with pattern `{project}--tfstate-{suffix}` or `{project}--iac-tfstate-{suffix}`
+- State prefix when used: `terraform/state`
+
+## Provider Configuration
+- Provider project and region come from `local.settings.project.id` and `local.settings.region_name`
+- Use `google-beta` provider when beta features are needed
+- Use `carlpett/sops` provider for encrypted secrets
+- Pin provider versions with `~>` or `>=`
+- Use provider alias `sys` for ops/system project resources
+
+## Settings Pattern
+- Configuration lives in `settings/*.yaml` (per-workspace YAML merged over `default.yaml`)
+- Load with `yamldecode(file("./settings/${terraform.workspace}.yaml"))` merged over default
+- Two merge styles exist: manual merge or `Invicton-Labs/deepmerge/null` module
+- YAML keys: `client`, `digital_asset`, `project`, `project_sys`, `region_name`, `groups`
+
+## Secrets Management
+- Use SOPS with GCP KMS for secret encryption (`.sops.yaml` in repo root)
+- Secrets stored in `secrets/` directory, organized by environment (`pre/`, `pro/`, `ops/`)
+- NEVER hardcode credentials, API keys, or tokens in `.tf` files
+- Use `google_secret_manager_secret` or the `tf_gcp_sops2secretmanager` module
+
+## Naming Conventions
+- File naming: `<domain>.<resource_type>.tf` (e.g. `workagreement.cloud_build.tf`)
+- Resource labels: short, stable identifiers (e.g. `skills`, `workagreement`)
+- GCP resource names: append `-${terraform.workspace}` for environment separation
+- Service accounts: `cb-{service}-${terraform.workspace}` pattern
+- Use `local.base_name` or `local.base_name_medium` for composite names
+
+## Shared Modules
+- All reusable modules are on Bitbucket: `git::ssh://git@bitbucket.org/i2tic/tf_gcp_*.git`
+- Always pin module versions with `?ref=vX.Y-YYYYMMDDHHMI`
+- Available modules: `tf_gcp_cloudrun`, `tf_gcp_cloudsql`, `tf_gcp_networking`, `tf_gcp_storage`, `tf_gcp_artifactregistry`, `tf_gcp_source-repository`, `tf_gcp_sops2secretmanager`
+
+## Code Style (CRITICAL)
+
+- ALL Terraform code MUST be in **English**: resource names, display_names, descriptions, string literals, condition names.
+- NEVER include Jira ticket IDs anywhere in code: not in resource names, display_names, comments, labels, or descriptions
+- NEVER add code comments unless they explain genuinely non-obvious logic. Zero comments is the default.
+- NEVER use personal names in resource names or display_names. Use functional role descriptions instead (e.g. `email_invoices_dev`, `email_invoices_bi`).
+- BEFORE writing ANY new Terraform code, ALWAYS read at least 2-3 existing files of the same resource type in the same repo. Replicate their exact style: naming patterns, format() usage, string conventions, indentation, argument ordering.
+
+## Security Rules
+- NEVER use `0.0.0.0/0` in firewall rules without documented justification
+- NEVER use IAM wildcard bindings (`roles/*` on all resources)
+- Require encryption at rest for databases and storage
+- Use VPC connectors for serverless services when configured
