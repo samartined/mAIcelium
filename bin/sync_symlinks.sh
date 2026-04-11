@@ -231,7 +231,7 @@ for domain_dir in "$ROOT"/mesh/skills/_domains/*/; do
     for skill_dir in "$domain_dir"*/; do
       [ -d "$skill_dir" ] || continue
       skillname=$(basename "$skill_dir")
-      ln -sfn "../../../mesh/skills/_domains/$domain/$skillname" "$ROOT/.agents/skills/${domain}--${skillname}"
+      ln -sfn "../../mesh/skills/_domains/$domain/$skillname" "$ROOT/.agents/skills/${domain}--${skillname}"
     done
   fi
 done
@@ -266,6 +266,8 @@ for layer in layers:
     if not os.path.isdir(skills_dir):
         continue
     for skill_name in sorted(os.listdir(skills_dir)):
+        if skill_name.startswith('_'):
+            continue  # skip meta-directories (_common, _domains, etc.)
         src = os.path.join(skills_dir, skill_name)
         if not os.path.isdir(src):
             continue
