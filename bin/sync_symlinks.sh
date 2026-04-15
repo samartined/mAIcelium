@@ -25,6 +25,134 @@ if [ -n "$BROKEN" ]; then
   done
 fi
 
+# ── Clean broken symlinks in mesh/ internal mirrors ──────────────────────────
+for MIRROR_DIR in \
+  "$ROOT/mesh/layers" \
+  "$ROOT/mesh/skills/_common" \
+  "$ROOT/mesh/skills/_domains" \
+  "$ROOT/mesh/skills/_clients" \
+  "$ROOT/mesh/rules/_clients" \
+  "$ROOT/mesh/rules/_domains"; do
+  [ -d "$MIRROR_DIR" ] || continue
+  BROKEN=$(find -L "$MIRROR_DIR" -maxdepth 3 -type l 2>/dev/null || true)
+  if [ -n "$BROKEN" ]; then
+    echo "⚠️  Removing broken symlinks in ${MIRROR_DIR#"$ROOT"/}:"
+    echo "$BROKEN" | while read -r link; do
+      echo "  - ${link#"$ROOT"/}"
+      rm "$link"
+    done
+  fi
+done
+
+# ── Materialize mesh layers → mesh/ internal dirs ────────────────────────────
+# For every layer registered in WORKSPACE.md, expose its content through the
+# mesh/ tree so it appears uniformly in the file explorer:
+#   - mesh/layers/<name>                → external layer path (symlink if external)
+#   - mesh/skills/_common/<skill>       → ../../layers/<name>/skills/_common/<skill>
+#   - mesh/skills/_domains/<skill>      → ../../layers/<name>/skills/_domains/<skill>
+#   - mesh/skills/_clients/<client>/<s> → ../../../layers/<name>/skills/<s>
+#   - mesh/rules/_domains/<domain>/<r>  → ../../../layers/<name>/rules/_domains/<d>/<r>
+#   - mesh/rules/_clients/<client>/<r>  → ../../../layers/<name>/rules/<r>
+# Downstream _clients/*, _common/*, _domains/* loops then produce .cursor/ and
+# .agents/ symlinks transparently — no layer-specific duplication needed.
+python3 - "$ROOT" "$MESH_LAYERS" <<'PYEOF'
+import json, os, sys
+
+root, layers_json = sys.argv[1], sys.argv[2]
+layers = json.loads(layers_json)
+
+mesh_layers_dir    = os.path.join(root, "mesh", "layers")
+mesh_skills_common = os.path.join(root, "mesh", "skills", "_common")
+mesh_skills_domain = os.path.join(root, "mesh", "skills", "_domains")
+mesh_skills_client = os.path.join(root, "mesh", "skills", "_clients")
+mesh_rules_client  = os.path.join(root, "mesh", "rules", "_clients")
+mesh_rules_domain  = os.path.join(root, "mesh", "rules", "_domains")
+
+for d in (mesh_layers_dir, mesh_skills_common, mesh_skills_domain,
+          mesh_skills_client, mesh_rules_client, mesh_rules_domain):
+    os.makedirs(d, exist_ok=True)
+
+def safe_link(src_abs, dst):
+    """Create relative symlink dst → src_abs.
+    - Replace stale symlinks.
+    - Leave real files/dirs untouched (caller's responsibility)."""
+    rel = os.path.relpath(src_abs, os.path.dirname(dst))
+    if os.path.islink(dst):
+        if os.readlink(dst) == rel:
+            return
+        os.remove(dst)
+    elif os.path.exists(dst):
+        return
+    os.symlink(rel, dst)
+
+for layer in layers:
+    name = layer['name']
+    client = layer.get('client', name)
+    layer_path = layer.get('path', '')
+    if not layer_path or not os.path.isdir(layer_path):
+        print(f"  ⚠️  Layer '{name}' not found: {layer_path}")
+        continue
+
+    # 1. Ensure mesh/layers/<name> is accessible
+    mesh_layer = os.path.join(mesh_layers_dir, name)
+    layer_real = os.path.realpath(layer_path)
+    if os.path.islink(mesh_layer):
+        if os.path.realpath(mesh_layer) != layer_real:
+            os.remove(mesh_layer)
+            os.symlink(layer_path, mesh_layer)
+    elif os.path.isdir(mesh_layer):
+        if os.path.realpath(mesh_layer) != layer_real:
+            print(f"  ⚠️  mesh/layers/{name} is a real directory not matching "
+                  f"the registered path — left untouched")
+    elif not os.path.exists(mesh_layer):
+        os.symlink(layer_path, mesh_layer)
+
+    # All child paths are addressed through mesh/layers/<name> so that
+    # the relative symlinks we produce stay valid across moves.
+    skills_src = os.path.join(mesh_layer, "skills")
+    if os.path.isdir(skills_src):
+        for entry in sorted(os.listdir(skills_src)):
+            entry_abs = os.path.join(skills_src, entry)
+            if not os.path.isdir(entry_abs):
+                continue
+            if entry == "_common":
+                for sk in sorted(os.listdir(entry_abs)):
+                    sk_abs = os.path.join(entry_abs, sk)
+                    if os.path.isdir(sk_abs):
+                        safe_link(sk_abs, os.path.join(mesh_skills_common, sk))
+            elif entry == "_domains":
+                for sk in sorted(os.listdir(entry_abs)):
+                    sk_abs = os.path.join(entry_abs, sk)
+                    if os.path.isdir(sk_abs):
+                        safe_link(sk_abs, os.path.join(mesh_skills_domain, sk))
+            else:
+                client_dir = os.path.join(mesh_skills_client, client)
+                os.makedirs(client_dir, exist_ok=True)
+                safe_link(entry_abs, os.path.join(client_dir, entry))
+
+    rules_src = os.path.join(mesh_layer, "rules")
+    if os.path.isdir(rules_src):
+        for entry in sorted(os.listdir(rules_src)):
+            entry_abs = os.path.join(rules_src, entry)
+            if os.path.isdir(entry_abs) and entry == "_domains":
+                for domain in sorted(os.listdir(entry_abs)):
+                    domain_abs = os.path.join(entry_abs, domain)
+                    if not os.path.isdir(domain_abs):
+                        continue
+                    domain_dst = os.path.join(mesh_rules_domain, domain)
+                    os.makedirs(domain_dst, exist_ok=True)
+                    for fn in sorted(os.listdir(domain_abs)):
+                        if fn.endswith(".mdc"):
+                            safe_link(os.path.join(domain_abs, fn),
+                                      os.path.join(domain_dst, fn))
+            elif os.path.isfile(entry_abs) and entry.endswith(".mdc"):
+                client_dir = os.path.join(mesh_rules_client, client)
+                os.makedirs(client_dir, exist_ok=True)
+                safe_link(entry_abs, os.path.join(client_dir, entry))
+
+    print(f"  ✔ Layer '{name}' materialized into mesh/ (client: {client})")
+PYEOF
+
 # ── Recreate mAIcelium global rules → .cursor/rules/ ────────────────────────
 for rule in "$ROOT"/mesh/rules/*.mdc; do
   [ -f "$rule" ] || continue
@@ -54,36 +182,9 @@ for client_dir in "$ROOT"/mesh/rules/_clients/*/; do
   done
 done
 
-# ── Mesh layer rules → .cursor/rules/ and .agents/rules/ ─────────────────────
-python3 - "$ROOT" "$MESH_LAYERS" <<'PYEOF'
-import json, os, sys
-
-root, layers_json = sys.argv[1], sys.argv[2]
-layers = json.loads(layers_json)
-
-cursor_rules = os.path.join(root, ".cursor", "rules")
-agents_rules = os.path.join(root, ".agents", "rules")
-
-for layer in layers:
-    client = layer.get('client', layer['name'])
-    layer_path = layer.get('path', '')
-    if not layer_path or not os.path.isdir(layer_path):
-        print(f"  ⚠️  Layer '{layer['name']}' not found: {layer_path}")
-        continue
-    rules_dir = os.path.join(layer_path, 'rules')
-    if not os.path.isdir(rules_dir):
-        continue
-    for fname in sorted(os.listdir(rules_dir)):
-        if not fname.endswith('.mdc'):
-            continue
-        src = os.path.join(rules_dir, fname)
-        for dst_dir in [cursor_rules, agents_rules]:
-            dst = os.path.join(dst_dir, f"{client}--{fname}")
-            if os.path.islink(dst) or os.path.exists(dst):
-                os.remove(dst)
-            os.symlink(src, dst)
-    print(f"  ✔ Layer '{layer['name']}' rules linked ({client}--*)")
-PYEOF
+# Layer rules are materialized into mesh/rules/_clients/<client>/ and
+# mesh/rules/_domains/<domain>/ by the materialization block above; downstream
+# _clients/ and _domains/ loops then produce .cursor/rules/ symlinks.
 
 # ── Recreate mAIcelium rules → .agents/rules/ (Antigravity) ─────────────────
 mkdir -p "$ROOT/.agents/rules"
@@ -247,37 +348,10 @@ for client_dir in "$ROOT"/mesh/skills/_clients/*/; do
   done
 done
 
-# ── Mesh layer skills → .cursor/skills-cursor/ and .agents/skills/ ────────────
-python3 - "$ROOT" "$MESH_LAYERS" <<'PYEOF'
-import json, os, sys
-
-root, layers_json = sys.argv[1], sys.argv[2]
-layers = json.loads(layers_json)
-
-cursor_skills = os.path.join(root, ".cursor", "skills-cursor")
-agents_skills = os.path.join(root, ".agents", "skills")
-
-for layer in layers:
-    client = layer.get('client', layer['name'])
-    layer_path = layer.get('path', '')
-    if not layer_path or not os.path.isdir(layer_path):
-        continue
-    skills_dir = os.path.join(layer_path, 'skills')
-    if not os.path.isdir(skills_dir):
-        continue
-    for skill_name in sorted(os.listdir(skills_dir)):
-        if skill_name.startswith('_'):
-            continue  # skip meta-directories (_common, _domains, etc.)
-        src = os.path.join(skills_dir, skill_name)
-        if not os.path.isdir(src):
-            continue
-        for dst_dir in [cursor_skills, agents_skills]:
-            dst = os.path.join(dst_dir, f"{client}--{skill_name}")
-            if os.path.islink(dst) or os.path.exists(dst):
-                os.remove(dst)
-            os.symlink(src, dst)
-    print(f"  ✔ Layer '{layer['name']}' skills linked ({client}--*)")
-PYEOF
+# Layer skills are materialized into mesh/skills/_clients/<client>/,
+# mesh/skills/_common/ and mesh/skills/_domains/ by the materialization block
+# above; downstream _clients/, _common/ and _domains/ loops then produce
+# .cursor/skills-cursor/ and .agents/skills/ symlinks.
 
 # Map commands to workflows
 for cmd_file in "$ROOT"/mesh/commands/*.md; do
