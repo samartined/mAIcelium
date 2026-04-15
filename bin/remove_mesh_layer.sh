@@ -76,6 +76,73 @@ for link in "$ROOT"/.agents/skills/${CLIENT}--*; do
 done
 [ "$REMOVED" -gt 0 ] && echo "  ✔ $REMOVED skill symlink(s) removed from .agents/skills/"
 
+# ── Remove materialized symlinks from mesh/ internal mirrors ─────────────────
+# Any symlink under mesh/skills/_common, mesh/skills/_domains, mesh/rules/_domains
+# that resolves into mesh/layers/<name>/ belongs to this layer and must go.
+# mesh/skills/_clients/<client>/ and mesh/rules/_clients/<client>/ are fully
+# owned by this client — remove them entirely if no real files remain.
+python3 - "$ROOT" "$NAME" "$CLIENT" <<'PYEOF'
+import os, sys, shutil
+
+root, name, client = sys.argv[1], sys.argv[2], sys.argv[3]
+layer_dir = os.path.join(root, "mesh", "layers", name)
+layer_real = os.path.realpath(layer_dir) if os.path.exists(layer_dir) else None
+
+removed = 0
+
+# Scan _common, _domains, and rules/_domains for symlinks pointing into this layer
+scan_dirs = [
+    os.path.join(root, "mesh", "skills", "_common"),
+    os.path.join(root, "mesh", "skills", "_domains"),
+    os.path.join(root, "mesh", "rules", "_domains"),
+]
+for base in scan_dirs:
+    if not os.path.isdir(base):
+        continue
+    for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+        for entry in list(dirnames) + filenames:
+            p = os.path.join(dirpath, entry)
+            if not os.path.islink(p):
+                continue
+            try:
+                target = os.path.realpath(p)
+            except OSError:
+                continue
+            if layer_real and target.startswith(layer_real + os.sep):
+                os.remove(p)
+                removed += 1
+
+# _clients/<client>/ — remove symlinks that belong to this layer, then
+# drop the whole dir if it's empty (pure layer ownership).
+for kind in ("skills", "rules"):
+    client_dir = os.path.join(root, "mesh", kind, "_clients", client)
+    if not os.path.isdir(client_dir):
+        continue
+    for entry in list(os.listdir(client_dir)):
+        p = os.path.join(client_dir, entry)
+        if os.path.islink(p):
+            try:
+                target = os.path.realpath(p)
+            except OSError:
+                target = ""
+            if not layer_real or target.startswith(layer_real + os.sep):
+                os.remove(p)
+                removed += 1
+    if not os.listdir(client_dir):
+        os.rmdir(client_dir)
+
+# Finally, remove mesh/layers/<name> if it's a symlink (leave real dirs alone)
+if os.path.islink(layer_dir):
+    os.remove(layer_dir)
+    removed += 1
+    print(f"  ✔ mesh/layers/{name} symlink removed")
+elif os.path.isdir(layer_dir):
+    print(f"  ⚠️  mesh/layers/{name} is a real directory — left in place")
+
+if removed:
+    print(f"  ✔ {removed} mesh/ symlink(s) cleaned for layer '{name}'")
+PYEOF
+
 # ── Remove entry from WORKSPACE.md ───────────────────────────────────────────
 python3 - "$ROOT" "$NAME" <<'PYEOF'
 import sys, os

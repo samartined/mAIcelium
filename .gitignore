@@ -2,10 +2,23 @@
 /projects/*
 !/projects/.gitkeep
 
-# Mesh layers (standalone git repos living inside mesh/layers/)
-# Each layer is its own repo — not tracked by the workspace repo
+# Mesh layers (standalone git repos or symlinks living inside mesh/layers/)
+# Each layer is its own repo or external symlink — not tracked by the workspace repo
 /mesh/layers/*
 !/mesh/layers/.gitkeep
+
+# Materialized layer content (symlinks created by sync_symlinks.sh)
+# These reflect layer content into the mesh structure for file explorer visibility
+/mesh/skills/_common/*
+!/mesh/skills/_common/.gitkeep
+/mesh/skills/_domains/*
+!/mesh/skills/_domains/.gitkeep
+/mesh/skills/_clients/*
+!/mesh/skills/_clients/.gitkeep
+/mesh/rules/_domains/*
+!/mesh/rules/_domains/.gitkeep
+/mesh/rules/_clients/*
+!/mesh/rules/_clients/.gitkeep
 
 # Local registry (contains user-specific paths)
 /repos/_registry.yaml
