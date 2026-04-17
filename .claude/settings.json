@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash bin/sync_symlinks.sh > /dev/null && cat .claude/projects-context.md || (echo '⚠️  sync_symlinks.sh failed — context may be stale' >&2 && cat .claude/projects-context.md)",
+            "command": "bash bin/sync_symlinks.sh > /dev/null && echo \"Context synced. Read .claude/projects-context.md for workspace and project rules.\" || echo \"⚠️  sync_symlinks.sh failed — context may be stale. Read .claude/projects-context.md.\"",
             "timeout": 5
           }
         ]
