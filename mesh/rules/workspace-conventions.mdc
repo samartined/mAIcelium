@@ -5,14 +5,70 @@ alwaysApply: true
 
 # Workspace Conventions
 
-## Source of truth
+## Source of truth — native vs shared
 
-All AI configuration lives in `mesh/`. The dotfolders (`.cursor/`, `.claude/`,
-`.agents/`) are **auto-generated mirrors** via symlinks. Never write
-directly to them.
+AI configuration comes from two distinct origins that must not be confused:
 
-When creating or modifying any AI resource (rule, skill, command, prompt),
-always target the canonical path under `mesh/`.
+**mAIcelium-native** — lives directly in the mAIcelium repo and is intrinsic
+to this workspace. There is no "source" elsewhere. Write and commit here.
+
+```
+mesh/rules/<name>.mdc              ← native rule
+mesh/skills/<name>/SKILL.md        ← native skill (flat; no _common/_domains/_clients)
+mesh/commands/<name>.md            ← slash command
+mesh/commands/scripts/<name>.py    ← command script
+mesh/prompts/<name>.md             ← prompt template
+mesh/mcp/<name>.json               ← MCP server definition
+bin/**                             ← workspace tooling (hooks, sync, lifecycle)
+```
+
+**Shared (layer-managed)** — lives in an external repo mounted under
+`mesh/layers/<layer>/`. The content is reflected into `mesh/` through two
+tiers of symlinks managed by `bin/sync_symlinks.sh`:
+
+```
+mesh/layers/<layer>/skills|rules/...   ← TIER 1 source of truth (layer repo, own .git)
+         ↓  (symlink)
+mesh/{skills,rules}/{_common,_domains,_clients}/...   ← tier-1 reflection (gitignored)
+         ↓  (symlink)
+.cursor/, .agents/, .claude/...                       ← tier-2 reflection (IDE dotfolders)
+```
+
+Everything under `mesh/skills/{_common,_domains,_clients}/…` and
+`mesh/rules/{_domains,_clients}/…` is a reflection of a layer and MUST be
+edited at the layer path, never at the reflection path.
+
+## Layer vs reflection — where to edit (decision tree)
+
+Before editing a rule or skill, resolve its true source:
+
+1. Is the path under `mesh/skills/{_common,_domains,_clients}/…` or
+   `mesh/rules/{_domains,_clients}/…`?
+   - **No** → it is a mAIcelium-native resource (e.g. `mesh/rules/global.mdc`,
+     `mesh/skills/workspace-guide/SKILL.md`). Edit directly; commit in the
+     mAIcelium repo.
+   - **Yes** → continue.
+2. Resolve the real path:
+   ```bash
+   python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" <file>
+   ```
+   - If the realpath is under `mesh/layers/<layer>/…` → the reflection is a
+     proper symlink; editing the reflection path transparently writes the layer
+     file. Allowed, but prefer the layer path explicitly and commit in the
+     **layer repo** (each layer has its own `.git`), not in mAIcelium.
+   - If the realpath is still under `mesh/skills/…` or `mesh/rules/…` → it is
+     a **stale real reflection** (drift). DO NOT edit it here. Port the change
+     to the matching `mesh/layers/<layer>/…` path, commit inside the layer
+     repo, then run `bin/sync_symlinks.sh --fix-drift` to convert the
+     reflection into a proper symlink.
+3. If unsure which layer owns the content, list `mesh/layers/` and search for
+   the matching relative path. Every entry under
+   `_common|_domains|_clients` maps 1:1 to
+   `mesh/layers/<layer>/skills/{_common,_domains}/<name>` or
+   `mesh/layers/<layer>/skills/<client-name>` for client entries.
+
+The `guard-write.sh` PreToolUse hook enforces this: writes to stale reflections
+are blocked and the agent is redirected to the correct layer path.
 
 ## Naming
 
@@ -26,18 +82,34 @@ Slash command responses must end with a single emoji-prefixed status line:
 
 ## File placement quick reference
 
-| What              | Where                                          |
-|-------------------|------------------------------------------------|
-| Global rule       | `mesh/rules/<name>.mdc`                        |
-| Domain rule       | `mesh/rules/_domains/<domain>/<name>.mdc`      |
-| Client rule       | `mesh/rules/_clients/<client>/<name>.mdc`      |
-| Universal skill   | `mesh/skills/_common/<name>/SKILL.md`          |
-| Domain skill      | `mesh/skills/_domains/<domain>/<name>/SKILL.md`|
-| Client skill      | `mesh/skills/_clients/<client>/<name>/SKILL.md`|
-| MCP definition    | `mesh/mcp/<name>.json`                         |
-| Command           | `mesh/commands/<name>.md`                      |
-| Script            | `mesh/commands/scripts/<name>.py`              |
-| Prompt template   | `mesh/prompts/<name>.md`                       |
+| What                              | Where (canonical source of truth)                                        |
+|-----------------------------------|--------------------------------------------------------------------------|
+| Global rule (mAIcelium-native)    | `mesh/rules/<name>.mdc`                                                  |
+| Native skill (mAIcelium-native)   | `mesh/skills/<name>/SKILL.md`                                            |
+| Domain rule (shared)              | `mesh/layers/<layer>/rules/_domains/<domain>/<name>.mdc`                 |
+| Client rule (shared)              | `mesh/layers/<layer>/rules/<name>.mdc` (layer's name maps to its client) |
+| Universal skill (shared)          | `mesh/layers/<layer>/skills/_common/<name>/SKILL.md`                     |
+| Domain skill (shared)             | `mesh/layers/<layer>/skills/_domains/<domain>/<name>/SKILL.md`           |
+| Client skill (shared)             | `mesh/layers/<layer>/skills/<name>/SKILL.md`                             |
+| MCP definition                    | `mesh/mcp/<name>.json`                                                   |
+| Command                           | `mesh/commands/<name>.md`                                                |
+| Script                            | `mesh/commands/scripts/<name>.py`                                        |
+| Prompt template                   | `mesh/prompts/<name>.md`                                                 |
+
+A skill or rule is **mAIcelium-native** when it describes the workspace
+itself (architecture, conventions, hooks, slash commands, migrations) — it
+has no meaning outside this repo and must not live in a shared layer.
+Examples: `workspace-guide`, `cursor-workspace-migration`,
+`workspace-conventions`, `maicelium-identity`.
+
+A skill or rule is **shared** when it encodes reusable knowledge that could
+be consumed by any mAIcelium-style workspace — engineering practices,
+domain playbooks, client-specific runbooks. These belong to a layer.
+
+The paths under `mesh/{skills,rules}/{_common,_domains,_clients}/…` are
+reflections only — `.gitignore` excludes them from the mAIcelium repo on
+purpose. Edit the layer, commit in the layer repo, then run
+`bin/sync_symlinks.sh`.
 
 ## MCP configuration
 
@@ -74,3 +146,20 @@ independently — credentials are never stored in `mesh/`.
 - `.agents/skills/*` / `.agents/workflows/*` — symlinks created by `bin/sync_symlinks.sh`
 - `.agents/mcp.json` — generated by `bin/sync_symlinks.sh` from `mesh/mcp/`
 - `.mcp.json` — generated by `bin/sync_symlinks.sh` from `mesh/mcp/` (Claude Code)
+- `mesh/{skills,rules}/{_common,_domains,_clients}/*` — layer reflections materialized by `bin/sync_symlinks.sh`; the source of truth lives in `mesh/layers/<layer>/`
+
+## Layer drift
+
+When `bin/sync_symlinks.sh` finds a reflection that is a real file/directory
+instead of a symlink (typically leftover content from before the layer model),
+it prints a drift report at the end of the run and takes no destructive
+action. Two outcomes:
+
+- **identical drift** — reflection matches the layer byte-for-byte. Re-run
+  `bin/sync_symlinks.sh --fix-drift` to replace it with a symlink.
+- **divergent drift** — reflection and layer differ. Resolve manually: port
+  the delta into the layer path, commit in the layer repo, remove the stale
+  reflection, then re-run the sync.
+
+Never overwrite divergent drift blindly — it usually means a prior agent edited
+the reflection instead of the layer.

@@ -300,6 +300,17 @@ done
 # (Layer rules already linked above in the shared Python block)
 
 # ── Recreate mAIcelium global skills → .cursor/skills-cursor/ ────────────────
+# Native skills: direct children of mesh/skills/ (e.g. mesh/skills/workspace-guide/)
+# — these are mAIcelium-intrinsic, tracked in the mAIcelium repo itself, and do
+# not live in any layer. Skipped: the special _common/_domains/_clients buckets.
+for skill_dir in "$ROOT"/mesh/skills/*/; do
+  [ -d "$skill_dir" ] || continue
+  name=$(basename "$skill_dir")
+  case "$name" in _common|_domains|_clients) continue ;; esac
+  [ -f "$skill_dir/SKILL.md" ] || continue
+  ln -sfn "../../mesh/skills/$name" "$ROOT/.cursor/skills-cursor/$name"
+done
+
 # _common skills: direct children (e.g., _common/planning/)
 for skill_dir in "$ROOT"/mesh/skills/_common/*/; do
   [ -d "$skill_dir" ] || continue
@@ -387,6 +398,15 @@ if [ -n "$BROKEN" ]; then
     rm "$link"
   done
 fi
+
+# Native skills (mesh/skills/<name>/) → .agents/skills/
+for skill_dir in "$ROOT"/mesh/skills/*/; do
+  [ -d "$skill_dir" ] || continue
+  name=$(basename "$skill_dir")
+  case "$name" in _common|_domains|_clients) continue ;; esac
+  [ -f "$skill_dir/SKILL.md" ] || continue
+  ln -sfn "../../mesh/skills/$name" "$ROOT/.agents/skills/$name"
+done
 
 # Flatten _common skills → .agents/skills/
 for skill_dir in "$ROOT"/mesh/skills/_common/*/; do
