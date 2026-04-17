@@ -62,5 +62,14 @@ rules and active project rules inlined. It is regenerated automatically via
 the `SessionStart` hook (runs `bin/sync_symlinks.sh` on every new conversation)
 and on every `/add_project` or `/remove_project`.
 
-**At the start of every session, read `.claude/projects-context.md`** to load
-the active workspace rules and project-specific context before doing any work.
+**IMPORTANT — mandatory at every session start:**
+The SessionStart hook only syncs and regenerates the file; it does NOT inject
+its contents into context. You MUST explicitly read the file before doing any work:
+
+```
+Read .claude/projects-context.md
+```
+
+The file can be large. Read it in two passes if needed:
+- Lines 1–300: workspace rules (always read first)
+- Lines 300+: per-project rules (read the section for the active project)
