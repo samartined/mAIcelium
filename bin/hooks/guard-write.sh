@@ -66,5 +66,31 @@ case "$BASENAME" in
     ;;
 esac
 
-# All checks passed — allow silently
+# ── Layer-managed reflections ────────────────────────────────────────────────
+# Paths under mesh/skills/{_common,_domains,_clients}/ and
+# mesh/rules/{_domains,_clients}/ are reflections of content that lives in
+# mesh/layers/<layer>/. When the reflection is properly symlinked into a layer,
+# edits transparently reach the source of truth via the symlink — allow those.
+# When the reflection is a real directory/file (stale drift), block the write
+# and instruct the agent to edit the canonical path inside mesh/layers/.
+case "$REL_PATH" in
+  mesh/skills/_common/*|mesh/skills/_domains/*|mesh/skills/_clients/*|mesh/rules/_domains/*|mesh/rules/_clients/*)
+    if command -v python3 &>/dev/null; then
+      if [ -e "$FILE_PATH" ]; then
+        REAL=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH")
+      else
+        DIR=$(dirname "$FILE_PATH")
+        while [ ! -e "$DIR" ] && [ "$DIR" != "/" ]; do DIR=$(dirname "$DIR"); done
+        REAL=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$DIR")/$(basename "$FILE_PATH")
+      fi
+      case "$REAL" in
+        "$ROOT"/mesh/layers/*) ;;
+        *)
+          block "Layer-managed path: $REL_PATH is a stale reflection, not a symlink to a source-of-truth layer. Edit the canonical file under mesh/layers/<layer>/ and run bin/sync_symlinks.sh. Current realpath: $REAL"
+          ;;
+      esac
+    fi
+    ;;
+esac
+
 exit 0
