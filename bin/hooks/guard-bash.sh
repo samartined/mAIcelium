@@ -53,5 +53,16 @@ if echo "$NORM" | grep -qE 'chmod\s+777'; then
   block "Blocked: chmod 777 sets world-writable permissions. Use more restrictive permissions."
 fi
 
+# ── Terraform preflight enforcement ──────────────────────────────────────────
+# Require explicit tfswitch preflight for state-aware Terraform commands.
+# This prevents accidental runs with a mismatched Terraform version vs repo constraints.
+if echo "$NORM" | grep -qE '(^|[;&|[:space:]])(terraform|tf)([[:space:]]|$)'; then
+  if echo "$NORM" | grep -qE '(terraform|tf)\s+(init|plan|apply|destroy|validate|import|state|workspace\s+select)\b'; then
+    if ! echo "$NORM" | grep -qE 'tfswitch\b'; then
+      block "Blocked: Terraform command requires tfswitch preflight in the same command. Run '/bin/bash -c '\''unset NO_COLOR FORCE_COLOR && tfswitch'\''' before Terraform."
+    fi
+  fi
+fi
+
 # All checks passed — allow silently
 exit 0
