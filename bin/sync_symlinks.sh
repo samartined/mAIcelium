@@ -4,6 +4,30 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/bin/_lib.sh"
 _load_conventions "$ROOT"
 MESH_LAYERS="$(_load_mesh_layers "$ROOT")"
+
+# ── Optional flags ───────────────────────────────────────────────────────────
+# --fix-drift : when a mesh/ reflection exists as a real file/dir instead of a
+#               symlink to a layer, replace it with a symlink IF its content is
+#               identical to the layer's version. Divergent reflections are
+#               always reported and never overwritten.
+FIX_DRIFT=0
+for arg in "$@"; do
+  case "$arg" in
+    --fix-drift) FIX_DRIFT=1 ;;
+    --help|-h)
+      cat <<USAGE
+Usage: $(basename "$0") [--fix-drift]
+
+  --fix-drift   Convert layer-managed real reflections into symlinks when their
+                content matches the source layer. Divergent reflections are
+                reported and left untouched for manual resolution.
+USAGE
+      exit 0
+      ;;
+  esac
+done
+export MAICELIUM_FIX_DRIFT="$FIX_DRIFT"
+
 echo "🔄 Syncing symlinks..."
 
 # ── Clean broken symlinks ────────────────────────────────────────────────────
@@ -56,10 +80,11 @@ done
 # Downstream _clients/*, _common/*, _domains/* loops then produce .cursor/ and
 # .agents/ symlinks transparently — no layer-specific duplication needed.
 python3 - "$ROOT" "$MESH_LAYERS" <<'PYEOF'
-import json, os, sys
+import filecmp, json, os, shutil, sys
 
 root, layers_json = sys.argv[1], sys.argv[2]
 layers = json.loads(layers_json)
+fix_drift = os.environ.get("MAICELIUM_FIX_DRIFT") == "1"
 
 mesh_layers_dir    = os.path.join(root, "mesh", "layers")
 mesh_skills_common = os.path.join(root, "mesh", "skills", "_common")
@@ -72,16 +97,46 @@ for d in (mesh_layers_dir, mesh_skills_common, mesh_skills_domain,
           mesh_skills_client, mesh_rules_client, mesh_rules_domain):
     os.makedirs(d, exist_ok=True)
 
+drift_detected = []  # list of tuples: (dst, status) where status in {"identical","divergent"}
+
+def deep_equal(a, b):
+    """Return True if a and b have identical file/directory contents (recursively)."""
+    if os.path.isfile(a) and os.path.isfile(b):
+        return filecmp.cmp(a, b, shallow=False)
+    if os.path.isdir(a) and os.path.isdir(b):
+        cmp = filecmp.dircmp(a, b)
+        if cmp.left_only or cmp.right_only or cmp.diff_files or cmp.funny_files:
+            return False
+        for sub in cmp.common_dirs:
+            if not deep_equal(os.path.join(a, sub), os.path.join(b, sub)):
+                return False
+        return True
+    return False
+
 def safe_link(src_abs, dst):
     """Create relative symlink dst → src_abs.
     - Replace stale symlinks.
-    - Leave real files/dirs untouched (caller's responsibility)."""
+    - Real files/dirs are reported as drift; with --fix-drift (env
+      MAICELIUM_FIX_DRIFT=1), identical reflections are replaced by a symlink.
+      Divergent reflections are never overwritten — they require manual resolution."""
     rel = os.path.relpath(src_abs, os.path.dirname(dst))
     if os.path.islink(dst):
         if os.readlink(dst) == rel:
             return
         os.remove(dst)
-    elif os.path.exists(dst):
+        os.symlink(rel, dst)
+        return
+    if os.path.exists(dst):
+        status = "identical" if deep_equal(src_abs, dst) else "divergent"
+        if fix_drift and status == "identical":
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            else:
+                os.remove(dst)
+            os.symlink(rel, dst)
+            print(f"  🔧 fix-drift: replaced real reflection with symlink → {os.path.relpath(dst, root)}")
+            return
+        drift_detected.append((dst, status))
         return
     os.symlink(rel, dst)
 
@@ -151,6 +206,24 @@ for layer in layers:
                 safe_link(entry_abs, os.path.join(client_dir, entry))
 
     print(f"  ✔ Layer '{name}' materialized into mesh/ (client: {client})")
+
+if drift_detected:
+    print("")
+    print(f"⚠️  Layer-managed drift detected: {len(drift_detected)} reflection(s) are real files/dirs instead of symlinks")
+    identical = [d for d in drift_detected if d[1] == "identical"]
+    divergent = [d for d in drift_detected if d[1] == "divergent"]
+    for dst, status in drift_detected:
+        rel_dst = os.path.relpath(dst, root)
+        print(f"  - [{status}] {rel_dst}")
+    if not fix_drift and identical:
+        print("")
+        print(f"  → {len(identical)} identical reflection(s) can be auto-converted: re-run with --fix-drift")
+    if divergent:
+        print("")
+        print(f"  → {len(divergent)} divergent reflection(s) require manual resolution:")
+        print(f"    1. port the delta into the matching mesh/layers/<layer>/... path,")
+        print(f"    2. commit inside that layer repo,")
+        print(f"    3. remove the stale reflection, then re-run this script.")
 PYEOF
 
 # ── Recreate mAIcelium global rules → .cursor/rules/ ────────────────────────
