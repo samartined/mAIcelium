@@ -141,7 +141,7 @@ Skills are consumed from `mesh/skills/` organized by category. Depending on the 
 | **Debug** | `_common/debug/` | Systematic debugging: reproduce, isolate, hypothesize, fix, verify. |
 | **Refactoring** | `_common/refactoring/` | Safe refactoring workflows: identify scope, plan changes, validate behavior preservation. |
 | **Security Review** | `_common/security-review/` | Security-focused code review: secrets, auth, injection, dependencies. |
-| **Cursor Workspace Migration** | `_common/cursor-workspace-migration/` | Migrate Cursor chat history and workspace data between machines. |
+| **Cursor Workspace Migration** | `_domains/cursor/cursor-workspace-migration/` | Migrate Cursor chat history and workspace data between machines. |
 
 ### Tech stack skills (`_domains/`)
 
