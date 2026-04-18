@@ -253,30 +253,53 @@ mesh/skills/_common/code-review/
 
 The built-in `mesh/` directory contains rules and skills that apply universally (global rules, domain rules, common skills). For context-specific knowledge — such as rules and skills tied to a particular engagement, domain, or organizational scope — you can use **mesh layers**: external git repos that the workspace assembles alongside the built-in mesh.
 
-### Layer structure
+### Layer structure and routing convention
 
-A mesh layer is a plain git repo with `rules/` and/or `skills/` directories:
+A mesh layer is a plain git repo with `rules/` and/or `skills/` directories. Inside each, two folder names are **reserved** and trigger shared routing; everything else is treated as client-scoped content.
 
 ```
 mesh-<name>/
-├── rules/
-│   └── *.mdc           # rules scoped to this layer
-└── skills/
-    └── <skill-name>/
-        └── SKILL.md
+├── skills/
+│   ├── _common/                      # ← reserved: universal skills
+│   │   └── <skill>/SKILL.md
+│   ├── _domains/                     # ← reserved: tech-stack skills
+│   │   ├── <domain>/SKILL.md         #    flat domain (the folder is the skill)
+│   │   └── <domain>/<sub>/SKILL.md   #    nested domain (each child is a skill)
+│   └── <skill>/                      # ← anything else: client-scoped
+│       └── SKILL.md
+└── rules/
+    ├── _domains/                     # ← reserved: tech-stack rules
+    │   └── <domain>/<rule>.mdc
+    └── <rule>.mdc                    # ← anything else: client-scoped
 ```
+
+`sync_symlinks.sh` walks each registered layer and reflects its content into `mesh/` using this exact mapping:
+
+| Path inside the layer                          | Reflected into                                            |
+|------------------------------------------------|-----------------------------------------------------------|
+| `skills/_common/<sk>/`                         | `mesh/skills/_common/<sk>/`                               |
+| `skills/_domains/<sk>/`                        | `mesh/skills/_domains/<sk>/`                              |
+| `skills/<other>/` (any folder name not above)  | `mesh/skills/_clients/<client>/<other>/`                  |
+| `rules/_domains/<domain>/<r>.mdc`              | `mesh/rules/_domains/<domain>/<r>.mdc`                    |
+| `rules/<r>.mdc` (flat at the layer root)       | `mesh/rules/_clients/<client>/<r>.mdc`                    |
+
+The only "magic" tokens are `_common` and `_domains`. Anything that does not match those falls back to the client bucket. There is no metadata inside the layer to declare a different intent — classification is purely structural.
+
+A single layer can mix all three buckets: `core` does (it carries `_common` and `_domains` only), `tiber` does (it carries only flat client content). A future layer could mix `_common`, `_domains`, and flat client folders simultaneously.
 
 ### WORKSPACE.md
 
-Layers are declared in the `mesh_layers:` section of `WORKSPACE.md`:
+Layers are declared in the `mesh_layers:` section of `WORKSPACE.md`. **A layer must be both physically present under `mesh/layers/<name>/` (or any path) and registered here. Without an entry, `sync_symlinks.sh` ignores the layer entirely.**
 
 ```yaml
 mesh_layers:
 - name: my-layer
   path: ~/Dev/mesh-my-layer
-  client: my-layer        # prefix used when symlinking (e.g. my-layer--rule.mdc)
+  client: my-layer        # bucket name for flat content (defaults to <name>)
   repo: https://github.com/org/mesh-my-layer  # optional, for documentation
 ```
+
+`name` identifies the layer. `client` is the namespace used for `_clients/<client>/` reflections; if omitted, it defaults to `name`. `path` may be absolute or relative to the workspace root.
 
 ### Adding a layer
 
