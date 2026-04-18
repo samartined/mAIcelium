@@ -97,10 +97,10 @@ Slash command responses must end with a single emoji-prefixed status line:
 | Prompt template                   | `mesh/prompts/<name>.md`                                                 |
 
 A skill or rule is **mAIcelium-native** when it describes the workspace
-itself (architecture, conventions, hooks, slash commands, migrations) — it
+itself (architecture, conventions, hooks, slash commands) — it
 has no meaning outside this repo and must not live in a shared layer.
-Examples: `workspace-guide`, `cursor-workspace-migration`,
-`workspace-conventions`, `maicelium-identity`.
+Examples: `workspace-guide`, `workspace-conventions`,
+`maicelium-identity`, `commit-conventions`.
 
 A skill or rule is **shared** when it encodes reusable knowledge that could
 be consumed by any mAIcelium-style workspace — engineering practices,

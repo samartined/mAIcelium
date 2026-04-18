@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/bin/_lib.sh"
 echo "🍄 Initializing mAIcelium at: $ROOT"
 
-mkdir -p "$ROOT"/mesh/skills/{_common/{code-review,debug,documentation,git-workflow,planning,refactoring,security-review,testing,workspace-guide,cursor-workspace-migration},_clients,_domains/{frontend-react,backend-python,devops,obsidian}}
+mkdir -p "$ROOT"/mesh/skills/{_common/{code-review,debug,documentation,git-workflow,planning,refactoring,security-review,testing,workspace-guide},_clients,_domains/{frontend-react,backend-python,devops,obsidian,cursor}}
 mkdir -p "$ROOT"/mesh/layers
 touch "$ROOT/mesh/layers/.gitkeep"
 mkdir -p "$ROOT"/mesh/{rules,prompts,commands}

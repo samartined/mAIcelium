@@ -81,18 +81,18 @@ section at the end of every run when drift exists.
 
 A rule or skill is **mAIcelium-native** (lives directly in mAIcelium) when
 it describes the workspace itself: architecture, conventions, hooks, slash
-commands, migrations, identity. It has no reusable value outside this repo.
+commands, identity. It has no reusable value outside this repo.
 
 A rule or skill is **shared** (lives in a layer) when it encodes reusable
 engineering practices, domain knowledge, or client-specific runbooks that
 any mAIcelium-style workspace could adopt by mounting the same layer.
 
 Examples of native: `workspace-guide`, `workspace-conventions`,
-`maicelium-identity`, `cursor-workspace-migration`, `commit-conventions`,
-`ai-files-language`.
+`maicelium-identity`, `commit-conventions`, `ai-files-language`.
 
 Examples of shared (in layer `core`): `terraform-workflow`, `gcp-iam`,
-`incident-response`, `code-review`, `refactoring`, `debug`, `documentation`.
+`incident-response`, `code-review`, `refactoring`, `debug`,
+`documentation`, `cursor-workspace-migration`.
 
 ## Skill categories
 

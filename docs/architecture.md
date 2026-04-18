@@ -218,7 +218,8 @@ graph TD
     CommonDir --> DB["debug"]
     CommonDir --> RF["refactoring"]
     CommonDir --> SR["security-review"]
-    CommonDir --> CW["cursor-workspace-migration"]
+    DomainsDir --> CU["cursor"]
+    CU --> CW["cursor-workspace-migration"]
 
     DomainsDir --> FR["frontend-react"]
     DomainsDir --> BP["backend-python"]
@@ -337,7 +338,7 @@ What stays in `mesh/` regardless:
 |---------|-----|
 | `global.mdc`, `maicelium-identity.mdc`, `workspace-conventions.mdc` | Framework identity and workspace mechanics |
 | `ai-files-language.mdc`, `commit-conventions.mdc` | Universal engineering conventions |
-| `skills/workspace-guide`, `skills/cursor-workspace-migration` | Framework-specific onboarding |
+| `skills/workspace-guide` | Framework-specific onboarding |
 
 ### Separation of concerns
 
