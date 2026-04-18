@@ -84,8 +84,9 @@ it describes the workspace itself: architecture, conventions, hooks, slash
 commands, identity. It has no reusable value outside this repo.
 
 A rule or skill is **shared** (lives in a layer) when it encodes reusable
-engineering practices, domain knowledge, or client-specific runbooks that
-any mAIcelium-style workspace could adopt by mounting the same layer.
+engineering practices, domain knowledge, IDE tooling, or client-specific
+runbooks that any mAIcelium-style workspace could adopt by mounting the
+same layer.
 
 Examples of native: `workspace-guide`, `workspace-conventions`,
 `maicelium-identity`, `commit-conventions`, `ai-files-language`.
@@ -93,6 +94,41 @@ Examples of native: `workspace-guide`, `workspace-conventions`,
 Examples of shared (in layer `core`): `terraform-workflow`, `gcp-iam`,
 `incident-response`, `code-review`, `refactoring`, `debug`,
 `documentation`, `cursor-workspace-migration`.
+
+### Layer routing — how `sync_symlinks.sh` classifies content
+
+Layers do not carry metadata. Classification is **structural**, driven by
+folder names plus the `client:` field declared in `WORKSPACE.md`. Only
+`_common` and `_domains` are reserved; any other folder is routed to the
+client bucket of that layer.
+
+| Path inside the layer                         | Reflected into                                  |
+|-----------------------------------------------|-------------------------------------------------|
+| `skills/_common/<sk>/`                        | `mesh/skills/_common/<sk>/`                     |
+| `skills/_domains/<sk>/`                       | `mesh/skills/_domains/<sk>/`                    |
+| `skills/<other>/`                             | `mesh/skills/_clients/<client>/<other>/`        |
+| `rules/_domains/<domain>/<r>.mdc`             | `mesh/rules/_domains/<domain>/<r>.mdc`          |
+| `rules/<r>.mdc` (flat at the layer root)      | `mesh/rules/_clients/<client>/<r>.mdc`          |
+
+Three rules to keep in mind when authoring or moving content:
+
+1. A layer must be **registered in `WORKSPACE.md → mesh_layers:`** for the
+   sync to see it. A layer present on disk but unregistered is invisible.
+2. To change the bucket of a skill or rule, **move the directory inside the
+   owning layer** (between `_common/`, `_domains/<domain>/`, or flat) and
+   re-run `bin/sync_symlinks.sh`. Editing the reflection has no effect.
+3. `client:` defaults to `name` if omitted. It only controls the namespace
+   of the `_clients/<client>/…` bucket.
+
+Lifecycle commands:
+
+```bash
+bin/add_mesh_layer.sh <name> <path> [--client <name>] [--repo <url>]
+bin/remove_mesh_layer.sh <name>
+```
+
+The full convention (including the authoring decision tree) lives in
+`mesh/rules/workspace-conventions.mdc` under "Layer routing convention".
 
 ## Skill categories
 
