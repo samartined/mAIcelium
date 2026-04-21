@@ -1,9 +1,0 @@
-{
-  "name": "example-server",
-  "description": "Example MCP server definition. Copy and adapt for your own MCP servers.",
-  "projects": ["my-project"],
-  "config": {
-    "type": "http",
-    "url": "https://mcp.example.com/v1/mcp"
-  }
-}

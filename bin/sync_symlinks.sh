@@ -4,6 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/bin/_lib.sh"
 _load_conventions "$ROOT"
 MESH_LAYERS="$(_load_mesh_layers "$ROOT")"
+MCP_SOURCE="$(_load_mcp_source "$ROOT")"
 
 # ── Optional flags ───────────────────────────────────────────────────────────
 # --fix-drift : when a mesh/ reflection exists as a real file/dir instead of a
@@ -453,25 +454,67 @@ for cmd_file in "$ROOT"/mesh/commands/*.md; do
   ln -sfn "../../mesh/commands/$name" "$ROOT/.agents/workflows/$name"
 done
 
-# ── MCP configurations ───────────────────────────────────────────────────────
+# ── MCP source mount ───────────────────────────────────────────────────────────
+# mesh/mcp is a symlink to the external MCP definitions directory registered in
+# WORKSPACE.md under `mcp_source:`. If no source is registered the symlink is
+# removed so stale mounts do not leak into generated configs.
+python3 - "$ROOT" "$MCP_SOURCE" <<'MCPMOUNT'
+import json, os, sys
+
+root = sys.argv[1]
+src_json = sys.argv[2]
+dst = os.path.join(root, "mesh", "mcp")
+
+src_path = ""
+if src_json:
+    try:
+        src_path = json.loads(src_json).get("path", "")
+    except json.JSONDecodeError:
+        src_path = ""
+
+if not src_path:
+    # Unmount: clear any stale symlink so the generator below sees no source
+    if os.path.islink(dst):
+        os.remove(dst)
+    sys.exit(0)
+
+if not os.path.isdir(src_path):
+    print(f"  \u26a0\ufe0f  MCP source path not found: {src_path}")
+    sys.exit(0)
+
+src_real = os.path.realpath(src_path)
+if os.path.islink(dst):
+    if os.path.realpath(dst) != src_real:
+        os.remove(dst)
+        os.symlink(src_path, dst)
+        print(f"  \u2714 MCP source remounted \u2192 {src_path}")
+elif os.path.exists(dst):
+    print(f"  \u26a0\ufe0f  mesh/mcp exists as a real path \u2014 left untouched")
+    sys.exit(0)
+else:
+    os.symlink(src_path, dst)
+    print(f"  \u2714 MCP source mounted \u2192 {src_path}")
+MCPMOUNT
+
+# ── MCP configurations ─────────────────────────────────────────────────────────
 # Generate IDE-specific MCP config from mesh/mcp/*.json canonical definitions.
 # Cursor and Claude Code share the same mcpServers format.
 # Antigravity (.agents/mcp.json) uses the same format — verify against their docs if needed.
-if ls "$ROOT"/mesh/mcp/*.json > /dev/null 2>&1; then
-  python3 -c '
+python3 -c '
 import json, os, sys
 
 root = sys.argv[1]
 mcp_dir = os.path.join(root, "mesh", "mcp")
 
 servers = {}
-for fname in sorted(os.listdir(mcp_dir)):
-    if not fname.endswith(".json"):
-        continue
-    with open(os.path.join(mcp_dir, fname)) as f:
-        entry = json.load(f)
-    name = entry.get("name", fname.replace(".json", ""))
-    servers[name] = entry.get("config", {})
+if os.path.isdir(mcp_dir):
+    for fname in sorted(os.listdir(mcp_dir)):
+        if not fname.endswith(".json"):
+            continue
+        with open(os.path.join(mcp_dir, fname)) as f:
+            entry = json.load(f)
+        name = entry.get("name", fname.replace(".json", ""))
+        servers[name] = entry.get("config", {})
 
 output = {"mcpServers": servers}
 
@@ -494,9 +537,11 @@ with open(os.path.join(agents_dir, "mcp.json"), "w") as f:
     json.dump(output, f, indent=2)
     f.write("\n")
 
-print(f"  \u2714 MCP config generated ({len(servers)} server(s)): {list(servers.keys())}")
+if servers:
+    print(f"  ✔ MCP config generated ({len(servers)} server(s)): {list(servers.keys())}")
+else:
+    print(f"  ✔ MCP config generated (no source registered)")
 ' "$ROOT"
-fi
 
 # ── Claude Code: regenerate project context ──────────────────────────────────
 _regenerate_claude_context "$ROOT"
