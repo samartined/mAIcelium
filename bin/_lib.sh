@@ -88,6 +88,54 @@ print(json.dumps(layers))
 PYEOF
 }
 
+# ── Load MCP source ──────────────────────────────────────────────────────────
+# Reads the mcp_source: block from WORKSPACE.md.
+# Returns a JSON object {path, repo?} or empty string if not registered.
+_load_mcp_source() {
+  local root="$1"
+  python3 - "$root" <<'PYEOF'
+import sys, os, json
+
+root = sys.argv[1]
+wf = os.path.join(root, "WORKSPACE.md")
+source = {}
+
+try:
+    with open(wf) as f:
+        content = f.read()
+
+    in_source = False
+
+    for line in content.splitlines():
+        stripped = line.strip()
+
+        if stripped == 'mcp_source:':
+            in_source = True
+            continue
+
+        if not in_source:
+            continue
+
+        # End of mcp_source block: new top-level key
+        if line and not line.startswith(' ') and not line.startswith('-') and stripped.endswith(':'):
+            break
+
+        if stripped.startswith('path:'):
+            raw = stripped.split(':', 1)[1].strip()
+            expanded = os.path.expanduser(raw)
+            if not os.path.isabs(expanded):
+                expanded = os.path.join(root, expanded)
+            source['path'] = os.path.normpath(expanded)
+        elif stripped.startswith('repo:'):
+            source['repo'] = stripped.split(':', 1)[1].strip()
+
+except Exception:
+    pass
+
+print(json.dumps(source) if source.get('path') else '')
+PYEOF
+}
+
 _regenerate_workspace_file() {
   local root="$1"
   local wsfile="$root/mAIcelium.code-workspace"

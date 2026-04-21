@@ -7,6 +7,9 @@
 /mesh/layers/*
 !/mesh/layers/.gitkeep
 
+# MCP source (external pluggable repo — symlink created by bin/add_mcp_source.sh)
+/mesh/mcp
+
 # Materialized layer content (symlinks created by sync_symlinks.sh)
 # These reflect layer content into the mesh structure for file explorer visibility
 /mesh/skills/_common/*
