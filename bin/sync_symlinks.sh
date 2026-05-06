@@ -438,7 +438,7 @@ for client_dir in "$ROOT"/mesh/skills/_clients/*/; do
   for skill_dir in "$client_dir"*/; do
     [ -d "$skill_dir" ] || continue
     skillname=$(basename "$skill_dir")
-    ln -sfn "../../../mesh/skills/_clients/$client/$skillname" "$ROOT/.agents/skills/${client}--${skillname}"
+    ln -sfn "../../mesh/skills/_clients/$client/$skillname" "$ROOT/.agents/skills/${client}--${skillname}"
   done
 done
 

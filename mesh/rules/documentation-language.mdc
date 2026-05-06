@@ -1,0 +1,55 @@
+---
+description: All AI-facing files and technical code documentation must be written in English; project rules win when they require another language
+alwaysApply: true
+---
+
+# Documentation Language Policy
+
+All documentation produced by an agent MUST be written in English by default. The only exceptions are user-facing content explicitly governed by a project rule and the conversational output with the operator.
+
+## In scope (English MANDATORY)
+
+The following content MUST be authored in English regardless of the project's spoken language:
+
+### AI-facing configuration
+
+- Rules under `mesh/rules/`, `.cursor/rules/`, `.claude/`, `.agents/` — descriptions, headers, body text, frontmatter values.
+- Skills under `mesh/skills/**/`, `.cursor/skills/`, `.agents/skills/` — descriptions, instructions, workflows, templates, checklists, reference docs.
+- Prompts under `mesh/prompts/`.
+- Slash commands under `mesh/commands/` and their scripts under `mesh/commands/scripts/`.
+- MCP server definitions under `mesh/mcp/`.
+- Plan files under `.cursor/plans/` (canonical post-resolution plans).
+
+### Technical code documentation
+
+- `README.md`, `README.*` at any level of any project repository.
+- `CHANGELOG.md`, release notes, migration guides.
+- `docs/` directories inside project repos when they describe technical architecture, APIs, infrastructure, build/deploy workflows, or developer onboarding.
+- Architecture Decision Records (ADRs).
+- Code comments (inline and block) in source files.
+- Commit messages and pull request titles/descriptions.
+- Module-level docstrings, JSDoc/TSDoc, Python docstrings, Go doc comments.
+- Inline configuration documentation.
+
+## Out of scope (project rule wins)
+
+The following content follows the project's own language rules. If a project rule requires another language (e.g. Spanish), that rule prevails over this one:
+
+- User-facing editorial content of a project (e.g. notes inside knowledge vaults like `techcorpus`, end-user documentation aimed at non-technical readers, internal Spanish-language wikis).
+- Jira / ticketing comments addressed to clients — they follow the language of the conversation thread (see project-specific Jira workflow rules).
+- Operational logs explicitly defined by a project rule in another language (e.g. Tiber `bitacora-global.md` and `clientes/<id>/history.md` files which are explicitly Spanish per their own rule).
+- The agent's conversational output to the operator — governed by `global.mdc`.
+
+## Conflict resolution
+
+When a project rule and this rule disagree:
+
+1. The project rule prevails ("project wins").
+2. The agent must still keep technical glossary in English even inside a non-English document: command names, proper nouns, acronyms, identifiers (cloud project IDs, service names, env var names), configuration keys, library/tool names.
+3. If the project rule is ambiguous about a specific artifact (e.g. it mandates Spanish for "notes" but a new `README.md` is being added), default to English under this rule.
+
+## Rationale
+
+- AI-facing files are consumed by assistants tuned primarily on English content; English maximizes compatibility and reduces translation drift.
+- Technical code documentation lives next to source code that is itself written in English (identifiers, APIs, libraries) and is consumed by engineers across teams; mixing languages fragments searchability and onboarding.
+- User-facing content is excluded because its audience and authoring conventions are defined by the project itself.
