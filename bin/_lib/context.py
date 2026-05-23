@@ -214,7 +214,7 @@ def regenerate_claude_context(root):
             _emit_project(out, entry, repo_path, conventions, mesh_layers, no_inline)
 
     if not found_projects:
-        out.append("_No active projects._")
+        out.append("_No active projects._\n")
 
     with open(outfile, "w") as f:
         f.write("".join(out))
