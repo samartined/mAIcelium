@@ -37,7 +37,7 @@ def check_symlink_privilege():
     test_target = os.path.join(tempfile.gettempdir(), f"target_{uuid.uuid4().hex}")
     test_link = os.path.join(tempfile.gettempdir(), f"link_{uuid.uuid4().hex}")
     try:
-        with open(test_target, "w") as f:
+        with open(test_target, "w", encoding="utf-8") as f:
             f.write("test")
         os.symlink(test_target, test_link)
         os.remove(test_link)

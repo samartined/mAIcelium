@@ -19,7 +19,7 @@ def load_conventions(root):
     if not os.path.isfile(conv_path):
         return dict(DEFAULT_CONVENTIONS)
 
-    with open(conv_path) as f:
+    with open(conv_path, encoding="utf-8") as f:
         data = json.load(f)
 
     out = dict(DEFAULT_CONVENTIONS)

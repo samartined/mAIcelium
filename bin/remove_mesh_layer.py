@@ -160,46 +160,81 @@ def _clean_mesh_mirrors(root, name, client):
 
 
 def _strip_workspace_entry(root, name):
-    """Remove the `- name: <name>` block from `mesh_layers:` in WORKSPACE.md."""
+    """Remove the `- name: <name>` block from `mesh_layers:` in WORKSPACE.md.
+
+    Blank lines that are followed by an indented continuation line are treated
+    as part of the entry block and are removed along with it.
+    """
     wf = os.path.join(root, "WORKSPACE.md")
     if not os.path.exists(wf):
         print("  WORKSPACE.md does not exist, skipping")
         return
 
-    with open(wf) as f:
+    with open(wf, encoding="utf-8") as f:
         lines = f.readlines()
 
     out = []
     skip = False
     in_layers = False
+    i = 0
 
-    for line in lines:
+    while i < len(lines):
+        line = lines[i]
         stripped = line.strip()
 
         if stripped == "mesh_layers:":
             in_layers = True
             out.append(line)
+            i += 1
             continue
 
         if in_layers:
-            # New top-level key terminates the section
-            if line and not line.startswith(' ') and not line.startswith('-') and stripped.endswith(':'):
+            # New top-level key terminates the section.
+            if (
+                line
+                and not line.startswith(" ")
+                and not line.startswith("-")
+                and stripped.endswith(":")
+            ):
                 in_layers = False
                 skip = False
                 out.append(line)
+                i += 1
                 continue
 
             if stripped == f"- name: {name}":
                 skip = True
+                i += 1
                 continue
 
-            if skip and line.startswith("  "):
-                continue
-            skip = False
+            if skip:
+                # Indented continuation -> still inside the entry.
+                if line.startswith("  "):
+                    i += 1
+                    continue
+
+                if stripped == "":
+                    # Look ahead to the first non-blank line.
+                    j = i + 1
+                    while j < len(lines) and lines[j].strip() == "":
+                        j += 1
+                    if j < len(lines) and lines[j].startswith("  "):
+                        # Blank lines belong to the entry; skip past them.
+                        i = j
+                        continue
+                    # Entry ended; keep the blank separator.
+                    skip = False
+                    out.append(line)
+                    i += 1
+                    continue
+
+                # Non-blank, non-indented line: entry has ended.
+                skip = False
 
         out.append(line)
+        i += 1
 
-    with open(wf, "w") as f:
+    with open(wf, "w", encoding="utf-8") as f:
         f.writelines(out)
 
     print("  WORKSPACE.md updated")

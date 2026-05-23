@@ -757,7 +757,7 @@ def _generate_mcp_configs(root):
         for fname in sorted(os.listdir(mcp_dir)):
             if not fname.endswith(".json"):
                 continue
-            with open(os.path.join(mcp_dir, fname)) as f:
+            with open(os.path.join(mcp_dir, fname), encoding="utf-8") as f:
                 entry = json.load(f)
             name = entry.get("name", fname.replace(".json", ""))
             servers[name] = entry.get("config", {})
@@ -765,21 +765,21 @@ def _generate_mcp_configs(root):
     output = {"mcpServers": servers}
 
     # Claude Code: .mcp.json at workspace root
-    with open(os.path.join(root, ".mcp.json"), "w") as f:
+    with open(os.path.join(root, ".mcp.json"), "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
         f.write("\n")
 
     # Cursor: .cursor/mcp.json
     cursor_dir = os.path.join(root, ".cursor")
     os.makedirs(cursor_dir, exist_ok=True)
-    with open(os.path.join(cursor_dir, "mcp.json"), "w") as f:
+    with open(os.path.join(cursor_dir, "mcp.json"), "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
         f.write("\n")
 
     # Antigravity: .agents/mcp.json
     agents_dir = os.path.join(root, ".agents")
     os.makedirs(agents_dir, exist_ok=True)
-    with open(os.path.join(agents_dir, "mcp.json"), "w") as f:
+    with open(os.path.join(agents_dir, "mcp.json"), "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
         f.write("\n")
 
@@ -796,11 +796,11 @@ def _ensure_claude_md_context_reference(root):
     claude_md = os.path.join(root, "CLAUDE.md")
     if not os.path.isfile(claude_md):
         return
-    with open(claude_md) as f:
+    with open(claude_md, encoding="utf-8") as f:
         content = f.read()
     if "projects-context.md" in content:
         return
-    with open(claude_md, "a") as f:
+    with open(claude_md, "a", encoding="utf-8") as f:
         f.write(
             "\n## Project-specific context\n"
             "For active project rules and skills, "
@@ -817,7 +817,7 @@ def _has_section_marker(root, section_name):
     if not os.path.isfile(wf):
         return False
     try:
-        with open(wf) as f:
+        with open(wf, encoding="utf-8") as f:
             for line in f:
                 if line.strip() == f"{section_name}:":
                     return True

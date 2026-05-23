@@ -51,7 +51,7 @@ def _write_unix_alias(alias_file, git_backup, root):
         "#\n"
         f"alias maicelium-git='git --git-dir=\"{git_backup}/.git\" --work-tree=\"{root}\"'\n"
     )
-    with open(alias_file, "w") as f:
+    with open(alias_file, "w", encoding="utf-8") as f:
         f.write(content)
 
 
@@ -64,7 +64,7 @@ def _write_powershell_wrapper(ps_file, git_backup, root):
         f"    git --git-dir=\"{git_backup}\\.git\" --work-tree=\"{root}\" @args\n"
         "}\n"
     )
-    with open(ps_file, "w") as f:
+    with open(ps_file, "w", encoding="utf-8") as f:
         f.write(content)
 
 
@@ -102,10 +102,24 @@ def main(argv=None):
         print("   Remove it first if you want to re-separate.")
         return 1
 
+    created_backup = False
     try:
         os.makedirs(git_backup, exist_ok=False)
-        shutil.move(git_dir, os.path.join(git_backup, ".git"))
+        created_backup = True
     except OSError as e:
+        print(f"Could not create backup directory {git_backup}: {e}")
+        return 1
+
+    try:
+        shutil.move(git_dir, os.path.join(git_backup, ".git"))
+    except Exception as e:
+        # Clean up the empty backup directory we just created so a subsequent
+        # invocation does not abort with "Backup directory already exists".
+        if created_backup:
+            try:
+                os.rmdir(git_backup)
+            except OSError:
+                pass
         print(f"Could not move .git: {e}")
         return 1
     print(f"  .git moved to {git_backup}/.git")

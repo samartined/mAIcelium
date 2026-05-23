@@ -157,3 +157,45 @@ def test_init_creates_claude_context(tmp_path):
     content = ctx.read_text()
     assert "AUTO-GENERATED" in content
     assert "# mAIcelium Agent Context" in content
+
+
+# ── Test 8: settings.json contains Python hooks ─────────────────────────────
+
+
+def test_init_writes_python_hooks_in_settings(tmp_path):
+    """After init, .claude/settings.json must include all three Python hook commands."""
+    rc = init.main(root=str(tmp_path))
+    assert rc == 0
+
+    settings_file = tmp_path / ".claude" / "settings.json"
+    content = settings_file.read_text()
+    assert "bin/py.sh bin/sync_symlinks.py" in content
+    assert "bin/py.sh bin/hooks/guard_bash.py" in content
+    assert "bin/py.sh bin/hooks/guard_write.py" in content
+
+
+# ── Test 9: settings.json contains Python permissions ───────────────────────
+
+
+def test_init_includes_python_permissions(tmp_path):
+    """After init, .claude/settings.json must include Python-specific permissions."""
+    rc = init.main(root=str(tmp_path))
+    assert rc == 0
+
+    settings_file = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings_file.read_text())
+    allowed = data["permissions"]["allow"]
+    assert "Bash(python3:bin/*)" in allowed
+    assert "Bash(bin/py.sh:*)" in allowed
+
+
+# ── Test 10: init runs sync at the end ──────────────────────────────────────
+
+
+def test_init_runs_sync_at_end(tmp_path):
+    """After init, mAIcelium.code-workspace must exist (produced by sync_symlinks)."""
+    rc = init.main(root=str(tmp_path))
+    assert rc == 0
+
+    ws_file = tmp_path / "mAIcelium.code-workspace"
+    assert ws_file.is_file(), "sync_symlinks must have run and produced the workspace file"

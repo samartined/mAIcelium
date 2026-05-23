@@ -60,11 +60,11 @@ def _update_workspace(root, name, path, client, repo):
     """
     wf = os.path.join(root, "WORKSPACE.md")
 
-    now = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if not os.path.exists(wf):
         content = "# Active workspace\n\nprojects: []\n\ncreated: {}\n".format(now)
     else:
-        with open(wf) as f:
+        with open(wf, encoding="utf-8") as f:
             content = f.read()
 
     # Build entry
@@ -114,7 +114,7 @@ def _update_workspace(root, name, path, client, repo):
         else:
             content = f"mesh_layers:\n{entry}\n\n" + content
 
-    with open(wf, "w") as f:
+    with open(wf, "w", encoding="utf-8") as f:
         f.write(content)
     print("  WORKSPACE.md updated")
     return True

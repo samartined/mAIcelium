@@ -7,7 +7,7 @@ from _lib.context import regenerate_claude_context, regenerate_workspace_file
 
 def _write(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
 
@@ -21,14 +21,14 @@ def test_regenerate_workspace_file_no_projects(tmp_path):
     regenerate_workspace_file(root)
     wsfile = os.path.join(root, "mAIcelium.code-workspace")
     assert os.path.isfile(wsfile)
-    with open(wsfile) as f:
+    with open(wsfile, encoding="utf-8") as f:
         data = json.load(f)
     assert data == {
         "folders": [{"path": ".", "name": "mAIcelium"}],
         "settings": {},
     }
     # Verify indent=2 is preserved (look at raw text)
-    with open(wsfile) as f:
+    with open(wsfile, encoding="utf-8") as f:
         raw = f.read()
     assert '  "folders"' in raw
     assert raw.endswith("\n")
@@ -37,13 +37,13 @@ def test_regenerate_workspace_file_no_projects(tmp_path):
 def test_regenerate_workspace_file_preserves_settings(tmp_path):
     root = str(tmp_path)
     wsfile = os.path.join(root, "mAIcelium.code-workspace")
-    with open(wsfile, "w") as f:
+    with open(wsfile, "w", encoding="utf-8") as f:
         json.dump(
             {"folders": [{"path": "stale", "name": "old"}], "settings": {"theme": "dark"}},
             f,
         )
     regenerate_workspace_file(root)
-    with open(wsfile) as f:
+    with open(wsfile, encoding="utf-8") as f:
         data = json.load(f)
     # Stale folders replaced, settings preserved
     assert data["folders"] == [{"path": ".", "name": "mAIcelium"}]
@@ -60,7 +60,7 @@ def test_regenerate_workspace_file_with_projects(tmp_path):
 
     regenerate_workspace_file(root)
     wsfile = os.path.join(root, "mAIcelium.code-workspace")
-    with open(wsfile) as f:
+    with open(wsfile, encoding="utf-8") as f:
         data = json.load(f)
     names = [f["name"] for f in data["folders"]]
     assert "mAIcelium" in names
@@ -73,10 +73,10 @@ def test_regenerate_workspace_file_corrupted_existing_resets(tmp_path):
     """If existing file is unreadable JSON, regenerate as fresh."""
     root = str(tmp_path)
     wsfile = os.path.join(root, "mAIcelium.code-workspace")
-    with open(wsfile, "w") as f:
+    with open(wsfile, "w", encoding="utf-8") as f:
         f.write("{ not valid json")
     regenerate_workspace_file(root)
-    with open(wsfile) as f:
+    with open(wsfile, encoding="utf-8") as f:
         data = json.load(f)
     assert data["folders"] == [{"path": ".", "name": "mAIcelium"}]
     assert data["settings"] == {}
@@ -92,7 +92,7 @@ def test_regenerate_claude_context_empty_workspace(tmp_path):
     regenerate_claude_context(root)
     outfile = os.path.join(root, ".claude", "projects-context.md")
     assert os.path.isfile(outfile)
-    content = open(outfile).read()
+    content = open(outfile, encoding="utf-8").read()
     assert "# mAIcelium Agent Context" in content
     assert "## Workspace Rules" in content
     assert "## Active Projects" in content
@@ -106,7 +106,7 @@ def test_regenerate_claude_context_with_mesh_rule(tmp_path):
         "---\ndescription: A test rule\n---\n\n# Test Rule body\nThis is the body.\n",
     )
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "### test" in content
     assert "# Test Rule body" in content
     assert "This is the body." in content
@@ -121,7 +121,7 @@ def test_regenerate_claude_context_strips_yaml_frontmatter(tmp_path):
         "---\nkey: val\n---\nactual content\n",
     )
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "actual content" in content
     assert "key: val" not in content
     # The literal closing delim of frontmatter must be stripped too
@@ -138,7 +138,7 @@ def test_regenerate_claude_context_rule_without_frontmatter(tmp_path):
         "# Plain rule\nNo frontmatter here.\n",
     )
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "# Plain rule" in content
     assert "No frontmatter here." in content
 
@@ -148,7 +148,7 @@ def test_regenerate_claude_context_multiple_rules_sorted(tmp_path):
     _write(os.path.join(root, "mesh", "rules", "zebra.mdc"), "zebra body\n")
     _write(os.path.join(root, "mesh", "rules", "alpha.mdc"), "alpha body\n")
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert content.index("### alpha") < content.index("### zebra")
 
 
@@ -167,7 +167,7 @@ def test_regenerate_claude_context_project_with_rules_and_skills(tmp_path):
     os.symlink(str(repo), str(projects / "myproj"))
 
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "### myproj" in content
     assert "#### Rules" in content
     assert "##### r1.md" in content
@@ -198,7 +198,7 @@ def test_regenerate_claude_context_no_inline_project(tmp_path):
     os.symlink(str(repo), str(projects / "framework"))
 
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "### framework" in content
     assert "Framework repo" in content
     assert "should not appear" not in content
@@ -214,7 +214,7 @@ def test_regenerate_claude_context_project_no_rules_no_skills(tmp_path):
     os.symlink(str(repo), str(projects / "empty"))
 
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "### empty" in content
     assert "_No rules or skills found for this project._" in content
 
@@ -242,7 +242,7 @@ def test_regenerate_claude_context_layer_rules(tmp_path):
     os.symlink(str(repo), str(projects / "clientproj"))
 
     regenerate_claude_context(root)
-    content = open(os.path.join(root, ".claude", "projects-context.md")).read()
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "### clientproj" in content
     assert "##### layer-rule.md" in content
     assert "layer rule body" in content

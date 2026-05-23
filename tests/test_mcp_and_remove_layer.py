@@ -252,5 +252,56 @@ def test_remove_mcp_source_no_section_idempotent(tmp_path):
     assert "mcp_source:" not in content
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# BUG-01 regression for remove_mesh_layer: blank lines inside entry block
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_remove_mesh_layer_preserves_following_entry_with_blank_line(tmp_path):
+    """Removing 'alpha' layer must not leave orphaned indented lines from its block.
+
+    A blank line sits inside the alpha layer entry (between 'path:' and
+    'added:').  After removal only the beta entry must remain; the orphaned
+    '  added: 2024-01-01' line must not survive.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+
+    layer_a = tmp_path / "layer-a"
+    layer_a.mkdir()
+    layer_b = tmp_path / "layer-b"
+    layer_b.mkdir()
+
+    wf = ws / "WORKSPACE.md"
+    wf.write_text(
+        "# Active workspace\n"
+        "\n"
+        "mesh_layers:\n"
+        "- name: alpha\n"
+        f"  path: {layer_a}\n"
+        "  client: alpha\n"
+        "\n"
+        "  added: 2024-01-01\n"
+        "- name: beta\n"
+        f"  path: {layer_b}\n"
+        "  client: beta\n"
+        "\n"
+        "projects: []\n"
+    )
+
+    result = _run("remove_mesh_layer.py", "alpha", cwd=ws)
+    assert result.returncode == 0, result.stderr + result.stdout
+
+    content = wf.read_text()
+    assert "- name: alpha" not in content
+    # Orphan line that was previously left behind by the bug.
+    assert "  added: 2024-01-01" not in content
+    # Beta entry must be fully intact.
+    assert "- name: beta" in content
+    assert f"path: {layer_b}" in content
+    assert "client: beta" in content
+    # Section header must survive.
+    assert "mesh_layers:" in content
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

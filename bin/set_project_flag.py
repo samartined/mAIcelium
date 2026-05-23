@@ -50,7 +50,7 @@ def _update_flag(workspace_file, project_name, flag_key, flag_value):
     Returns (action, error_msg). action is "added" | "updated" | None.
     If error_msg is non-empty, the file was not modified.
     """
-    with open(workspace_file) as f:
+    with open(workspace_file, encoding="utf-8") as f:
         lines = f.readlines()
 
     in_projects = False
@@ -106,7 +106,7 @@ def _update_flag(workspace_file, project_name, flag_key, flag_value):
         lines.insert(insert_after + 1, new_line)
         action = 'added'
 
-    with open(workspace_file, 'w') as f:
+    with open(workspace_file, 'w', encoding="utf-8") as f:
         f.writelines(lines)
 
     return action, ""

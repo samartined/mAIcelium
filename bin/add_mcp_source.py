@@ -52,11 +52,11 @@ def _update_workspace(root, src_path, repo):
     """Insert or replace the `mcp_source:` block in WORKSPACE.md."""
     wf = os.path.join(root, "WORKSPACE.md")
 
-    now = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if not os.path.exists(wf):
         content = "# Active workspace\n\nprojects: []\n\ncreated: {}\n".format(now)
     else:
-        with open(wf) as f:
+        with open(wf, encoding="utf-8") as f:
             content = f.read()
 
     entry_lines = ["mcp_source:", f"  path: {src_path}"]
@@ -107,7 +107,7 @@ def _update_workspace(root, src_path, repo):
     if not output.endswith("\n"):
         output += "\n"
 
-    with open(wf, "w") as f:
+    with open(wf, "w", encoding="utf-8") as f:
         f.write(output)
 
     print(f"  WORKSPACE.md updated (mcp_source: {src_path})")

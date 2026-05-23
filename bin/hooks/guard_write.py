@@ -30,7 +30,7 @@ def _log_failure(reason):
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         ts = datetime.now(timezone.utc).isoformat()
-        with open(log_path, "a") as f:
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"{ts} guard_write {reason}\n")
     except OSError:
         pass
@@ -59,6 +59,48 @@ def _resolve_real_for_layer_check(file_path):
         return file_path
     real_parent = os.path.realpath(parent)
     return os.path.join(real_parent, *tail)
+
+
+def _is_under_any_layer(file_path, root):
+    """True if resolving file_path traverses through any mesh/layers/<name>/.
+
+    Walks path components one at a time, resolving each symlink with
+    readlink (not realpath) so that intermediate targets that land inside
+    mesh/layers/ are detected before the chain is fully flattened.
+    Protects against cycles with a step counter (max 64 resolutions).
+    """
+    layers_root = os.path.normpath(os.path.join(root, "mesh", "layers"))
+    layers_root_real = os.path.realpath(layers_root)
+
+    def _inside_layers(path):
+        p = os.path.normpath(path)
+        if p == layers_root or p.startswith(layers_root + os.sep):
+            return True
+        r = os.path.realpath(path)
+        return r == layers_root_real or r.startswith(layers_root_real + os.sep)
+
+    # Walk file_path component by component, resolving each symlink
+    # encountered without collapsing the whole chain at once.
+    parts = os.path.normpath(file_path).split(os.sep)
+    current = os.sep
+    steps = 0
+    for part in parts:
+        if not part:
+            continue
+        current = os.path.join(current, part)
+        if steps > 64:
+            return False
+        if os.path.islink(current):
+            steps += 1
+            link_target = os.readlink(current)
+            if not os.path.isabs(link_target):
+                link_target = os.path.normpath(
+                    os.path.join(os.path.dirname(current), link_target)
+                )
+            if _inside_layers(link_target):
+                return True
+            current = link_target
+    return False
 
 
 def main():
@@ -94,6 +136,57 @@ def main():
         )
 
     rel_path_posix = rel.replace("\\", "/")
+
+    # Layer-managed reflections. Paths under
+    # mesh/skills/{_common,_domains,_clients}/ and
+    # mesh/rules/{_domains,_clients}/ are reflections of content that lives
+    # in mesh/layers/<layer>/. When the reflection is properly symlinked,
+    # _is_under_any_layer resolves through the layer chain - allow.
+    # Otherwise, check if realpath lands directly inside mesh/layers/.
+    # This check runs BEFORE the outside-workspace guard so that legitimate
+    # writes to external layers are not accidentally blocked.
+    layer_pattern = (
+        r"^mesh/(skills/(_common|_domains|_clients)|"
+        r"rules/(_domains|_clients))/"
+    )
+    layer_path_matched = bool(re.match(layer_pattern, rel_path_posix))
+    if layer_path_matched:
+        via_layer = _is_under_any_layer(file_path, root)
+        if not via_layer:
+            # Fallback: check whether realpath resolves directly inside layers/
+            real = _resolve_real_for_layer_check(file_path)
+            layers_root = os.path.realpath(os.path.join(root, "mesh", "layers"))
+            try:
+                real_rel = os.path.relpath(real, layers_root)
+                inside_layers = not real_rel.startswith("..") and not os.path.isabs(real_rel)
+            except ValueError:
+                inside_layers = False
+            if not inside_layers:
+                _block(
+                    f"Layer-managed path: {rel_path_posix} is a stale "
+                    f"reflection, not a symlink to a source-of-truth layer. "
+                    f"Edit the canonical file under mesh/layers/<layer>/ and "
+                    f"run bin/sync_symlinks.py. Current realpath: {real}"
+                )
+        # Layer check passed: skip the outside-workspace guard below
+    else:
+        # Fail-CLOSED if the path escapes the workspace (absolute outside root,
+        # or relative with ..). This protects against /etc/cron.d/foo,
+        # /root/.ssh/authorized_keys, and similar out-of-workspace writes.
+        root_real = os.path.realpath(root)
+        file_real = os.path.realpath(file_path)
+        outside = rel_path_posix.startswith("..") or (
+            os.path.isabs(file_path)
+            and not (
+                file_real == root_real
+                or file_real.startswith(root_real + os.sep)
+            )
+        )
+        if outside:
+            _block(
+                f"Blocked: file_path '{file_path}' is outside the workspace. "
+                f"Refusing write as a safety measure."
+            )
 
     # Environment files (secrets): .env or .env.*
     if basename == ".env" or basename.startswith(".env."):
@@ -145,32 +238,6 @@ def main():
             f"Protected file: {basename} is a lockfile. "
             f"Use the package manager to update it."
         )
-
-    # Layer-managed reflections. Paths under
-    # mesh/skills/{_common,_domains,_clients}/ and
-    # mesh/rules/{_domains,_clients}/ are reflections of content that lives
-    # in mesh/layers/<layer>/. When the reflection is properly symlinked,
-    # realpath resolves inside mesh/layers/ - allow. Otherwise block.
-    layer_pattern = (
-        r"^mesh/(skills/(_common|_domains|_clients)|"
-        r"rules/(_domains|_clients))/"
-    )
-    if re.match(layer_pattern, rel_path_posix):
-        real = _resolve_real_for_layer_check(file_path)
-        layers_root = os.path.realpath(os.path.join(root, "mesh", "layers"))
-        # Normalize comparison: real must be inside layers_root
-        try:
-            real_rel = os.path.relpath(real, layers_root)
-            inside_layers = not real_rel.startswith("..") and not os.path.isabs(real_rel)
-        except ValueError:
-            inside_layers = False
-        if not inside_layers:
-            _block(
-                f"Layer-managed path: {rel_path_posix} is a stale "
-                f"reflection, not a symlink to a source-of-truth layer. "
-                f"Edit the canonical file under mesh/layers/<layer>/ and "
-                f"run bin/sync_symlinks.py. Current realpath: {real}"
-            )
 
     sys.exit(0)
 

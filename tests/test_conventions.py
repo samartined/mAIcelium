@@ -18,7 +18,7 @@ def test_load_overrides_data_dir(tmp_path):
     root = str(tmp_path)
     mesh = os.path.join(root, "mesh")
     os.makedirs(mesh)
-    with open(os.path.join(mesh, "conventions.json"), "w") as f:
+    with open(os.path.join(mesh, "conventions.json"), "w", encoding="utf-8") as f:
         json.dump({"project_data_dir": ".vscode"}, f)
     out = load_conventions(root)
     assert out["project_data_dir"] == ".vscode"
@@ -37,6 +37,6 @@ def test_load_full_overrides(tmp_path):
         "project_rules_subdir": "r",
         "project_skills_subdirs": ["s"],
     }
-    with open(os.path.join(mesh, "conventions.json"), "w") as f:
+    with open(os.path.join(mesh, "conventions.json"), "w", encoding="utf-8") as f:
         json.dump(custom, f)
     assert load_conventions(root) == custom
