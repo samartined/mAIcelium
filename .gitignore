@@ -37,6 +37,7 @@ WORKSPACE.md
 *.code-workspace
 .claude/projects-context.md
 .claude/settings.local.json
+.claude/hook-failures.log
 
 # IDE caches
 .DS_Store
