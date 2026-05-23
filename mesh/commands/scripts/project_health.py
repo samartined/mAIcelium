@@ -75,7 +75,7 @@ def check_project(name, link_path):
     if os.path.isfile(env_file):
         env_ignored = False
         if os.path.isfile(gitignore):
-            with open(gitignore) as f:
+            with open(gitignore, encoding="utf-8") as f:
                 if ".env" in f.read():
                     env_ignored = True
         if not env_ignored:

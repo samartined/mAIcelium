@@ -64,7 +64,7 @@ def _check_registered(root, repo_path):
         repo_path_home = "~" + repo_path[len(home):]
 
     try:
-        with open(registry) as f:
+        with open(registry, encoding="utf-8") as f:
             content = f.read()
     except OSError:
         return
@@ -130,7 +130,7 @@ def _import_skills(root, name, repo_path, conventions):
 def _update_workspace_md(root, name, repo_path):
     """Append/insert a project entry under `projects:` in WORKSPACE.md."""
     wf = os.path.join(root, "WORKSPACE.md")
-    now = datetime.datetime.now(datetime.UTC).isoformat()
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     entry = f"- name: {name}\n  path: {repo_path}\n  added: {now}"
 
@@ -142,12 +142,12 @@ def _update_workspace_md(root, name, repo_path):
             "\n"
             f"created: {now}\n"
         )
-        with open(wf, "w") as f:
+        with open(wf, "w", encoding="utf-8") as f:
             f.write(content)
         print("  WORKSPACE.md created")
         return
 
-    with open(wf) as f:
+    with open(wf, encoding="utf-8") as f:
         content = f.read()
 
     if "projects: []" in content:
@@ -157,7 +157,7 @@ def _update_workspace_md(root, name, repo_path):
     else:
         content = content.rstrip() + "\n\nprojects:\n" + entry + "\n"
 
-    with open(wf, "w") as f:
+    with open(wf, "w", encoding="utf-8") as f:
         f.write(content)
     print("  WORKSPACE.md updated")
 

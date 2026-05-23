@@ -24,7 +24,7 @@ def _strip_frontmatter(content):
 def _read_text(path):
     """Read a file as text; return empty string on failure."""
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return f.read()
     except OSError:
         return ""
@@ -51,7 +51,7 @@ def regenerate_workspace_file(root):
     existing = {}
     if os.path.isfile(wsfile):
         try:
-            with open(wsfile) as f:
+            with open(wsfile, encoding="utf-8") as f:
                 existing = json.load(f)
         except (json.JSONDecodeError, OSError):
             existing = {}
@@ -59,7 +59,7 @@ def regenerate_workspace_file(root):
     existing["folders"] = folders
     existing.setdefault("settings", {})
 
-    with open(wsfile, "w") as f:
+    with open(wsfile, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
@@ -216,5 +216,5 @@ def regenerate_claude_context(root):
     if not found_projects:
         out.append("_No active projects._\n")
 
-    with open(outfile, "w") as f:
+    with open(outfile, "w", encoding="utf-8") as f:
         f.write("".join(out))

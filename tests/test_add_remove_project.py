@@ -369,5 +369,90 @@ def test_separate_git_refuses_existing_backup(tmp_path, monkeypatch):
     assert "Backup directory already exists" in out
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# BUG-01 regression: blank lines inside an entry must not survive removal
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_remove_project_preserves_following_entry_with_blank_line(tmp_path, monkeypatch):
+    """Removing 'alpha' must not leave orphaned indented lines from its block.
+
+    WORKSPACE.md has a blank line inside the alpha entry (between 'path:' and
+    'added:').  After removal only the beta entry must remain, with no orphaned
+    '  added: 2024-01-01' line.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+    repo_alpha = _make_fake_project(tmp_path, "alpha_repo")
+    repo_beta = _make_fake_project(tmp_path, "beta_repo")
+    _patch_root(monkeypatch, ws)
+
+    # Seed WORKSPACE.md with a blank line *inside* the alpha entry block.
+    wf = ws / "WORKSPACE.md"
+    wf.write_text(
+        "# Active workspace\n"
+        "projects:\n"
+        "- name: alpha\n"
+        "  path: /a\n"
+        "\n"
+        "  added: 2024-01-01\n"
+        "- name: beta\n"
+        "  path: /b\n"
+    )
+
+    # Create the symlink so remove_project accepts the request.
+    (ws / "projects").mkdir(exist_ok=True)
+    os.symlink(str(repo_alpha), str(ws / "projects" / "alpha"))
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = remove_project.main(["remove_project.py", "alpha"])
+
+    assert rc == 0, buf.getvalue()
+
+    content = wf.read_text()
+    assert "- name: alpha" not in content
+    # The orphan line that was previously left behind.
+    assert "  added: 2024-01-01" not in content
+    # The beta entry must be fully intact.
+    assert "- name: beta" in content
+    assert "  path: /b" in content
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# BUG-03 regression: separate_git cleans empty backup on move failure
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_separate_git_cleans_backup_on_move_failure(tmp_path, monkeypatch):
+    """When shutil.move raises, the empty backup directory must be removed.
+
+    Without the fix, the backup dir is left empty and a subsequent invocation
+    refuses to run ("Backup directory already exists"), creating an
+    unrecoverable state without manual intervention.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+    (ws / "bin").mkdir()
+    (ws / ".git").mkdir()
+    (ws / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    _patch_root(monkeypatch, ws)
+
+    # Make shutil.move fail unconditionally.
+    monkeypatch.setattr(shutil, "move", lambda *a, **kw: (_ for _ in ()).throw(OSError("simulated move failure")))
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = separate_git.main(["separate_git.py"])
+
+    assert rc == 1, buf.getvalue()
+
+    backup = tmp_path / "workspace-git-backup"
+    # The backup directory must have been cleaned up.
+    assert not backup.exists(), (
+        f"Empty backup dir was not removed after failed move: {backup}"
+    )
+    # The original .git must still be intact.
+    assert (ws / ".git" / "HEAD").is_file(), ".git was lost despite failed move"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

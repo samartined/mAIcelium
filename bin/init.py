@@ -31,8 +31,50 @@ _SETTINGS_JSON = """\
       "Bash(ln:*)",
       "Bash(rm:*)",
       "Bash(mkdir:*)",
+      "Bash(python3:bin/*)",
+      "Bash(python3:bin/hooks/*)",
+      "Bash(python3:mesh/commands/scripts/*)",
+      "Bash(python:bin/*)",
+      "Bash(python:bin/hooks/*)",
+      "Bash(bin/py.sh:*)",
+      "Bash(bin/py.cmd:*)",
       "Bash(bash:bin/*)",
-      "Bash(python3:mesh/commands/scripts/*)"
+      "Bash(bash:bin/hooks/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed — context may be stale. Read .claude/projects-context.md.\\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bin/py.sh bin/hooks/guard_bash.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bin/py.sh bin/hooks/guard_write.py",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
@@ -105,7 +147,7 @@ def _touch(path):
     if os.path.exists(path):
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "a"):
+    with open(path, "a", encoding="utf-8"):
         pass
 
 
@@ -212,7 +254,7 @@ def _create_settings_json(root):
         print("  OK .claude/settings.json already exists (kept)")
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(_SETTINGS_JSON)
     print("  OK .claude/settings.json created")
 
@@ -223,7 +265,7 @@ def _create_workspace_md(root):
     if os.path.isfile(path):
         print("  OK WORKSPACE.md already exists (kept)")
         return
-    now = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     content = (
         "# Active workspace\n"
         "\n"
@@ -231,7 +273,7 @@ def _create_workspace_md(root):
         "\n"
         f"created: {now}\n"
     )
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     print("  OK WORKSPACE.md created")
 
@@ -322,6 +364,11 @@ def main(root=None):
     print("  -> Generating Claude project context...")
     regenerate_claude_context(root)
     print("  OK Claude project context created")
+
+    # Sync symlinks: materializes mesh layers, generates MCP configs,
+    # regenerates workspace file and Claude context.
+    import sync_symlinks
+    sync_symlinks.main([])
 
     print("")
     print("mAIcelium initialized successfully.")

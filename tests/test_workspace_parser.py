@@ -7,14 +7,14 @@ import os
 
 import pytest
 
-from _lib.workspace import load_workspace_section
+from _lib.workspace import _parse_path_value, load_workspace_section
 
 
 def write(root, name, content):
     """Helper: write a file at root/name."""
     path = os.path.join(root, name)
     os.makedirs(os.path.dirname(path) or root, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     return path
 
@@ -224,3 +224,49 @@ def test_no_inline_no_duplicate_at_section_boundary(tmp_path):
     )
     result = load_workspace_section(root, "no_inline_projects")
     assert result == ["framework-repo"], f"expected no duplicate, got {result}"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Security: path traversal (BUG-06)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_path_traversal_rejected(tmp_path, capsys):
+    """Relative paths that escape workspace root via '..' must be rejected.
+
+    _parse_path_value must emit a stderr warning and return the raw unresolved
+    string instead of resolving to a system path like /etc.
+    """
+    root = str(tmp_path)
+    raw = "../../etc"
+    result = _parse_path_value(raw, root)
+
+    # Must return the unresolved raw string, NOT /etc or similar
+    assert result == raw, f"expected unresolved '{raw}', got '{result}'"
+
+    # Must emit a warning to stderr
+    captured = capsys.readouterr()
+    assert "escapes workspace root" in captured.err
+    assert raw in captured.err
+
+
+def test_path_traversal_absolute_allowed(tmp_path):
+    """Absolute paths must not trigger the traversal guard (they are explicit)."""
+    root = str(tmp_path)
+    result = _parse_path_value("/usr/local/share/data", root)
+    assert result == "/usr/local/share/data"
+
+
+def test_path_within_root_allowed(tmp_path):
+    """Relative paths that stay within root must resolve normally."""
+    root = str(tmp_path)
+    result = _parse_path_value("subdir/file.txt", root)
+    assert result == os.path.normpath(os.path.join(root, "subdir/file.txt"))
+
+
+def test_path_traversal_no_escape_allowed(tmp_path):
+    """'../sibling' that resolves outside root must also be rejected."""
+    root = str(tmp_path / "workspace")
+    raw = "../outside"
+    result = _parse_path_value(raw, root)
+    assert result == raw

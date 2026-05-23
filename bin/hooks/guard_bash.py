@@ -30,7 +30,7 @@ def _log_failure(reason):
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         ts = datetime.now(timezone.utc).isoformat()
-        with open(log_path, "a") as f:
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"{ts} guard_bash {reason}\n")
     except OSError:
         pass

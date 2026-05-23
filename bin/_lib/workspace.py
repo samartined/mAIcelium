@@ -34,16 +34,30 @@ def _read_workspace(root):
     wf = os.path.join(root, "WORKSPACE.md")
     if not os.path.isfile(wf):
         return [], False
-    with open(wf) as f:
+    with open(wf, encoding="utf-8") as f:
         return f.read().splitlines(), True
 
 
 def _parse_path_value(raw, root):
-    """Expand ~ and resolve relative paths against root, normpath."""
+    """Expand ~ and resolve relative paths against root, normpath.
+
+    Relative paths that escape `root` via `..` are rejected with a stderr
+    warning; the unresolved string is returned so downstream consumers
+    fail with a clear message instead of operating on system paths.
+    """
     expanded = os.path.expanduser(raw)
-    if not os.path.isabs(expanded):
-        expanded = os.path.join(root, expanded)
-    return os.path.normpath(expanded)
+    if os.path.isabs(expanded):
+        return os.path.normpath(expanded)
+    resolved = os.path.normpath(os.path.join(root, expanded))
+    root_norm = os.path.normpath(root)
+    if not (resolved == root_norm or resolved.startswith(root_norm + os.sep)):
+        print(
+            f"Warning: relative path '{raw}' escapes workspace root via '..'; "
+            f"refusing to resolve. Use an absolute path if intentional.",
+            file=sys.stderr,
+        )
+        return raw  # unresolved on purpose
+    return resolved
 
 
 def _parse_mesh_layers(lines, root):

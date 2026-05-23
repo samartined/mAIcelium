@@ -9,7 +9,9 @@ Projects connect via symlinks — they can live anywhere on disk.
 ## Rules — automatically injected
 All rules live in `./mesh/rules/`. They are automatically inlined into
 `.claude/projects-context.md` on every sync (SessionStart hook or
-`bin/sync_symlinks.sh`). Claude Code reads them without manual intervention.
+`bin/sync_symlinks.py`, with `bin/sync_symlinks.sh` kept as a fallback
+during the migration quarantine — see `docs/migration-status.md`).
+Claude Code reads them without manual intervention.
 
 ## Available skills
 In `./mesh/skills/`. Check the relevant SKILL.md before executing any task.

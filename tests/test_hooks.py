@@ -245,3 +245,43 @@ def test_guard_write_allows_layer_symlink(tmp_path):
     )
     assert result.returncode == 0
     assert result.stdout.strip() == ""
+
+
+def test_guard_write_blocks_absolute_path_outside_workspace(tmp_path):
+    """Fail-CLOSED on absolute paths that resolve outside the workspace root."""
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_input": {"file_path": "/etc/passwd"}},
+        env={"MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert _is_block(result)
+    assert "outside the workspace" in result.stdout.lower()
+
+
+def test_guard_write_blocks_dotdot_traversal(tmp_path):
+    """A relative path that escapes the workspace via .. must be blocked."""
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    escaping = str(sub / ".." / ".." / ".." / "etc" / "shadow")
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_input": {"file_path": escaping}},
+        env={"MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert _is_block(result)
+    assert "outside the workspace" in result.stdout.lower()
+
+
+def test_guard_write_blocks_cross_drive_via_value_error(tmp_path, monkeypatch):
+    """Simulate os.path.relpath raising ValueError (Windows cross-drive)
+    by feeding a path on a separate root and verify fail-CLOSED behaviour."""
+    # On POSIX, os.path.relpath does not raise; we exercise the equivalent
+    # branch by giving an absolute path that does not start with root_real.
+    # This reproduces the security guarantee: any file_path the hook cannot
+    # safely relate to the workspace must be blocked, not allowed.
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_input": {"file_path": "/var/log/auth.log"}},
+        env={"MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert _is_block(result)

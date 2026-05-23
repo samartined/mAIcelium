@@ -45,7 +45,7 @@ def _strip_workspace_block(root):
         print("  WORKSPACE.md does not exist, skipping")
         return
 
-    with open(wf) as f:
+    with open(wf, encoding="utf-8") as f:
         lines = f.readlines()
 
     out = []
@@ -72,7 +72,7 @@ def _strip_workspace_block(root):
 
         out.append(line)
 
-    with open(wf, "w") as f:
+    with open(wf, "w", encoding="utf-8") as f:
         f.writelines(out)
 
     print("  WORKSPACE.md updated")

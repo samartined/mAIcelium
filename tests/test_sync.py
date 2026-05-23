@@ -23,7 +23,7 @@ import sync_symlinks  # noqa: E402
 def _write(path, content):
     """Write a text file, creating parent directories as needed."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
 
