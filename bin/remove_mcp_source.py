@@ -19,15 +19,8 @@ import sys
 
 from _lib.platform import resolve_root
 from _lib.workspace import load_workspace_section
+from _lib.workspace_writer import unset_mcp_source
 import sync_symlinks
-
-
-def _resolve_root():
-    """Return MAICELIUM_ROOT env var if set, else the default workspace root."""
-    env_root = os.environ.get("MAICELIUM_ROOT")
-    if env_root:
-        return env_root
-    return resolve_root()
 
 
 def _parse_args(argv):
@@ -45,36 +38,7 @@ def _strip_workspace_block(root):
         print("  WORKSPACE.md does not exist, skipping")
         return
 
-    with open(wf, encoding="utf-8") as f:
-        lines = f.readlines()
-
-    out = []
-    in_block = False
-
-    for line in lines:
-        stripped = line.strip()
-
-        if stripped == "mcp_source:":
-            in_block = True
-            continue
-
-        if in_block:
-            # End of block: next top-level key
-            if line and not line.startswith(' ') and not line.startswith('-') and stripped.endswith(':'):
-                in_block = False
-                out.append(line)
-                continue
-            # Skip indented or blank lines inside the block
-            if line.startswith(' ') or not line.strip():
-                if not line.strip():
-                    in_block = False
-                continue
-
-        out.append(line)
-
-    with open(wf, "w", encoding="utf-8") as f:
-        f.writelines(out)
-
+    unset_mcp_source(root)
     print("  WORKSPACE.md updated")
 
 
@@ -83,7 +47,7 @@ def main(argv=None):
         argv = sys.argv
 
     _parse_args(argv)
-    root = _resolve_root()
+    root = resolve_root()
 
     current = load_workspace_section(root, "mcp_source")
     if not current:

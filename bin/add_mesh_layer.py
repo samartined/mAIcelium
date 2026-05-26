@@ -15,20 +15,12 @@ Python port of bin/add_mesh_layer.sh.
 import _bootstrap  # noqa: F401
 
 import argparse
-import datetime
 import os
 import sys
 
 from _lib.platform import resolve_root
+from _lib.workspace_writer import add_layer_entry
 import sync_symlinks
-
-
-def _resolve_root():
-    """Return MAICELIUM_ROOT env var if set, else the default workspace root."""
-    env_root = os.environ.get("MAICELIUM_ROOT")
-    if env_root:
-        return env_root
-    return resolve_root()
 
 
 def _parse_args(argv):
@@ -58,66 +50,10 @@ def _update_workspace(root, name, path, client, repo):
     Returns True if a write happened, False if a duplicate was detected
     (and the file was left untouched).
     """
-    wf = os.path.join(root, "WORKSPACE.md")
-
-    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if not os.path.exists(wf):
-        content = "# Active workspace\n\nprojects: []\n\ncreated: {}\n".format(now)
-    else:
-        with open(wf, encoding="utf-8") as f:
-            content = f.read()
-
-    # Build entry
-    entry_lines = [f"- name: {name}", f"  path: {path}", f"  client: {client}"]
-    if repo:
-        entry_lines.append(f"  repo: {repo}")
-    entry = "\n".join(entry_lines)
-
-    # Check for duplicate within mesh_layers section only
-    in_layers = False
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped == "mesh_layers:":
-            in_layers = True
-            continue
-        if in_layers:
-            if line and not line.startswith(' ') and not line.startswith('-') and stripped.endswith(':'):
-                break
-            if stripped == f"- name: {name}":
-                print(f"  Warning: Layer '{name}' already exists in WORKSPACE.md")
-                return False
-
-    # Insert into mesh_layers section or create it
-    if "mesh_layers:" in content:
-        # Find end of mesh_layers block and append there
-        lines = content.splitlines()
-        insert_at = None
-        in_layers = False
-        for i, line in enumerate(lines):
-            if line.strip() == "mesh_layers:":
-                in_layers = True
-                continue
-            if in_layers:
-                if line and not line.startswith(' ') and not line.startswith('-') and line.strip().endswith(':'):
-                    insert_at = i
-                    break
-        if insert_at is None:
-            # mesh_layers is the last section
-            content = content.rstrip() + "\n" + entry + "\n"
-        else:
-            lines.insert(insert_at, entry)
-            content = "\n".join(lines) + "\n"
-    else:
-        # Prepend mesh_layers before projects:
-        if "projects:" in content:
-            content = content.replace("projects:", f"mesh_layers:\n{entry}\n\nprojects:", 1)
-        else:
-            content = f"mesh_layers:\n{entry}\n\n" + content
-
-    with open(wf, "w", encoding="utf-8") as f:
-        f.write(content)
-    print("  WORKSPACE.md updated")
-    return True
+    wrote = add_layer_entry(root, name, path, client=client, repo=repo or None)
+    if wrote:
+        print("  WORKSPACE.md updated")
+    return wrote
 
 
 def main(argv=None):
@@ -147,7 +83,7 @@ def main(argv=None):
        not os.path.isdir(os.path.join(layer_path, "skills")):
         print(f"Warning: '{layer_path}' has no rules/ or skills/ directory.")
 
-    root = _resolve_root()
+    root = resolve_root()
     _update_workspace(root, name, layer_path, client, repo)
 
     print(f"Mesh layer '{name}' added -> {layer_path} (client: {client})")

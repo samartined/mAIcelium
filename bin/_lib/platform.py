@@ -11,7 +11,15 @@ import uuid
 
 
 def resolve_root():
-    """Return the workspace root (two levels up from this file)."""
+    """Return the workspace root.
+
+    If the MAICELIUM_ROOT environment variable is set, its value is used
+    directly (useful in tests and alternative workspace layouts). Otherwise
+    the root is inferred as two levels up from this file.
+    """
+    env_root = os.environ.get("MAICELIUM_ROOT")
+    if env_root:
+        return env_root
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
