@@ -18,6 +18,7 @@ import sys
 
 from _lib.context import regenerate_claude_context, regenerate_workspace_file
 from _lib.platform import create_link, is_windows, resolve_root
+from _lib.workspace_writer import create_workspace_template
 
 
 _SETTINGS_JSON = """\
@@ -266,15 +267,7 @@ def _create_workspace_md(root):
         print("  OK WORKSPACE.md already exists (kept)")
         return
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    content = (
-        "# Active workspace\n"
-        "\n"
-        "projects: []\n"
-        "\n"
-        f"created: {now}\n"
-    )
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
+    create_workspace_template(root, created=now)
     print("  OK WORKSPACE.md created")
 
 

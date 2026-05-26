@@ -23,15 +23,8 @@ import sys
 
 from _lib.platform import resolve_root
 from _lib.workspace import load_workspace_section
+from _lib.workspace_writer import remove_layer_entry
 import sync_symlinks
-
-
-def _resolve_root():
-    """Return MAICELIUM_ROOT env var if set, else the default workspace root."""
-    env_root = os.environ.get("MAICELIUM_ROOT")
-    if env_root:
-        return env_root
-    return resolve_root()
 
 
 def _parse_args(argv):
@@ -170,73 +163,7 @@ def _strip_workspace_entry(root, name):
         print("  WORKSPACE.md does not exist, skipping")
         return
 
-    with open(wf, encoding="utf-8") as f:
-        lines = f.readlines()
-
-    out = []
-    skip = False
-    in_layers = False
-    i = 0
-
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-
-        if stripped == "mesh_layers:":
-            in_layers = True
-            out.append(line)
-            i += 1
-            continue
-
-        if in_layers:
-            # New top-level key terminates the section.
-            if (
-                line
-                and not line.startswith(" ")
-                and not line.startswith("-")
-                and stripped.endswith(":")
-            ):
-                in_layers = False
-                skip = False
-                out.append(line)
-                i += 1
-                continue
-
-            if stripped == f"- name: {name}":
-                skip = True
-                i += 1
-                continue
-
-            if skip:
-                # Indented continuation -> still inside the entry.
-                if line.startswith("  "):
-                    i += 1
-                    continue
-
-                if stripped == "":
-                    # Look ahead to the first non-blank line.
-                    j = i + 1
-                    while j < len(lines) and lines[j].strip() == "":
-                        j += 1
-                    if j < len(lines) and lines[j].startswith("  "):
-                        # Blank lines belong to the entry; skip past them.
-                        i = j
-                        continue
-                    # Entry ended; keep the blank separator.
-                    skip = False
-                    out.append(line)
-                    i += 1
-                    continue
-
-                # Non-blank, non-indented line: entry has ended.
-                skip = False
-
-        out.append(line)
-        i += 1
-
-    with open(wf, "w", encoding="utf-8") as f:
-        f.writelines(out)
-
+    remove_layer_entry(root, name)
     print("  WORKSPACE.md updated")
 
 
@@ -246,7 +173,7 @@ def main(argv=None):
 
     args = _parse_args(argv)
     name = args.name
-    root = _resolve_root()
+    root = resolve_root()
 
     client, layer_path = _find_layer(root, name)
     if client is None:

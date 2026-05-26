@@ -21,6 +21,7 @@ import sys
 from _lib.context import regenerate_claude_context, regenerate_workspace_file
 from _lib.conventions import load_conventions
 from _lib.platform import create_link, resolve_root
+from _lib.workspace_writer import add_project_entry, create_workspace_template
 
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -131,35 +132,18 @@ def _update_workspace_md(root, name, repo_path):
     """Append/insert a project entry under `projects:` in WORKSPACE.md."""
     wf = os.path.join(root, "WORKSPACE.md")
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    file_existed = os.path.isfile(wf)
 
-    entry = f"- name: {name}\n  path: {repo_path}\n  added: {now}"
+    if not file_existed:
+        # Create initial WORKSPACE.md with `created:` timestamp via writer.
+        create_workspace_template(root, created=now)
 
-    if not os.path.isfile(wf):
-        content = (
-            "# Active workspace\n"
-            "\n"
-            f"projects:\n{entry}\n"
-            "\n"
-            f"created: {now}\n"
-        )
-        with open(wf, "w", encoding="utf-8") as f:
-            f.write(content)
+    add_project_entry(root, name, repo_path, added=now)
+
+    if not file_existed:
         print("  WORKSPACE.md created")
-        return
-
-    with open(wf, encoding="utf-8") as f:
-        content = f.read()
-
-    if "projects: []" in content:
-        content = content.replace("projects: []", "projects:\n" + entry)
-    elif re.search(r"^projects:\s*$", content, flags=re.MULTILINE):
-        content = content.rstrip() + "\n" + entry + "\n"
     else:
-        content = content.rstrip() + "\n\nprojects:\n" + entry + "\n"
-
-    with open(wf, "w", encoding="utf-8") as f:
-        f.write(content)
-    print("  WORKSPACE.md updated")
+        print("  WORKSPACE.md updated")
 
 
 def _list_active_projects(root):

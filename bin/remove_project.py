@@ -21,6 +21,7 @@ import sys
 
 from _lib.context import regenerate_claude_context, regenerate_workspace_file
 from _lib.platform import resolve_root
+from _lib.workspace_writer import remove_project_entry
 
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -74,57 +75,6 @@ def _remove_mirrors(root, name):
             print(f"  {removed} symlink(s) removed from {kind}/")
 
 
-def _remove_entry_lines(lines, target_name):
-    """Remove the `- name: target_name` entry and all its indented continuation,
-    including blank lines that are part of the entry block.
-
-    A blank line belongs to the entry when the next non-blank line is indented
-    (starts with a space or tab).  Once a non-blank, non-indented line follows,
-    the entry has ended and the blank separators are kept.
-    """
-    out = []
-    skip = False
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-
-        if skip:
-            # Indented line -> still inside the entry block.
-            if line.startswith(" ") or line.startswith("\t"):
-                i += 1
-                continue
-
-            if stripped == "":
-                # Look ahead to the first non-blank line.
-                j = i + 1
-                while j < len(lines) and lines[j].strip() == "":
-                    j += 1
-                if j < len(lines) and (
-                    lines[j].startswith(" ") or lines[j].startswith("\t")
-                ):
-                    # The blank lines belong to the entry; skip past them.
-                    i = j
-                    continue
-                # The entry has ended; the blank line is a separator, keep it.
-                skip = False
-                out.append(line)
-                i += 1
-                continue
-
-            # Non-blank, non-indented line: the entry has ended.
-            skip = False
-
-        if stripped == f"- name: {target_name}":
-            skip = True
-            i += 1
-            continue
-
-        out.append(line)
-        i += 1
-    return out
-
-
 def _remove_workspace_entry(root, name):
     """Strip the `- name: <name>` block from WORKSPACE.md, preserving everything else."""
     wf = os.path.join(root, "WORKSPACE.md")
@@ -132,13 +82,7 @@ def _remove_workspace_entry(root, name):
         print("  WORKSPACE.md does not exist, skipping")
         return
 
-    with open(wf, encoding="utf-8") as f:
-        lines = f.readlines()
-
-    out = _remove_entry_lines(lines, name)
-
-    with open(wf, "w", encoding="utf-8") as f:
-        f.writelines(out)
+    remove_project_entry(root, name)
     print("  WORKSPACE.md updated")
 
 
