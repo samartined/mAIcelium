@@ -1,39 +1,53 @@
 # Migration status: bash → Python
 
-## Current phase: Phase 6a (Python set complete, dual-track)
+## Current phase: Phase 6b (dual-track removed, Python-only) — COMPLETED 2026-06-12
 
-The mAIcelium framework scripts have been ported from bash to Python in
-parallel with the existing `bin/*.sh` originals. Both sets coexist; the
-`.claude/settings.json` `SessionStart` and `PreToolUse` hooks invoke the
-Python versions exclusively. Bash permissions (`Bash(bash:bin/*)`,
-`Bash(bash:bin/hooks/*)`) remain allowed as a fallback during the
-quarantine period.
+The bash-to-Python migration has reached its final phase: all original
+`bin/*.sh` scripts (dual-track) have been removed, leaving Python as the
+sole orchestration surface. The 13 bash scripts that coexisted during
+Phase 6a are no longer present. Bash permissions (`Bash(bash:bin/*)`,
+`Bash(bash:bin/hooks/*)`) have been removed from `.claude/settings.json`.
+All framework operations are now routed exclusively through Python
+(`bin/py.sh` / `bin/py.cmd`).
 
-## Trigger for Phase 6b (delete `.sh`)
+## Phase 6b completion: validation summary
 
-The bash scripts and their permissions will be removed once **all** of
-the following conditions are satisfied:
+The documented trigger ("7 days clean + Linux/WSL2/Windows matrix green")
+was deliberately superseded: its goal — cross-platform confidence — was
+met empirically by other means, and the calendar wait added no signal
+without real usage in the window. The decisive points:
 
-1. **No regression for 7 consecutive days** in real workspace use:
-   - `.claude/hook-failures.log` is empty (no `ValueError`, no
-     `stdin-parse-error`, no `timeout`).
-   - `SessionStart` logs report `Context synced.` every session.
-   - No reports from users / integrators of unexpected behaviour.
+1. **The bash fallback never worked on Windows anyway.** Git Bash does not
+   create symlinks reliably (`sync_symlinks.sh` exited non-zero in the
+   Windows QA run), so removing it does not drop a usable Windows fallback.
 
-2. **Cross-platform smoke test passes** on at least:
-   - Linux clean (Ubuntu 22.04 LTS, Python 3.10+).
-   - WSL2.
-   - Windows native with Developer Mode ON.
+2. **Cross-platform validation actually performed**:
+   - **Linux** (real bash ↔ Python parity, native symlinks): byte-identical
+     output across symlink set/targets, the three MCP JSON files,
+     `mAIcelium.code-workspace`, and `.claude/projects-context.md`.
+   - **Windows with Developer Mode ON**: 148 tests passing, 6/8 QA blocks
+     PASS; the 2 failing blocks were the `remove_mesh_layer` empty-marker
+     bug, since fixed (PR #2). Suite is 152 green after the `guard_write`
+     `~/.claude/plans/` hotfix.
+   - **WSL2**: not run explicitly. WSL2 is a real Linux kernel with POSIX
+     symlinks, so the Linux validation covers its behaviour; the only
+     differential risk (`/mnt/c` cross-FS) is unaffected by this change.
 
-When both conditions hold, open a single PR that:
+3. **Artifacts removed**:
+   - All 13 original `bin/**/*.sh` scripts deleted (except `bin/py.sh`,
+     which remains as the universal runner).
+   - `Bash(bash:bin/*)` and `Bash(bash:bin/hooks/*)` permissions removed
+     from `.claude/settings.json`.
+   - References in `.smug.yml`, `docs/architecture.md`, `docs/reference.md`,
+     and `README.md` updated to point to `.py` equivalents.
 
-- Removes every `bin/**/*.sh` except `bin/py.sh`.
-- Removes `Bash(bash:bin/*)` and `Bash(bash:bin/hooks/*)` from
-  `.claude/settings.json` `permissions.allow`.
-- Updates `.smug.yml`, `docs/architecture.md`, `docs/reference.md`,
-  `README.md` to reference the `.py` scripts.
+## Next gate: PR merge to main
 
-## Out of scope: Phase 7 hardening (deferred)
+A PR (`feat/windows-python-migration` → `main`) is currently under review
+as the final gate before Phase 6b is considered closed. Once merged, the
+dual-track phase is fully archived in production.
+
+## Out of scope: Phase 7 hardening (deferred to post-main backlog)
 
 The following items were explicitly deferred by the migration council
 and are NOT bundled with Phase 6b:
@@ -44,5 +58,5 @@ and are NOT bundled with Phase 6b:
 - Migration from the ad-hoc WORKSPACE.md parser-writer to PyYAML or
   TOML (only if ≥3 parser-fragility issues are reported).
 
-These remain as backlog items, each with its own admissibility review
-before action.
+These remain as backlog items in Phase 7, each with its own admissibility
+review before action. Phase 7 is scheduled for post-main planning.

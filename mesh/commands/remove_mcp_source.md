@@ -15,7 +15,7 @@ directory is never touched.
 Run:
 
 ```bash
-cd $WORKSPACE_ROOT && bin/remove_mcp_source.sh
+cd $WORKSPACE_ROOT && bin/py.sh bin/remove_mcp_source.py
 ```
 
 Then output the script's response **verbatim** as your only reply. No extra text.

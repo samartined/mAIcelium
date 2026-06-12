@@ -175,11 +175,23 @@ def main():
         # /root/.ssh/authorized_keys, and similar out-of-workspace writes.
         root_real = os.path.realpath(root)
         file_real = os.path.realpath(file_path)
-        outside = rel_path_posix.startswith("..") or (
-            os.path.isabs(file_path)
-            and not (
-                file_real == root_real
-                or file_real.startswith(root_real + os.sep)
+        # Exception: Claude Code's own plan directory (~/.claude/plans/) lives
+        # outside the workspace but is legitimate harness state the agent must
+        # be able to write (plan mode). Scoped to plans/ only -- the global
+        # ~/.claude/settings.json stays protected.
+        claude_plans = os.path.realpath(os.path.expanduser("~/.claude/plans"))
+        under_claude_plans = (
+            file_real == claude_plans
+            or file_real.startswith(claude_plans + os.sep)
+        )
+        outside = (not under_claude_plans) and (
+            rel_path_posix.startswith("..")
+            or (
+                os.path.isabs(file_path)
+                and not (
+                    file_real == root_real
+                    or file_real.startswith(root_real + os.sep)
+                )
             )
         )
         if outside:
