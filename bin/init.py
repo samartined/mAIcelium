@@ -13,7 +13,6 @@ import _bootstrap  # noqa: F401
 
 import datetime
 import os
-import stat
 import sys
 
 from _lib.context import regenerate_claude_context, regenerate_workspace_file
@@ -38,9 +37,7 @@ _SETTINGS_JSON = """\
       "Bash(python:bin/*)",
       "Bash(python:bin/hooks/*)",
       "Bash(bin/py.sh:*)",
-      "Bash(bin/py.cmd:*)",
-      "Bash(bash:bin/*)",
-      "Bash(bash:bin/hooks/*)"
+      "Bash(bin/py.cmd:*)"
     ]
   },
   "hooks": {
@@ -305,33 +302,6 @@ def _create_smug_symlink(root):
     print("  OK smug symlink created")
 
 
-def _chmod_scripts(root):
-    """chmod +x bin/*.sh and bin/hooks/*.sh. Linux/macOS only."""
-    if is_windows():
-        return
-
-    bin_dir = os.path.join(root, "bin")
-    hooks_dir = os.path.join(bin_dir, "hooks")
-    for d in (bin_dir, hooks_dir):
-        if not os.path.isdir(d):
-            continue
-        for entry in os.listdir(d):
-            if not entry.endswith(".sh"):
-                continue
-            full = os.path.join(d, entry)
-            if not os.path.isfile(full):
-                continue
-            try:
-                cur = os.stat(full).st_mode
-                os.chmod(
-                    full,
-                    cur | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH,
-                )
-            except OSError:
-                pass
-    print("  OK Script permissions set")
-
-
 # ── Entry point ─────────────────────────────────────────────────────────────
 
 def main(root=None):
@@ -358,7 +328,6 @@ def main(root=None):
     _create_workspace_md(root)
     _create_registry_yaml(root)
     _create_smug_symlink(root)
-    _chmod_scripts(root)
 
     print("  -> Generating workspace file...")
     regenerate_workspace_file(root)

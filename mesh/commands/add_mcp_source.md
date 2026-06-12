@@ -6,7 +6,7 @@ description: >-
 
 ## Purpose
 Register an external directory as the pluggable MCP source. The workspace mounts
-it at `mesh/mcp/` via a symlink, and `sync_symlinks.sh` generates `.mcp.json`,
+it at `mesh/mcp/` via a symlink, and `sync_symlinks.py` generates `.mcp.json`,
 `.cursor/mcp.json`, and `.agents/mcp.json` from its `*.json` files. The external
 directory is never tracked by this workspace's git.
 
@@ -17,7 +17,7 @@ The user provides an absolute path (and optionally a git remote URL for document
 Run:
 
 ```bash
-cd $WORKSPACE_ROOT && bin/add_mcp_source.sh <absolute_path> [--repo <url>]
+cd $WORKSPACE_ROOT && bin/py.sh bin/add_mcp_source.py <absolute_path> [--repo <url>]
 ```
 
 Then output the script's response **verbatim** as your only reply. No extra text.
@@ -30,6 +30,6 @@ Then output the script's response **verbatim** as your only reply. No extra text
 ## Example
 ```
 User: /add_mcp_source /Users/edgar/Dev/mAIcelium-mcp
-→ runs: bin/add_mcp_source.sh /Users/edgar/Dev/mAIcelium-mcp
+→ runs: bin/py.sh bin/add_mcp_source.py /Users/edgar/Dev/mAIcelium-mcp
 → output includes: ✔ MCP source mounted → /Users/edgar/Dev/mAIcelium-mcp
 ```

@@ -22,15 +22,6 @@ If the output starts with **❓** (ambiguous match), ask the user which project
 they meant from the listed candidates, then re-run the script with the exact
 name they chose.
 
-## Fallback
-
-If the Python script is unavailable, use the bash script directly:
-
-1. If the user hasn't provided name and path, check `repos/_registry.yaml` to find the path.
-2. Run: `bin/add_project.sh <name> <absolute_path>`
-3. Confirm the symlink was created in `projects/`.
-4. Show updated WORKSPACE.md.
-
 ## Example
 ```
 User: /add_project camerabass
