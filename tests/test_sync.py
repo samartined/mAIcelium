@@ -19,6 +19,8 @@ if _BIN_DIR not in sys.path:
 
 import sync_symlinks  # noqa: E402
 
+from _marks import requires_symlink
+
 
 def _write(path, content):
     """Write a text file, creating parent directories as needed."""
@@ -85,6 +87,7 @@ def test_sync_empty_workspace(tmp_path, monkeypatch):
 # ── Test 2: rules become relative symlinks ─────────────────────────────────
 
 
+@requires_symlink
 def test_sync_creates_rule_symlinks(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     _write(str(ws / "mesh" / "rules" / "global.mdc"), "global content\n")
@@ -162,6 +165,7 @@ def test_sync_check_only_no_drift_returns_0(tmp_path, monkeypatch):
 # ── Test 5: drift detection (identical content) ────────────────────────────
 
 
+@requires_symlink
 def test_sync_drift_detection_identical(tmp_path, monkeypatch):
     """Replace a layer-managed reflection with real content equal to the layer's.
     Without --fix-drift: drift reported. With --fix-drift: replaced by symlink."""
@@ -262,6 +266,7 @@ def test_sync_drift_detection_divergent(tmp_path, monkeypatch):
 # ── Test 7: produced symlinks are relative ─────────────────────────────────
 
 
+@requires_symlink
 def test_sync_relative_symlinks(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     _write(str(ws / "mesh" / "rules" / "alpha.mdc"), "a\n")
@@ -288,6 +293,7 @@ def test_sync_relative_symlinks(tmp_path, monkeypatch):
 # ── Test 8: broken symlinks are cleaned ────────────────────────────────────
 
 
+@requires_symlink
 def test_sync_clean_broken_symlinks(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     _write(str(ws / "mesh" / "rules" / "good.mdc"), "good\n")

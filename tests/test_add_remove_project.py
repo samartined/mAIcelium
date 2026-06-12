@@ -24,6 +24,8 @@ import add_project  # noqa: E402
 import remove_project  # noqa: E402
 import separate_git  # noqa: E402
 
+from _marks import requires_symlink
+
 
 def _bootstrap_workspace(tmp_path):
     """Create a minimal real workspace under tmp_path/workspace and return its path.
@@ -72,6 +74,7 @@ def _patch_root(monkeypatch, workspace):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_add_project_creates_symlinks_and_workspace_entry(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     repo = _make_fake_project(tmp_path, "fakeproj")
@@ -133,6 +136,7 @@ def test_add_project_rejects_missing_path(tmp_path, monkeypatch):
     assert "does not exist" in buf.getvalue()
 
 
+@requires_symlink
 def test_add_project_refuses_duplicate(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     repo = _make_fake_project(tmp_path, "fakeproj")
@@ -147,6 +151,7 @@ def test_add_project_refuses_duplicate(tmp_path, monkeypatch):
     assert "already exists" in buf.getvalue()
 
 
+@requires_symlink
 def test_add_project_code_only_skips_imports(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     repo = _make_fake_project(tmp_path, "fakeproj")
@@ -167,6 +172,7 @@ def test_add_project_code_only_skips_imports(tmp_path, monkeypatch):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_add_then_remove_leaves_clean_state(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     repo = _make_fake_project(tmp_path, "fakeproj")
@@ -231,6 +237,7 @@ def test_remove_no_arg_shows_usage(tmp_path, monkeypatch):
     assert "Active projects" in out
 
 
+@requires_symlink
 def test_remove_preserves_other_sections(tmp_path, monkeypatch):
     """WORKSPACE.md with mesh_layers + projects: remove keeps mesh_layers intact."""
     ws = _bootstrap_workspace(tmp_path)
@@ -282,6 +289,7 @@ def test_remove_preserves_other_sections(tmp_path, monkeypatch):
     assert os.path.realpath(str(repo)) not in after
 
 
+@requires_symlink
 def test_remove_cleans_agents_projects_tree(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     repo = _make_fake_project(tmp_path, "fakeproj")
@@ -374,6 +382,7 @@ def test_separate_git_refuses_existing_backup(tmp_path, monkeypatch):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_remove_project_preserves_following_entry_with_blank_line(tmp_path, monkeypatch):
     """Removing 'alpha' must not leave orphaned indented lines from its block.
 

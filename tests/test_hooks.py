@@ -8,6 +8,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD_BASH = os.path.join(REPO_ROOT, "bin", "hooks", "guard_bash.py")
 GUARD_WRITE = os.path.join(REPO_ROOT, "bin", "hooks", "guard_write.py")
 
+from _marks import requires_symlink  # noqa: E402
+
 
 def _run_hook(hook_path, payload, env=None, cwd=None):
     """Invoke a hook with a JSON payload on stdin and capture the result."""
@@ -221,6 +223,7 @@ def test_guard_write_blocks_stale_layer_reflection(tmp_path):
     assert "layer" in decoded["reason"].lower()
 
 
+@requires_symlink
 def test_guard_write_allows_layer_symlink(tmp_path):
     """A reflection that is a symlink resolving inside mesh/layers/ must be
     allowed (edits transparently reach the source of truth)."""

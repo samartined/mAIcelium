@@ -16,6 +16,8 @@ import pytest
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BIN_DIR = os.path.join(_REPO_ROOT, "bin")
 
+from _marks import requires_symlink  # noqa: E402
+
 
 def _bootstrap_workspace(tmp_path):
     """Create a minimal workspace skeleton: bin/, mesh/conventions.json, projects/, mesh/rules/."""
@@ -66,6 +68,7 @@ def _run(script_name, *args, cwd):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_add_layer_to_empty_workspace(tmp_path):
     """No WORKSPACE.md exists; the script creates one with the layer registered."""
     ws = _bootstrap_workspace(tmp_path)
@@ -84,6 +87,7 @@ def test_add_layer_to_empty_workspace(tmp_path):
     assert "client: acme" in content
 
 
+@requires_symlink
 def test_add_layer_appends_to_existing_section(tmp_path):
     """An existing mesh_layers: section gains a second entry without losing the first."""
     ws = _bootstrap_workspace(tmp_path)
@@ -124,6 +128,7 @@ def test_add_layer_appends_to_existing_section(tmp_path):
     assert content.index("- name: alpha") > content.index("projects:")
 
 
+@requires_symlink
 def test_add_layer_with_repo_url_with_colons(tmp_path):
     """Repo URLs containing ':' (e.g. https://...) are preserved as a single value."""
     ws = _bootstrap_workspace(tmp_path)
@@ -143,6 +148,7 @@ def test_add_layer_with_repo_url_with_colons(tmp_path):
     assert f"repo: {url}" in content
 
 
+@requires_symlink
 def test_add_layer_duplicate_warns_and_skips(tmp_path):
     """Adding the same name twice keeps a single entry and reports a warning."""
     ws = _bootstrap_workspace(tmp_path)
@@ -160,6 +166,7 @@ def test_add_layer_duplicate_warns_and_skips(tmp_path):
     assert content.count("- name: dup") == 1
 
 
+@requires_symlink
 def test_add_layer_preserves_projects_section(tmp_path):
     """WORKSPACE.md with an existing projects: list keeps it intact after a layer is added."""
     ws = _bootstrap_workspace(tmp_path)

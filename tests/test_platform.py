@@ -2,6 +2,7 @@
 import os
 
 from _lib.platform import create_link, is_windows, resolve_root
+from _marks import requires_symlink
 
 
 def test_resolve_root_returns_workspace_root():
@@ -14,6 +15,7 @@ def test_is_windows_returns_bool():
     assert isinstance(is_windows(), bool)
 
 
+@requires_symlink
 def test_create_link_creates_symlink(tmp_path):
     source = tmp_path / "source.txt"
     source.write_text("hello")
@@ -25,6 +27,7 @@ def test_create_link_creates_symlink(tmp_path):
     assert target.read_text() == "hello"
 
 
+@requires_symlink
 def test_create_link_replaces_existing(tmp_path):
     source_a = tmp_path / "a.txt"
     source_a.write_text("A")
@@ -39,6 +42,7 @@ def test_create_link_replaces_existing(tmp_path):
     assert target.read_text() == "B"
 
 
+@requires_symlink
 def test_create_link_idempotent(tmp_path):
     source = tmp_path / "source.txt"
     source.write_text("payload")

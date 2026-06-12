@@ -17,7 +17,7 @@ import stat
 import sys
 
 from _lib.context import regenerate_claude_context, regenerate_workspace_file
-from _lib.platform import create_link, is_windows, resolve_root
+from _lib.platform import check_symlink_privilege, create_link, is_windows, resolve_root
 from _lib.workspace_writer import create_workspace_template
 
 
@@ -338,6 +338,16 @@ def main(root=None):
     """Initialize the workspace at root (defaults to resolve_root())."""
     if root is None:
         root = resolve_root()
+
+    # Privilege check FIRST: on Windows without Developer Mode, symlink
+    # creation fails. Abort cleanly before touching the filesystem so we
+    # never leave a half-initialised workspace.
+    if not check_symlink_privilege():
+        sys.stderr.write(
+            "Cannot create symbolic links. Enable Developer Mode on Windows "
+            "(Settings -> System -> For developers -> Developer Mode), then re-run.\n"
+        )
+        return 2
 
     print(f"Initializing mAIcelium at: {root}")
 

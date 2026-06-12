@@ -15,10 +15,13 @@ if _BIN_DIR not in sys.path:
 
 import init  # noqa: E402
 
+from _marks import requires_symlink
+
 
 # ── Test 1: directory tree ──────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_init_creates_directory_tree(tmp_path):
     """After init, every expected directory must exist under root."""
     rc = init.main(root=str(tmp_path))
@@ -63,6 +66,7 @@ def test_init_creates_directory_tree(tmp_path):
 # ── Test 2: .gitkeep files ──────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_init_creates_gitkeep_files(tmp_path):
     """projects/, mesh/skills/_clients/, and mesh/layers/ get .gitkeep files."""
     rc = init.main(root=str(tmp_path))
@@ -76,6 +80,7 @@ def test_init_creates_gitkeep_files(tmp_path):
 # ── Test 3: idempotence ─────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_init_idempotent(tmp_path):
     """Calling init twice in a row must succeed and not change state on the second run."""
     rc1 = init.main(root=str(tmp_path))
@@ -94,6 +99,7 @@ def test_init_idempotent(tmp_path):
 # ── Test 4: preserve manual edits to .claude/settings.json ──────────────────
 
 
+@requires_symlink
 def test_init_preserves_existing_settings(tmp_path):
     """Pre-created .claude/settings.json must not be overwritten by init."""
     # Pre-create settings.json with custom content
@@ -113,6 +119,7 @@ def test_init_preserves_existing_settings(tmp_path):
 # ── Test 5: workspace file is generated ─────────────────────────────────────
 
 
+@requires_symlink
 def test_init_creates_workspace_file(tmp_path):
     """mAIcelium.code-workspace must exist after init and contain a folders list."""
     rc = init.main(root=str(tmp_path))
@@ -133,6 +140,7 @@ def test_init_creates_workspace_file(tmp_path):
 # ── Test 6: WORKSPACE.md preserved when present ─────────────────────────────
 
 
+@requires_symlink
 def test_init_preserves_existing_workspace_md(tmp_path):
     """Pre-existing WORKSPACE.md must not be overwritten."""
     wf = tmp_path / "WORKSPACE.md"
@@ -147,6 +155,7 @@ def test_init_preserves_existing_workspace_md(tmp_path):
 # ── Test 7: claude project context is generated ─────────────────────────────
 
 
+@requires_symlink
 def test_init_creates_claude_context(tmp_path):
     """init must produce .claude/projects-context.md."""
     rc = init.main(root=str(tmp_path))
@@ -162,6 +171,7 @@ def test_init_creates_claude_context(tmp_path):
 # ── Test 8: settings.json contains Python hooks ─────────────────────────────
 
 
+@requires_symlink
 def test_init_writes_python_hooks_in_settings(tmp_path):
     """After init, .claude/settings.json must include all three Python hook commands."""
     rc = init.main(root=str(tmp_path))
@@ -177,6 +187,7 @@ def test_init_writes_python_hooks_in_settings(tmp_path):
 # ── Test 9: settings.json contains Python permissions ───────────────────────
 
 
+@requires_symlink
 def test_init_includes_python_permissions(tmp_path):
     """After init, .claude/settings.json must include Python-specific permissions."""
     rc = init.main(root=str(tmp_path))
@@ -192,6 +203,7 @@ def test_init_includes_python_permissions(tmp_path):
 # ── Test 10: init runs sync at the end ──────────────────────────────────────
 
 
+@requires_symlink
 def test_init_runs_sync_at_end(tmp_path):
     """After init, mAIcelium.code-workspace must exist (produced by sync_symlinks)."""
     rc = init.main(root=str(tmp_path))
