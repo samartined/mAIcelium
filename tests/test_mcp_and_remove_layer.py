@@ -15,6 +15,8 @@ import pytest
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BIN_DIR = os.path.join(_REPO_ROOT, "bin")
 
+from _marks import requires_symlink  # noqa: E402
+
 
 def _bootstrap_workspace(tmp_path):
     """Create a minimal workspace skeleton with conventions + mesh/ dirs."""
@@ -50,6 +52,7 @@ def _run(script_name, *args, cwd):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_remove_mesh_layer_existing(tmp_path):
     """Removing one layer from a two-layer section keeps the other intact."""
     ws = _bootstrap_workspace(tmp_path)
@@ -90,6 +93,7 @@ def test_remove_mesh_layer_existing(tmp_path):
     assert "mesh_layers:" in content
 
 
+@requires_symlink
 def test_remove_mesh_layer_nonexistent_warns(tmp_path):
     """Removing a missing layer does NOT crash: exit 0, warning emitted."""
     ws = _bootstrap_workspace(tmp_path)
@@ -118,6 +122,7 @@ def test_remove_mesh_layer_nonexistent_warns(tmp_path):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_add_mcp_source_creates_section(tmp_path):
     """No prior mcp_source: section -> a new block is inserted.
 
@@ -155,6 +160,7 @@ def test_add_mcp_source_creates_section(tmp_path):
     assert "- name: alpha" in content
 
 
+@requires_symlink
 def test_add_mcp_source_replaces_existing(tmp_path):
     """An existing mcp_source: block is replaced (no duplicate path lines)."""
     ws = _bootstrap_workspace(tmp_path)
@@ -196,6 +202,7 @@ def test_add_mcp_source_replaces_existing(tmp_path):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_remove_mcp_source_strips_section(tmp_path):
     """When mcp_source: is present, remove deletes the whole block."""
     ws = _bootstrap_workspace(tmp_path)
@@ -227,6 +234,7 @@ def test_remove_mcp_source_strips_section(tmp_path):
     assert "projects:" in content
 
 
+@requires_symlink
 def test_remove_mcp_source_no_section_idempotent(tmp_path):
     """Removing when no section exists does not crash; file stays valid."""
     ws = _bootstrap_workspace(tmp_path)
@@ -257,6 +265,7 @@ def test_remove_mcp_source_no_section_idempotent(tmp_path):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+@requires_symlink
 def test_remove_mesh_layer_preserves_following_entry_with_blank_line(tmp_path):
     """Removing 'alpha' layer must not leave orphaned indented lines from its block.
 

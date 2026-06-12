@@ -3,6 +3,7 @@ import json
 import os
 
 from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _marks import requires_symlink
 
 
 def _write(path, content):
@@ -50,6 +51,7 @@ def test_regenerate_workspace_file_preserves_settings(tmp_path):
     assert data["settings"] == {"theme": "dark"}
 
 
+@requires_symlink
 def test_regenerate_workspace_file_with_projects(tmp_path):
     root = str(tmp_path)
     real_repo = tmp_path / "real_repo"
@@ -152,6 +154,7 @@ def test_regenerate_claude_context_multiple_rules_sorted(tmp_path):
     assert content.index("### alpha") < content.index("### zebra")
 
 
+@requires_symlink
 def test_regenerate_claude_context_project_with_rules_and_skills(tmp_path):
     """A project symlink whose target has rules and skills must be inlined."""
     root = str(tmp_path)
@@ -180,6 +183,7 @@ def test_regenerate_claude_context_project_with_rules_and_skills(tmp_path):
     assert "`projects/myproj/.cursor/plans/`" in content
 
 
+@requires_symlink
 def test_regenerate_claude_context_no_inline_project(tmp_path):
     """A project listed with context_inline:false gets a placeholder line only."""
     root = str(tmp_path)
@@ -204,6 +208,7 @@ def test_regenerate_claude_context_no_inline_project(tmp_path):
     assert "should not appear" not in content
 
 
+@requires_symlink
 def test_regenerate_claude_context_project_no_rules_no_skills(tmp_path):
     """If a project has no rules and no skills, emit the empty marker."""
     root = str(tmp_path)
@@ -219,6 +224,7 @@ def test_regenerate_claude_context_project_no_rules_no_skills(tmp_path):
     assert "_No rules or skills found for this project._" in content
 
 
+@requires_symlink
 def test_regenerate_claude_context_layer_rules(tmp_path):
     """A mesh layer whose client matches the project name contributes rules."""
     root = str(tmp_path)
