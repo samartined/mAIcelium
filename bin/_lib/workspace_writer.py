@@ -5,8 +5,11 @@ scripts (add_project, remove_project, add_mesh_layer, remove_mesh_layer,
 add_mcp_source, remove_mcp_source, set_project_flag).
 
 Each function reads WORKSPACE.md, applies a targeted edit, and writes
-back. Empty sections (e.g. `projects:\n` with no items) are preserved.
-Top-level boundary detection is shared via _is_top_level_key.
+back. An empty `projects:` section is preserved, but removing the last
+mesh layer drops the `mesh_layers:` marker entirely (it would otherwise
+leave a bare marker that sync_symlinks flags as a degraded workspace —
+see _drop_empty_section_marker). Top-level boundary detection is shared
+via _is_top_level_key.
 
 WORKSPACE.md format assumptions:
   - Top-level keys: no indent, end with ':', do not start with '-'
@@ -271,6 +274,10 @@ def remove_layer_entry(root, name):
     belong to the entry (BUG-01 lookahead rule) are also removed.
     Idempotent: no-op if entry not found.
 
+    When the removed entry was the last one, the now-empty `mesh_layers:`
+    marker is dropped as well, so the workspace does not end up in the
+    degraded state that sync_symlinks reports with exit code 3.
+
     Matches the logic from remove_mesh_layer._strip_workspace_entry.
     """
     wf = os.path.join(root, WORKSPACE_FILE)
@@ -334,6 +341,12 @@ def remove_layer_entry(root, name):
 
         out.append(line)
         i += 1
+
+    # When the last layer is removed, only the bare `mesh_layers:` marker
+    # would remain. sync_symlinks treats a present-but-empty marker as a
+    # degraded workspace (exit code 3) and load_workspace_section warns about
+    # it, so collapse the now-empty section away.
+    out = _drop_empty_section_marker(out, "mesh_layers")
 
     _write_lines(wf, out)
 
@@ -537,3 +550,43 @@ def _remove_entry_block(lines, target_name):
         out.append(line)
         i += 1
     return out
+
+
+def _drop_empty_section_marker(lines, section):
+    """Drop a bare `<section>:` marker that has no `- name:` entries.
+
+    Removes the marker line plus any blank lines up to the next top-level key.
+    No-op when the marker is absent or the section still has entries.
+
+    This keeps WORKSPACE.md out of the "empty section marker" degraded state
+    that sync_symlinks flags with exit code 3 (and that load_workspace_section
+    warns about). Mirrors unset_mcp_source, which removes its block entirely
+    rather than leaving a bare key behind.
+    """
+    marker = f"{section}:"
+    idx = None
+    for i, line in enumerate(lines):
+        if line.rstrip("\n").strip() == marker:
+            idx = i
+            break
+    if idx is None:
+        return lines
+
+    has_entry = False
+    j = idx + 1
+    while j < len(lines):
+        raw = lines[j].rstrip("\n")
+        stripped = raw.strip()
+        if _is_top_level_key(raw, stripped):
+            break
+        if stripped.startswith("- name:"):
+            has_entry = True
+            break
+        j += 1
+    if has_entry:
+        return lines
+
+    end = idx + 1
+    while end < len(lines) and lines[end].rstrip("\n").strip() == "":
+        end += 1
+    return lines[:idx] + lines[end:]
