@@ -33,6 +33,6 @@ windows:
           - cd ~/dev/mAIcelium/projects && ls -la
       - commands:
           - echo "Quick commands:"
-          - echo "  bin/add_project.sh <name> <path>"
-          - echo "  bin/remove_project.sh <name>"
-          - echo "  bin/sync_symlinks.sh"
+          - echo "  bin/add_project.py <name> <path>"
+          - echo "  bin/remove_project.py <name>"
+          - echo "  bin/sync_symlinks.py"

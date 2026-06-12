@@ -29,7 +29,7 @@ This gives you the workspace structure with all the scripts, rules, and skills a
 ## Step 2: Initialize the workspace
 
 ```bash
-bin/init.sh
+python3 bin/init.py
 ```
 
 **What happens behind the scenes:**
@@ -42,7 +42,7 @@ bin/init.sh
 6. Copies `repos/_registry.yaml.example` → `repos/_registry.yaml` if needed.
 7. Creates a smug symlink for tmux session management.
 
-After running `init.sh`, run `bin/sync_symlinks.sh` to complete the setup — it creates `.agents/`, generates MCP configs, processes `.mdc` rule files, and resolves any layer-mounted content.
+After running `init.py`, run `python3 bin/sync_symlinks.py` to complete the setup — it creates `.agents/`, generates MCP configs, processes `.mdc` rule files, and resolves any layer-mounted content.
 
 **Expected output:**
 
@@ -131,7 +131,7 @@ When you want to work on a specific project, plug it into the workspace.
 **From the terminal:**
 
 ```bash
-bin/add_project.sh my-api ~/dev/acme-api
+python3 bin/add_project.py my-api ~/dev/acme-api
 ```
 
 **From inside an IDE (with fuzzy matching):**
@@ -199,7 +199,7 @@ Once a project is plugged in, all agent work happens inside `projects/<project-n
 When you're done working on a project:
 
 ```bash
-bin/remove_project.sh my-api
+python3 bin/remove_project.py my-api
 ```
 
 **What happens behind the scenes:**
@@ -230,7 +230,7 @@ bin/remove_project.sh my-api
 If you've added new rules or skills to `mesh/` or `mesh/layers/`, or if symlinks got broken (e.g., after moving the workspace directory), rebuild everything:
 
 ```bash
-bin/sync_symlinks.sh
+python3 bin/sync_symlinks.py
 ```
 
 This script:
@@ -252,7 +252,7 @@ This script:
 ### Adding a new global rule
 
 1. Create an `.mdc` file in `mesh/rules/`, e.g., `mesh/rules/testing-standards.mdc`
-2. Run `bin/sync_symlinks.sh` to distribute it to all IDEs
+2. Run `python3 bin/sync_symlinks.py` to distribute it to all IDEs
 3. All agents now follow the new rule
 
 If the rule belongs to reusable domain content managed in a layer, add it in that layer repo (for example `mesh/layers/core/rules/_domains/...`) and keep `mesh/` as mount points.
@@ -261,7 +261,7 @@ If the rule belongs to reusable domain content managed in a layer, add it in tha
 
 1. Create a directory in the appropriate category, e.g., `mesh/skills/_domains/go/`
 2. Add a `SKILL.md` with instructions for the agent
-3. Run `bin/sync_symlinks.sh`
+3. Run `python3 bin/sync_symlinks.py`
 4. Agents can now use the skill when working on relevant tasks
 
 If `_common` or `_domains` is mounted from a layer in your setup, create the skill in the layer path (for example `mesh/layers/core/skills/_domains/go/`) rather than inside the mounted symlink.
@@ -271,8 +271,8 @@ If `_common` or `_domains` is mounted from a layer in your setup, create the ski
 You can plug in multiple projects at once:
 
 ```bash
-bin/add_project.sh api ~/dev/acme-api
-bin/add_project.sh frontend ~/dev/acme-frontend
+python3 bin/add_project.py api ~/dev/acme-api
+python3 bin/add_project.py frontend ~/dev/acme-frontend
 ```
 
 Each project's rules and skills are imported with their own prefix, so there are no conflicts. Agents are instructed to ask which project to focus on if it's ambiguous.
@@ -280,7 +280,7 @@ Each project's rules and skills are imported with their own prefix, so there are
 ### Moving to a new machine
 
 1. Clone the mAIcelium repo
-2. Run `bin/init.sh`
+2. Run `python3 bin/init.py`
 3. Create your `repos/_registry.yaml` with local paths
 4. Plug in the projects you need
 
@@ -291,7 +291,7 @@ The workspace is designed to be portable — only the `.gitignored` files contai
 When multiple projects are linked, the workspace `.git` can conflict with the linked projects' own git contexts. To avoid this:
 
 ```bash
-bin/separate_git.sh
+python3 bin/separate_git.py
 ```
 
 This moves `.git` to a sibling directory (`<workspace>-git-backup/`) and creates a shell alias (`maicelium-git`) so you can still run git operations:
