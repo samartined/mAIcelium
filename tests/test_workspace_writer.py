@@ -430,6 +430,55 @@ def test_remove_layer_nonexistent_is_idempotent(tmp_path):
     assert _read(tmp_path) == original
 
 
+def test_remove_last_layer_drops_marker(tmp_path):
+    """Removing the only layer drops the bare `mesh_layers:` marker so the
+    workspace is not left in the degraded empty-marker state that
+    sync_symlinks reports with exit code 3."""
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        mesh_layers:
+        - name: alpha
+          path: /opt/alpha
+          client: alpha
+
+        projects: []
+        """,
+    )
+    remove_layer_entry(str(tmp_path), "alpha")
+    content = _read(tmp_path)
+    assert "- name: alpha" not in content
+    # The bare marker must be gone (this is exactly what gets flagged).
+    assert not any(line.strip() == "mesh_layers:" for line in content.splitlines())
+    # The neighbouring projects section is left untouched.
+    assert "projects: []" in content
+
+
+def test_remove_last_layer_then_readd_roundtrips(tmp_path):
+    """After the marker is dropped, re-adding a layer recreates the section
+    above projects: — the add->remove->add cycle stays correct."""
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        mesh_layers:
+        - name: alpha
+          path: /opt/alpha
+          client: alpha
+
+        projects: []
+        """,
+    )
+    remove_layer_entry(str(tmp_path), "alpha")
+    add_layer_entry(str(tmp_path), "beta", "/opt/beta", client="beta")
+    content = _read(tmp_path)
+    assert "- name: beta" in content
+    assert content.index("- name: beta") < content.index("projects:")
+
+
 # ── set_mcp_source ───────────────────────────────────────────────────────────
 
 
