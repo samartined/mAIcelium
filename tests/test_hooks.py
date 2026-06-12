@@ -288,3 +288,34 @@ def test_guard_write_blocks_cross_drive_via_value_error(tmp_path, monkeypatch):
         env={"MAICELIUM_ROOT": str(tmp_path)},
     )
     assert _is_block(result)
+
+
+def test_guard_write_allows_claude_plans_dir(tmp_path):
+    """Claude Code's own plan dir (~/.claude/plans/) is outside the workspace
+    but legitimate harness state -- it must be allowed, not blocked."""
+    home = tmp_path / "home"
+    plans = home / ".claude" / "plans"
+    plans.mkdir(parents=True)
+    target = plans / "some-plan.md"
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_input": {"file_path": str(target)}},
+        env={"MAICELIUM_ROOT": str(tmp_path / "workspace"), "HOME": str(home)},
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+
+
+def test_guard_write_still_blocks_global_claude_settings(tmp_path):
+    """The exception is scoped to plans/ only: the global ~/.claude/settings.json
+    stays protected as out-of-workspace."""
+    home = tmp_path / "home"
+    claude = home / ".claude"
+    claude.mkdir(parents=True)
+    target = claude / "settings.json"
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_input": {"file_path": str(target)}},
+        env={"MAICELIUM_ROOT": str(tmp_path / "workspace"), "HOME": str(home)},
+    )
+    assert _is_block(result)

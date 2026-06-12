@@ -26,7 +26,7 @@ mesh/{skills,rules}/{_common,_domains,_clients}/...   ← tier-1 reflection (git
 .cursor/, .agents/, .claude/...                       ← tier-2 reflection (IDE dotfolders)
 ```
 
-Writes to the dotfolders are rejected outright by the `guard-write.sh` hook.
+Writes to the dotfolders are rejected outright by the `guard_write.py` hook.
 Writes to stale tier-1 reflections (real files under `mesh/skills/_common|_domains|_clients/`
 or `mesh/rules/_domains|_clients/` whose realpath stays inside `mesh/` instead
 of descending into `mesh/layers/`) are also rejected. The agent must edit the
@@ -48,7 +48,7 @@ Before editing any skill or rule:
      **layer repo** (every layer has its own `.git`), not in mAIcelium.
    - Realpath is still under `mesh/skills/` or `mesh/rules/` → **stale drift**.
      STOP. Port the change to the matching `mesh/layers/<layer>/…` path,
-     commit inside the layer repo, then run `bin/sync_symlinks.sh --fix-drift`
+     commit inside the layer repo, then run `bin/py.sh bin/sync_symlinks.py --fix-drift`
      to convert the reflection to a symlink.
 3. If the path is `mesh/rules/<name>.mdc`, `mesh/skills/<name>/SKILL.md`
    (flat, not under `_common|_domains|_clients`), `mesh/commands/…`,
@@ -57,7 +57,7 @@ Before editing any skill or rule:
 
 To list all active drift at any time:
 ```bash
-bin/sync_symlinks.sh
+bin/py.sh bin/sync_symlinks.py
 ```
 The script prints a `⚠️ Layer-managed drift detected: N reflection(s)`
 section at the end of every run when drift exists.
@@ -95,7 +95,7 @@ Examples of shared (in layer `core`): `terraform-workflow`, `gcp-iam`,
 `incident-response`, `code-review`, `refactoring`, `debug`,
 `documentation`, `cursor-workspace-migration`.
 
-### Layer routing — how `sync_symlinks.sh` classifies content
+### Layer routing — how `sync_symlinks.py` classifies content
 
 Layers do not carry metadata. Classification is **structural**, driven by
 folder names plus the `client:` field declared in `WORKSPACE.md`. Only
@@ -116,15 +116,15 @@ Three rules to keep in mind when authoring or moving content:
    sync to see it. A layer present on disk but unregistered is invisible.
 2. To change the bucket of a skill or rule, **move the directory inside the
    owning layer** (between `_common/`, `_domains/<domain>/`, or flat) and
-   re-run `bin/sync_symlinks.sh`. Editing the reflection has no effect.
+   re-run `bin/sync_symlinks.py`. Editing the reflection has no effect.
 3. `client:` defaults to `name` if omitted. It only controls the namespace
    of the `_clients/<client>/…` bucket.
 
 Lifecycle commands:
 
 ```bash
-bin/add_mesh_layer.sh <name> <path> [--client <name>] [--repo <url>]
-bin/remove_mesh_layer.sh <name>
+bin/py.sh bin/add_mesh_layer.py <name> <path> [--client <name>] [--repo <url>]
+bin/py.sh bin/remove_mesh_layer.py <name>
 ```
 
 The full convention (including the authoring decision tree) lives in
@@ -184,6 +184,6 @@ mesh/                          ← Single source of truth
 - ❌ Never edit stale tier-1 reflections under `mesh/{skills,rules}/{_common,_domains,_clients}/…` — edit the matching layer path.
 - ❌ Never create new rules/skills in the dotfolders.
 - ❌ Never move or rename files in dotfolders (they're symlinks).
-- ❌ Never delete symlinks manually — use `bin/sync_symlinks.sh` to rebuild.
+- ❌ Never delete symlinks manually — use `bin/sync_symlinks.py` to rebuild.
 - ❌ Never modify `WORKSPACE.md` or `.claude/projects-context.md` by hand — they're auto-generated.
-- ❌ Never run `bin/sync_symlinks.sh --fix-drift` when the drift report shows `divergent` entries — resolve them first by porting the delta to the layer.
+- ❌ Never run `bin/py.sh bin/sync_symlinks.py --fix-drift` when the drift report shows `divergent` entries — resolve them first by porting the delta to the layer.

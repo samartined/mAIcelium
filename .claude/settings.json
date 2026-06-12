@@ -14,9 +14,7 @@
       "Bash(python:bin/*)",
       "Bash(python:bin/hooks/*)",
       "Bash(bin/py.sh:*)",
-      "Bash(bin/py.cmd:*)",
-      "Bash(bash:bin/*)",
-      "Bash(bash:bin/hooks/*)"
+      "Bash(bin/py.cmd:*)"
     ]
   },
   "hooks": {
@@ -25,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \"Context synced. Read .claude/projects-context.md for workspace and project rules.\" || echo \"sync_symlinks.py failed — context may be stale. Read .claude/projects-context.md.\"",
+            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \"Context synced. Read .claude/projects-context.md for workspace and project rules.\" || echo \"sync_symlinks.py failed \u2014 context may be stale. Read .claude/projects-context.md.\"",
             "timeout": 10
           }
         ]
