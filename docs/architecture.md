@@ -62,8 +62,8 @@ graph TD
 | `mesh/skills/` | Reusable capabilities. Each skill has a `SKILL.md` with instructions the agent reads before performing a task. |
 | `mesh/commands/` | Agent command definitions (e.g., what happens when a user types `/add_project`). Includes `scripts/` with Python implementations for fuzzy matching. |
 | `mesh/prompts/` | Reusable prompt templates with `{{placeholders}}` for common tasks (PR review, debugging, feature planning). |
-| `mesh/mcp/` | **Symlink** to an external MCP definitions directory registered in `WORKSPACE.md` under `mcp_source:`. Its `*.json` files are IDE-agnostic MCP server definitions. `sync_symlinks.sh` merges them into `.mcp.json`, `.cursor/mcp.json`, and `.agents/mcp.json`. The external directory is pluggable via `bin/add_mcp_source.sh` / `bin/remove_mcp_source.sh` and is never tracked by this workspace's git. |
-| `bin/` | Bash scripts that automate workspace operations. |
+| `mesh/mcp/` | **Symlink** to an external MCP definitions directory registered in `WORKSPACE.md` under `mcp_source:`. Its `*.json` files are IDE-agnostic MCP server definitions. `sync_symlinks.py` merges them into `.mcp.json`, `.cursor/mcp.json`, and `.agents/mcp.json`. The external directory is pluggable via `bin/add_mcp_source.py` / `bin/remove_mcp_source.py` and is never tracked by this workspace's git. |
+| `bin/` | Python scripts that automate workspace operations. |
 | `projects/` | Symlinks to active repos. This is where agents work — they never touch files outside their project. |
 | `repos/` | YAML registry of all available repos with paths, tech stacks, and metadata. |
 
@@ -116,7 +116,7 @@ Antigravity uses `.agents/` with per-file symlinks for rules, flattened skills, 
 .agents/mcp.json                   (generated from mesh/mcp/*.json)
 ```
 
-Legacy `.antigravity/` directories are automatically removed by `sync_symlinks.sh`.
+Legacy `.antigravity/` directories are automatically removed by `sync_symlinks.py`.
 
 ## Project lifecycle
 
@@ -126,17 +126,17 @@ Legacy `.antigravity/` directories are automatically removed by `sync_symlinks.s
 
 ### Plugging in a project
 
-When you run `bin/add_project.sh my-api ~/dev/my-api`:
+When you run `python3 bin/add_project.py my-api ~/dev/my-api`:
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant Script as add_project.sh
+    participant Script as add_project.py
     participant FS as File System
     participant WS as WORKSPACE.md
     participant Claude as projects-context.md
 
-    User->>Script: add_project.sh my-api ~/dev/my-api
+    User->>Script: add_project.py my-api ~/dev/my-api
     Script->>FS: Create symlink projects/my-api → ~/dev/my-api
     Script->>FS: Symlink project rules to .cursor/rules/my-api--*
     Script->>FS: Symlink project skills to .cursor/skills-cursor/my-api--*
@@ -148,17 +148,17 @@ sequenceDiagram
 
 ### Unplugging a project
 
-When you run `bin/remove_project.sh my-api`:
+When you run `python3 bin/remove_project.py my-api`:
 
 ```mermaid
 sequenceDiagram
     actor User
-    participant Script as remove_project.sh
+    participant Script as remove_project.py
     participant FS as File System
     participant WS as WORKSPACE.md
     participant Claude as projects-context.md
 
-    User->>Script: remove_project.sh my-api
+    User->>Script: remove_project.py my-api
     Script->>FS: Remove .cursor/rules/my-api--* symlinks
     Script->>FS: Remove .cursor/skills-cursor/my-api--* symlinks
     Script->>FS: Remove projects/my-api symlink only
@@ -171,7 +171,7 @@ sequenceDiagram
 
 ### Syncing symlinks
 
-`bin/sync_symlinks.sh` is the "rebuild everything" command. Use it when:
+`bin/sync_symlinks.py` is the "rebuild everything" command. Use it when:
 
 - You've manually edited `mesh/` (added rules or skills)
 - Symlinks are broken (e.g., after moving the workspace)
@@ -273,7 +273,7 @@ mesh-<name>/
     └── <rule>.mdc                    # ← anything else: client-scoped
 ```
 
-`sync_symlinks.sh` walks each registered layer and reflects its content into `mesh/` using this exact mapping:
+`sync_symlinks.py` walks each registered layer and reflects its content into `mesh/` using this exact mapping:
 
 | Path inside the layer                          | Reflected into                                            |
 |------------------------------------------------|-----------------------------------------------------------|
@@ -289,7 +289,7 @@ A single layer can mix all three buckets: `core` does (it carries `_common` and 
 
 ### WORKSPACE.md
 
-Layers are declared in the `mesh_layers:` section of `WORKSPACE.md`. **A layer must be both physically present under `mesh/layers/<name>/` (or any path) and registered here. Without an entry, `sync_symlinks.sh` ignores the layer entirely.**
+Layers are declared in the `mesh_layers:` section of `WORKSPACE.md`. **A layer must be both physically present under `mesh/layers/<name>/` (or any path) and registered here. Without an entry, `sync_symlinks.py` ignores the layer entirely.**
 
 ```yaml
 mesh_layers:
@@ -304,15 +304,15 @@ mesh_layers:
 ### Adding a layer
 
 ```bash
-bin/add_mesh_layer.sh <name> <path> [--client <prefix>] [--repo <url>]
+python3 bin/add_mesh_layer.py <name> <path> [--client <prefix>] [--repo <url>]
 ```
 
-This registers the layer in `WORKSPACE.md` and runs `sync_symlinks.sh` to link its content into all IDEs.
+This registers the layer in `WORKSPACE.md` and runs `sync_symlinks.py` to link its content into all IDEs.
 
 ### Removing a layer
 
 ```bash
-bin/remove_mesh_layer.sh <name>
+python3 bin/remove_mesh_layer.py <name>
 ```
 
 Removes all `client--*` symlinks from `.cursor/` and `.agents/`, cleans the `WORKSPACE.md` entry, and regenerates the Claude Code context. The layer repo on disk is left untouched.
@@ -329,14 +329,14 @@ cd ~/Dev/mAIcelium
 git clone git@github.com:your-org/mesh-acme mesh/layers/acme
 
 # Register and sync
-bin/add_mesh_layer.sh acme mesh/layers/acme --client acme
+python3 bin/add_mesh_layer.py acme mesh/layers/acme --client acme
 ```
 
 `mesh/layers/` is gitignored — each layer is a standalone repo cloned independently.
 
 ### How layers are assembled
 
-At sync time, `sync_symlinks.sh`:
+At sync time, `sync_symlinks.py`:
 - Links `<layer>/rules/*.mdc` → `.cursor/rules/<client>--*.mdc` and `.agents/rules/<client>--*.mdc`
 - Links `<layer>/skills/*/` → `.cursor/skills-cursor/<client>--*/` and `.agents/skills/<client>--*/`
 - Includes layer content in `.claude/projects-context.md` for any project whose name matches the layer's `client`
@@ -353,7 +353,7 @@ mesh/skills/_common/<x>  → symlink → mesh/layers/core/skills/_common/<x>/
 mesh/skills/_domains     → symlink → mesh/layers/core/skills/_domains/
 ```
 
-`sync_symlinks.sh` follows symlinks transparently, so no script changes are needed. The result is identical to having the content directly in `mesh/`.
+`sync_symlinks.py` follows symlinks transparently, so no script changes are needed. The result is identical to having the content directly in `mesh/`.
 
 What stays in `mesh/` regardless:
 
@@ -387,13 +387,13 @@ mcp_source:
 
 ```bash
 # Mount an external MCP directory
-bin/add_mcp_source.sh /path/to/external-mcp-repo [--repo <url>]
+python3 bin/add_mcp_source.py /path/to/external-mcp-repo [--repo <url>]
 
 # Unmount (external directory is never touched)
-bin/remove_mcp_source.sh
+python3 bin/remove_mcp_source.py
 ```
 
-`sync_symlinks.sh` reads `mcp_source:` and ensures `mesh/mcp/` points to the registered directory. If no source is registered, `mesh/mcp/` is left unmounted and the generated `.mcp.json`, `.cursor/mcp.json`, and `.agents/mcp.json` emit an empty `mcpServers` object.
+`sync_symlinks.py` reads `mcp_source:` and ensures `mesh/mcp/` points to the registered directory. If no source is registered, `mesh/mcp/` is left unmounted and the generated `.mcp.json`, `.cursor/mcp.json`, and `.agents/mcp.json` emit an empty `mcpServers` object.
 
 ### Why this shape
 
@@ -413,13 +413,13 @@ Several files and directories in the workspace are generated by scripts and shou
 
 | File / Directory | Generated by | Purpose |
 |-----------------|-------------|---------|
-| `WORKSPACE.md` | `add_project.sh`, `remove_project.sh`, `add_mesh_layer.sh`, `remove_mesh_layer.sh`, `add_mcp_source.sh`, `remove_mcp_source.sh` | Lists active projects, registered layers, and the current MCP source |
-| `mesh/mcp` | `sync_symlinks.sh` (driven by `mcp_source:` in WORKSPACE.md) | Symlink to the external MCP definitions directory |
-| `.claude/projects-context.md` | `_lib.sh` → `_regenerate_claude_context()` | Inlines rules and skills of active projects for Claude Code |
-| `.cursor/rules/`, `.cursor/skills-cursor/` | `sync_symlinks.sh` | Per-file symlinks from `mesh/` for Cursor |
-| `.agents/` | `sync_symlinks.sh` | Rules, skills, workflows, project data, and MCP for Antigravity |
-| `.mcp.json`, `.cursor/mcp.json`, `.agents/mcp.json` | `sync_symlinks.sh` | MCP server configs generated from `mesh/mcp/*.json` |
-| `mAIcelium.code-workspace` | `_lib.sh` → `_regenerate_workspace_file()` | Multi-root VS Code workspace file |
+| `WORKSPACE.md` | `add_project.py`, `remove_project.py`, `add_mesh_layer.py`, `remove_mesh_layer.py`, `add_mcp_source.py`, `remove_mcp_source.py` | Lists active projects, registered layers, and the current MCP source |
+| `mesh/mcp` | `sync_symlinks.py` (driven by `mcp_source:` in WORKSPACE.md) | Symlink to the external MCP definitions directory |
+| `.claude/projects-context.md` | `_lib.py` → `_regenerate_claude_context()` | Inlines rules and skills of active projects for Claude Code |
+| `.cursor/rules/`, `.cursor/skills-cursor/` | `sync_symlinks.py` | Per-file symlinks from `mesh/` for Cursor |
+| `.agents/` | `sync_symlinks.py` | Rules, skills, workflows, project data, and MCP for Antigravity |
+| `.mcp.json`, `.cursor/mcp.json`, `.agents/mcp.json` | `sync_symlinks.py` | MCP server configs generated from `mesh/mcp/*.json` |
+| `mAIcelium.code-workspace` | `_lib.py` → `_regenerate_workspace_file()` | Multi-root VS Code workspace file |
 
 ## Fuzzy matching
 
@@ -435,7 +435,7 @@ When the input is ambiguous, the command returns candidates and asks the agent (
 
 By default, the workspace has its own `.git` directory. When multiple projects are linked, this can cause IDE confusion — some IDEs detect git context from the workspace root instead of the linked project's repository.
 
-`bin/separate_git.sh` moves `.git` to a sibling directory (`<workspace>-git-backup/.git`) and creates a shell alias:
+`bin/separate_git.py` moves `.git` to a sibling directory (`<workspace>-git-backup/.git`) and creates a shell alias:
 
 ```bash
 alias maicelium-git='git --git-dir=.../mAIcelium-git-backup/.git --work-tree=.../mAIcelium'
@@ -446,8 +446,8 @@ The `/git_backup` agent command supports both modes (normal and separated) autom
 ## Security model
 
 - **PreToolUse hooks (claude):** The workspace implements mechanical protection before actions execute:
-  - `bin/hooks/guard-bash.sh` blocks destructive bash commands (e.g., `rm -rf /`, `git push --force`).
-  - `bin/hooks/guard-write.sh` protects sensitive and auto-generated files (e.g., `WORKSPACE.md`, `.env`, lockfiles).
+  - `bin/hooks/guard_bash.py` blocks destructive bash commands (e.g., `rm -rf /`, `git push --force`).
+  - `bin/hooks/guard_write.py` protects sensitive and auto-generated files (e.g., `WORKSPACE.md`, `.env`, lockfiles).
 - Agents can **only write** inside `projects/<active-project>/` and `mesh/` (for new rules, skills, commands, prompts).
 - Agents must **never modify** `.cursor/`, `.claude/`, or `.agents/` — these are auto-generated.
 - Scripts **never run** `rm -rf` on symlink targets — only the symlink is removed.

@@ -8,8 +8,13 @@
       "Bash(ln:*)",
       "Bash(rm:*)",
       "Bash(mkdir:*)",
-      "Bash(bash:bin/*)",
-      "Bash(bash:bin/hooks/*)"
+      "Bash(python3:bin/*)",
+      "Bash(python3:bin/hooks/*)",
+      "Bash(python3:mesh/commands/scripts/*)",
+      "Bash(python:bin/*)",
+      "Bash(python:bin/hooks/*)",
+      "Bash(bin/py.sh:*)",
+      "Bash(bin/py.cmd:*)"
     ]
   },
   "hooks": {
@@ -18,8 +23,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash bin/sync_symlinks.sh > /dev/null && echo \"Context synced. Read .claude/projects-context.md for workspace and project rules.\" || echo \"⚠️  sync_symlinks.sh failed — context may be stale. Read .claude/projects-context.md.\"",
-            "timeout": 5
+            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \"Context synced. Read .claude/projects-context.md for workspace and project rules.\" || echo \"sync_symlinks.py failed \u2014 context may be stale. Read .claude/projects-context.md.\"",
+            "timeout": 10
           }
         ]
       }
@@ -30,8 +35,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash bin/hooks/guard-bash.sh",
-            "timeout": 3
+            "command": "bin/py.sh bin/hooks/guard_bash.py",
+            "timeout": 10
           }
         ]
       },
@@ -40,8 +45,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash bin/hooks/guard-write.sh",
-            "timeout": 3
+            "command": "bin/py.sh bin/hooks/guard_write.py",
+            "timeout": 10
           }
         ]
       }

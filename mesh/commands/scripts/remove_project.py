@@ -4,7 +4,7 @@
 Usage: remove_project.py "<user_input>"
 
 Resolves the project name against currently linked projects,
-then delegates to bin/remove_project.sh.
+then delegates to bin/remove_project.py via sys.executable.
 """
 import os
 import sys
@@ -57,13 +57,16 @@ def main():
         print(f"Linked projects: {', '.join(linked)}")
         sys.exit(1)
 
-    # Delegate to the existing bash script
+    # Delegate to bin/remove_project.py via the running interpreter (cross-platform)
     import subprocess
 
     result = subprocess.run(
-        [os.path.join(ROOT, "bin", "remove_project.sh"), match],
-        capture_output=False,
+        [sys.executable, os.path.join(ROOT, "bin", "remove_project.py"), match],
+        text=True,
+        stderr=subprocess.PIPE,
     )
+    if result.stderr:
+        sys.stderr.write(f"[bin/remove_project.py] {result.stderr}")
     sys.exit(result.returncode)
 
 

@@ -4,7 +4,7 @@
 Usage: add_project.py "<user_input>"
 
 Resolves the project name against repos/_registry.yaml entries,
-then delegates to bin/add_project.sh for the actual linking.
+then delegates to bin/add_project.py via sys.executable for the actual linking.
 """
 import os
 import re
@@ -28,7 +28,7 @@ def load_registry():
     if not os.path.isfile(REGISTRY):
         return {}
 
-    with open(REGISTRY) as f:
+    with open(REGISTRY, encoding="utf-8") as f:
         content = f.read()
 
     entries = {}
@@ -133,11 +133,14 @@ def main():
         print(f"⚠️ **{match}** is already linked.")
         sys.exit(0)
 
-    # Delegate to the existing bash script
+    # Delegate to bin/add_project.py via the running interpreter (cross-platform)
     result = subprocess.run(
-        [os.path.join(ROOT, "bin", "add_project.sh"), match, repo_path],
-        capture_output=False,
+        [sys.executable, os.path.join(ROOT, "bin", "add_project.py"), match, repo_path],
+        text=True,
+        stderr=subprocess.PIPE,
     )
+    if result.stderr:
+        sys.stderr.write(f"[bin/add_project.py] {result.stderr}")
     sys.exit(result.returncode)
 
 

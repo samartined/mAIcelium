@@ -30,15 +30,17 @@ mAIcelium/
 ├── repos/
 │   └── _registry.yaml ← Index of all available repos (check before /add_project)
 ├── bin/               ← Workspace management scripts
-│   ├── init.sh           ← One-time workspace setup
-│   ├── add_project.sh    ← Link a new project repo
-│   ├── remove_project.sh ← Unlink a project repo
-│   ├── sync_symlinks.sh  ← Regenerate all dotfolder mirrors + MCP configs
-│   ├── separate_git.sh   ← Move .git out of workspace root (separated git mode)
-│   ├── _lib.sh           ← Shared bash library for all scripts
+│   ├── init.py           ← One-time workspace setup
+│   ├── add_project.py    ← Link a new project repo
+│   ├── remove_project.py ← Unlink a project repo
+│   ├── sync_symlinks.py  ← Regenerate all dotfolder mirrors + MCP configs
+│   ├── separate_git.py   ← Move .git out of workspace root (separated git mode)
+│   ├── py.sh             ← Cross-platform Python shim (Unix)
+│   ├── py.cmd            ← Cross-platform Python shim (Windows)
+│   ├── _lib/             ← Shared Python library package for all scripts
 │   └── hooks/
-│       ├── guard-bash.sh   ← PreToolUse: blocks dangerous shell commands
-│       └── guard-write.sh  ← PreToolUse: blocks writes to protected files
+│       ├── guard_bash.py   ← PreToolUse: blocks dangerous shell commands
+│       └── guard_write.py  ← PreToolUse: blocks writes to protected files
 ├── WORKSPACE.md       ← Auto-generated: active projects + their inlined rules
 └── CLAUDE.md          ← Claude Code entry point
 ```
@@ -55,7 +57,7 @@ Each IDE runs independently but reads the same rules and skills from `mesh/`.
 
 ## How rules and skills reach agents
 
-1. `bin/sync_symlinks.sh` (runs on every `SessionStart`) regenerates symlinks from
+1. `bin/sync_symlinks.py` (runs on every `SessionStart`) regenerates symlinks from
    `mesh/rules/` and `mesh/skills/` into each IDE's dotfolder.
 2. Rules with `alwaysApply: true` are injected automatically into every agent context.
 3. Skills are on-demand playbooks — agents read the relevant `SKILL.md` before a task.
@@ -82,11 +84,11 @@ available repos with their paths and tech stacks.
 
 Two hooks run automatically before every tool call in Claude Code:
 
-**`guard-bash.sh`** blocks shell commands that:
+**`guard_bash.py`** blocks shell commands that:
 - Use `rm -rf` targeting root, home, or wildcard paths (safe targets like `node_modules` are allowed)
 - Execute destructive SQL (`DROP TABLE`, `TRUNCATE`)
 
-**`guard-write.sh`** blocks writes/edits to:
+**`guard_write.py`** blocks writes/edits to:
 - `.env` files (may contain secrets)
 - `.git/` internals
 - Auto-generated files: `WORKSPACE.md`, `mAIcelium.code-workspace`, `.claude/projects-context.md`
@@ -99,7 +101,7 @@ target `mesh/` instead of the protected path, or use the appropriate `bin/` scri
 
 ## Separated git mode
 
-`bin/separate_git.sh` moves `.git` out of the workspace root into a sibling directory
+`bin/separate_git.py` moves `.git` out of the workspace root into a sibling directory
 (`mAIcelium-git-backup/`). This prevents Cursor from treating the workspace root as a
 git repo and showing all project files as uncommitted changes.
 
@@ -114,13 +116,13 @@ in the workspace root if `.git` is absent.
 
 ```
 # Link a new repo
-bin/add_project.sh <name>        → creates symlink in projects/, updates WORKSPACE.md
+bin/py.sh bin/add_project.py <name>        → creates symlink in projects/, updates WORKSPACE.md
 
 # Remove a linked repo
-bin/remove_project.sh <name>     → removes symlink, updates WORKSPACE.md
+bin/py.sh bin/remove_project.py <name>     → removes symlink, updates WORKSPACE.md
 
 # Rebuild all mirrors after any mesh/ change
-bin/sync_symlinks.sh             → regenerates .cursor/, .claude/, .agents/, .mcp.json
+bin/py.sh bin/sync_symlinks.py             → regenerates .cursor/, .claude/, .agents/, .mcp.json
 ```
 
 ## What agents must never do
