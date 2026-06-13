@@ -300,7 +300,7 @@ def test_guard_write_allows_claude_plans_dir(tmp_path):
     result = _run_hook(
         GUARD_WRITE,
         {"tool_input": {"file_path": str(target)}},
-        env={"MAICELIUM_ROOT": str(tmp_path / "workspace"), "HOME": str(home)},
+        env={"MAICELIUM_ROOT": str(tmp_path / "workspace"), "HOME": str(home), "USERPROFILE": str(home)},  # Windows uses USERPROFILE, not HOME
     )
     assert result.returncode == 0
     assert result.stdout.strip() == ""
@@ -316,6 +316,6 @@ def test_guard_write_still_blocks_global_claude_settings(tmp_path):
     result = _run_hook(
         GUARD_WRITE,
         {"tool_input": {"file_path": str(target)}},
-        env={"MAICELIUM_ROOT": str(tmp_path / "workspace"), "HOME": str(home)},
+        env={"MAICELIUM_ROOT": str(tmp_path / "workspace"), "HOME": str(home), "USERPROFILE": str(home)},  # Windows uses USERPROFILE, not HOME
     )
     assert _is_block(result)
