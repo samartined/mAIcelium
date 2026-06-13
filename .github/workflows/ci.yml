@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }} / py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable git symlinks on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.symlinks true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Assert symlink privilege (Windows)
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import sys, os
+          sys.path.insert(0, "bin")
+          from _lib.platform import check_symlink_privilege
+          ok = check_symlink_privilege()
+          print(f"symlink privilege: {ok}", flush=True)
+          sys.exit(0 if ok else 1)
+
+      - name: Run tests
+        run: python -m pytest -v --tb=short
+
+  test-no-symlink:
+    name: pytest (no-symlink simulation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Run tests with symlinks forced off
+        env:
+          MAICELIUM_FORCE_NO_SYMLINK: "1"
+        run: python -m pytest -v --tb=short

@@ -251,10 +251,15 @@ def test_path_traversal_rejected(tmp_path, capsys):
 
 
 def test_path_traversal_absolute_allowed(tmp_path):
-    """Absolute paths must not trigger the traversal guard (they are explicit)."""
+    """Absolute paths must not trigger the traversal guard (they are explicit).
+
+    _parse_path_value calls os.path.normpath, which on Windows converts forward
+    slashes to backslashes. Normalize the expectation accordingly so this test
+    holds cross-platform.
+    """
     root = str(tmp_path)
     result = _parse_path_value("/usr/local/share/data", root)
-    assert result == "/usr/local/share/data"
+    assert result == os.path.normpath("/usr/local/share/data")
 
 
 def test_path_within_root_allowed(tmp_path):
