@@ -70,10 +70,65 @@ covered by fixtures and stays dependency-free.
 
 ---
 
+## Test-reliability audit (adversarial, 2026-06-13)
+
+An adversarial Opus review (prompt vetted for bias by a separate neutrality
+auditor) graded the test batteries **PARTIALLY RELIABLE**: the pure-logic layer
+is genuinely good (real `tmp_path` FS, observable-effect asserts, negative/edge
+cases), but the suite gives more confidence than warranted on two axes —
+real cross-platform guarantee and security/isolation. Findings, verbatim,
+ranked; tracked as GitHub issues. None says "the code doesn't work"; they say
+"the safety net guarantees less than it appears" and surface uncovered bugs.
+
+- **TR-1 [high]** CI ubuntu `test` job has no skip guard — the `Assert symlink
+  privilege` step is `if: runner.os == 'Windows'` only. If the 45
+  `@requires_symlink` tests skipped on ubuntu, the build would still go green.
+- **TR-2 [high]** `tests/_marks.py:_symlink_privilege` uses `except Exception:
+  return False` — an ImportError in `_lib.platform` silently turns 45 tests into
+  skips on every platform, exit 0. (Reproduced.)
+- **TR-3 [high]** Isolation breach: `test_init.py` makes `init.py` create the
+  smug symlink under the real `~/.config/smug/` (`expanduser("~")`, ignores the
+  injected root), leaving a dangling symlink in the dev's HOME. Refutes
+  "tmp_path without touching global state". (Reproduced twice.)
+- **TR-4 [high]** "152 passed" is Linux; Windows parity rests on reactive manual
+  QA + patches (e.g. the `expanduser`/`USERPROFILE` fix), not on an
+  end-to-end-green observed CI.
+- **TR-5 [med]** `init` happy path is unprovable on Windows-without-Dev-Mode
+  (all 10 `test_init` tests are `@requires_symlink`); only the abort branch is
+  covered there.
+- **TR-6 [med]** Zero tests for `mesh/commands/scripts/*` — `fuzzy.py`
+  (non-trivial matching logic) untested; `project_health.py`/`list_projects.py`
+  ignore `MAICELIUM_ROOT` (untestable in isolation) and print Unicode emojis
+  (cp1252 console risk on Windows).
+- **TR-7 [med, security]** `guard_bash.py` is bypassable: `rm -rf /home/user`,
+  `rm -rf /etc`, `rm -rf ..`, `cd / && rm -rf *` are NOT blocked; tests only
+  cover the exact cases the guard handles, not the bypasses. Green tests hide
+  a best-effort guard presented as a barrier.
+- **TR-8 [med]** No sync idempotency test; Windows risk that `os.readlink`
+  separator differs from `os.path.relpath` in `_is_correct_relative_symlink`,
+  recreating all symlinks on every SessionStart.
+- **TR-9 [low-med]** No `--strict-markers` (no `pytest.ini`/`pyproject.toml`): a
+  typo'd `@requires_symlink` is silently ignored.
+- **TR-10 [info, grave]** Same root cause as KI-001: the product's central
+  mechanism (rule injection via hook + `projects-context.md`) is broken in
+  production (IDE truncates hook output to ~2KB over a 204KB file). Tests are
+  green on *generating* the file; nothing verifies the IDE *consumes* it.
+
+Remediation sketch (when prioritized): add `pyproject.toml`/`pytest.ini` with
+`--strict-markers -ra`; guard the ubuntu job against unexpected skips; narrow
+`except Exception` → `except OSError` in `_marks`; isolate `HOME`/
+`XDG_CONFIG_HOME` in `test_init` and make `_create_smug_symlink` honour `root`;
+test `fuzzy.py` and make commands respect `MAICELIUM_ROOT`; add guard_bash
+bypass tests + harden (or document as best-effort); sync idempotency test;
+address KI-001's hook.
+
+---
+
 ## Known issues (already tracked)
 
 See `docs/known-issues.md` — currently **KI-001** (SessionStart hook output
-truncation + `projects-context.md` content duplication across mesh layer + project).
+truncation + `projects-context.md` content duplication across mesh layer +
+project). TR-10 above is the test-reliability framing of the same defect.
 
 ---
 
