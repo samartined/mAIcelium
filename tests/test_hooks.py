@@ -568,3 +568,129 @@ def test_guard_bash_fail_open_malformed_json():
     assert result.returncode == 0
     # Must NOT produce a block decision
     assert not _is_block(result)
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — TR-7 round 2: bare-root globs + per-segment compound eval
+# ---------------------------------------------------------------------------
+
+# --- Finding 1: bare-root glob/dotfile operands must be BLOCKED ---
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf /*",
+    'rm -rf "/*"',
+    "rm -rf /*.txt",
+    "rm -rf /.*",
+    "rm -rf /.bashrc",
+    "rm -fr /*",
+    "rm -rf -- /*",
+])
+def test_guard_bash_blocks_bare_root_glob(command):
+    """rm -rf on the bare root + glob/dotfile (the lethal ``rm -rf /*`` family)
+    must be blocked. Regression: dev blocked these; an earlier hardening pass
+    let them through because the bare-root branch only matched ``/`` + subpath
+    (a ``/`` followed by ``*`` neither started a subpath nor ended the operand).
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+# --- Finding 2: per-segment evaluation of compound commands (BLOCK) ---
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf dist && rm -rf /",
+    "rm -rf node_modules && rm -rf /etc",
+    "rm -rf /etc && rm -rf node_modules",
+    "rm -rf build/ && rm -rf /home/user",
+    "rm -rf /tmp/cache && rm -rf /usr",
+    "rm -rf node_modules || rm -rf /",
+    "rm -rf dist ; rm -rf /etc",
+])
+def test_guard_bash_blocks_compound_dangerous_segment(command):
+    """A dangerous ``rm -rf`` in ANY segment of a compound command must block,
+    even when another segment is a safe allowlisted cleanup. Regression: the
+    safe-operand allowlist was matched against the whole command, so a safe
+    ``rm -rf dist`` waived the block on ``rm -rf /`` in the same line.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+# --- Finding 2 negative: legitimate compound commands must still ALLOW ---
+
+
+@pytest.mark.parametrize("command", [
+    "cd app && rm -rf dist",
+    "cd foo && rm -rf build",
+    "rm -rf node_modules && rm -rf dist",
+    "rm -rf dist && rm -rf build",
+    "git rm -rf src && rm -rf node_modules",
+])
+def test_guard_bash_allows_compound_safe_segments(command):
+    """Compound commands whose every rm -rf segment is safe/allowlisted (or
+    whose rm is a subcommand like ``git rm``) must not be falsely blocked by
+    per-segment evaluation.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), f"Unexpected block for: {command}"
+
+
+# --- Finding 4: ${HOME} brace form must be BLOCKED like $HOME ---
+
+
+@pytest.mark.parametrize("command", ["rm -rf $HOME", "rm -rf ${HOME}"])
+def test_guard_bash_blocks_home_var(command):
+    """Both ``$HOME`` and the brace form ``${HOME}`` must block."""
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+# --- Finding 3: unexpected-exception fail-open (documented contract) ---
+
+
+def test_guard_bash_fail_open_on_unexpected_exception():
+    """If the matching logic raises an unexpected exception the hook must exit 0
+    WITHOUT blocking, matching the docstring contract. We inject the failure by
+    replacing _RM_RF_BLOCK with an object whose .search() raises, then run
+    main() in a subprocess on a payload that would otherwise be blocked.
+    """
+    import subprocess
+    hooks_dir = os.path.join(REPO_ROOT, "bin", "hooks")
+    shim = (
+        "import sys\n"
+        "sys.path.insert(0, %r)\n"
+        "import guard_bash as g\n"
+        "class Boom:\n"
+        "    def search(self, *a, **k):\n"
+        "        raise RuntimeError('injected failure')\n"
+        "g._RM_RF_BLOCK = Boom()\n"
+        "g.main()\n"
+    ) % hooks_dir
+    result = subprocess.run(
+        [sys.executable, "-c", shim],
+        input=json.dumps({"tool_input": {"command": "rm -rf /"}}),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=os.environ.copy(),
+    )
+    assert result.returncode == 0
+    assert not _is_block(result)
+
+
+def test_guard_bash_redos_linear_on_pathological_input():
+    """The rm -rf guard must stay linear: a long pathological operand must not
+    trigger catastrophic backtracking (keeps the alternation prefix-anchored).
+    """
+    import time
+    payload = "rm -rf /etc/" + "a" * 100000
+    start = time.perf_counter()
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": payload}})
+    elapsed = time.perf_counter() - start
+    assert _is_block(result)
+    # Generous bound (subprocess + interpreter startup dominate); a ReDoS would
+    # blow far past this.
+    assert elapsed < 5.0, f"rm -rf guard too slow ({elapsed:.2f}s) — possible ReDoS"
