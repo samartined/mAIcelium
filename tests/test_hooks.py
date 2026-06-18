@@ -845,3 +845,123 @@ def test_guard_bash_redos_linear_multi_slash_and_wrappers():
         assert elapsed < 5.0, (
             f"guard too slow ({elapsed:.2f}s) on pathological input — possible ReDoS"
         )
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — TR-7 round 4
+# Gap 1: full path to rm (``/bin/rm -rf /``) must BLOCK (was an under-block of
+#        the command-position anchor, which required the token to be exactly rm).
+# Gap 2: sudo/doas WITH FLAGS (``sudo -i rm -rf /``) must BLOCK (the wrapper
+#        only consumed bare sudo/doas, leaving the option tokens in front of rm).
+# ---------------------------------------------------------------------------
+
+
+# --- Gap 1: optional ``/``-terminated path prefix before rm ---
+
+
+@pytest.mark.parametrize("command", [
+    "/bin/rm -rf /",
+    "/usr/bin/rm -rf /",
+    "/bin/rm -rf /etc",
+    "/usr/bin/rm -fr /home",
+    "./rm -rf /",
+    "../bin/rm -rf /etc",
+    "/bin/rm -rf -- /etc",
+    "sudo /bin/rm -rf /",          # full-path rm behind a wrapper
+])
+def test_guard_bash_blocks_full_path_rm(command):
+    """Gap 1: rm invoked by a full/relative path (prefix ending in ``/``) on a
+    dangerous operand must block.  Regression: the command-position anchor
+    required the token to be exactly ``rm``, so ``/bin/rm -rf /`` was ALLOWED.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+@pytest.mark.parametrize("command", [
+    "git rm -rf src",              # the canonical must-never-block case
+    "charm -rf foo",              # word ending in "rm", no slash -> not a path
+    "myrm -rf /",                 # likewise
+    "docker run --rm -rf-thing",  # flag, not a command path
+    "/bin/rm -rf node_modules",   # full-path rm but SAFE operand
+    "/bin/rm -rf /tmp/foo",       # full-path rm but /tmp/ operand is safe
+])
+def test_guard_bash_full_path_prefix_no_false_positive(command):
+    """Gap 1 must NOT over-block: the prefix requires a trailing ``/`` so a word
+    merely ending in ``rm`` (charm/myrm) or a flag (--rm) is never a path, and a
+    safe operand stays allowed even when rm is invoked by full path.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), f"Unexpected block for: {command}"
+
+
+# --- Gap 2: sudo/doas with flag-only options ---
+
+
+@pytest.mark.parametrize("command", [
+    "sudo -i rm -rf /",
+    "sudo --preserve-env rm -rf /",
+    "doas -n rm -rf /",
+    "sudo -i -H rm -rf /",         # multiple flags
+    "sudo --preserve-env rm -rf //*",
+    "sudo rm -rf /",              # bare form must still block (no regression)
+])
+def test_guard_bash_blocks_flagged_sudo_doas(command):
+    """Gap 2: option tokens between sudo/doas and rm are now consumed, so the
+    dangerous ``rm -rf /`` behind them blocks.  Regression: only bare
+    ``sudo``/``doas`` was stripped, so ``sudo -i rm -rf /`` was ALLOWED.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+@pytest.mark.parametrize("command", [
+    "sudo -i ls",                 # flagged sudo, non-rm command
+    "sudo -u postgres psql",      # value-flag + non-rm command
+    "sudo --preserve-env make",   # flagged sudo, non-rm command
+    "sudo rm -rf node_modules",   # flagged-wrapper path but SAFE operand
+    "sudo apt-get install rm",    # rm is a package arg, not the command
+])
+def test_guard_bash_flagged_sudo_no_false_positive(command):
+    """Gap 2 must NOT over-block: consuming flag tokens must not turn a non-rm
+    command (or a safe rm operand) behind a flagged sudo into a block.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), f"Unexpected block for: {command}"
+
+
+def test_guard_bash_known_gap_sudo_value_flag():
+    """Documented residual gap (honest framing): a sudo/doas flag that takes a
+    SEPARATE value argument (``-u root``) leaves a non-flag token (``root``) at
+    command position, so ``sudo -u root rm -rf /`` is NOT blocked.  Consuming the
+    value generically would wrongly swallow ``rm`` in value-less forms like
+    ``sudo -i rm`` and under-block, so the value form is intentionally a gap.
+    Asserted so the gap is explicit; real boundary is write-scope + human review.
+    """
+    result = _run_hook(
+        GUARD_BASH, {"tool_input": {"command": "sudo -u root rm -rf /"}}
+    )
+    assert not _is_block(result), (
+        "Known gap: sudo/doas value-taking flag (-u <user>) not consumed "
+        "(best-effort limit)"
+    )
+
+
+def test_guard_bash_redos_linear_full_path_and_flagged_sudo():
+    """Gap 1/Gap 2 must stay linear: a long ``/``-path prefix to rm, a long run
+    of sudo flag tokens, and a long no-slash prefix must not backtrack.
+    """
+    import time
+    for payload in (
+        "/" + "a/" * 50000 + "rm -rf /",                # long path prefix
+        "sudo " + "-x " * 50000 + "rm -rf /",           # long flag run
+        "x" * 100000 + "rm -rf /",                      # long no-slash prefix (allow)
+    ):
+        start = time.perf_counter()
+        result = _run_hook(GUARD_BASH, {"tool_input": {"command": payload}})
+        elapsed = time.perf_counter() - start
+        assert elapsed < 5.0, (
+            f"guard too slow ({elapsed:.2f}s) on pathological input — possible ReDoS"
+        )
