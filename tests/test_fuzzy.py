@@ -130,7 +130,7 @@ class TestFuzzyMatchSubstring:
         assert set(ambiguous) == {"my-project", "another-project"}
 
     def test_substring_input_contained_in_candidate(self):
-        # norm('proj') in norm('my-project') → 'proj' in 'myproject'? No.
+        # norm('proj') in norm('my-project') → 'proj' in 'myproject'? Yes.
         # norm('my') in norm('my-project') → 'my' in 'myproject' → True
         match, ambiguous = fuzzy_match("my", ["my-project", "other-thing"])
         assert match == "my-project"
@@ -138,29 +138,58 @@ class TestFuzzyMatchSubstring:
 
 
 class TestFuzzyMatchBigram:
-    """Branch 3: bigram similarity scoring."""
+    """Branch 3: bigram similarity scoring.
+
+    All inputs in this class are verified NON-substrings of every candidate
+    after norm(), so the substring branch (branch 2) never fires and the bigram
+    scorer is the one actually exercised.
+    """
 
     def test_bigram_single_match_above_threshold(self):
-        # Only one candidate has score >= 0.4 → clear winner via len(top)==1
-        match, ambiguous = fuzzy_match("pytho", ["python-tool", "other-thing"])
+        # 'pyhtontool' is a transposition of 'python-tool' (norm: 'pythontool').
+        # norm('pyhtontool') is not contained in norm('python-tool') or vice-versa,
+        # so this reaches branch 3.  Score vs 'python-tool' ≈ 0.55 (>= 0.4),
+        # score vs 'other-thing' ≈ 0.0 → only one candidate above threshold.
+        match, ambiguous = fuzzy_match("pyhtontool", ["python-tool", "other-thing"])
         assert match == "python-tool"
         assert ambiguous == []
 
     def test_bigram_clear_winner_delta_above_015(self):
-        # fastapi-proj vs fastapi-project: ~0.77, vs ruby-app: ~0.07 → delta > 0.15
+        # 'fastapiprj' (dropped 'o') is not a substring of 'fastapi-project' after
+        # norm ('fastapiproject' does not contain 'fastapiprj' and vice-versa).
+        # Score vs 'fastapi-project' ≈ 0.57, vs 'ruby-app' ≈ 0.07 → delta > 0.15.
         match, ambiguous = fuzzy_match(
-            "fastapi-proj", ["fastapi-project", "ruby-app"]
+            "fastapiprj", ["fastapi-project", "ruby-app"]
         )
         assert match == "fastapi-project"
         assert ambiguous == []
 
     def test_bigram_tie_delta_at_or_below_015(self):
-        # 'project' vs 'project-alpha' and 'project-beta' are very close scores
-        # (delta ≈ -0.05, so both top[0][1] - top[1][1] ≤ 0.15)
-        candidates = ["project-alpha", "project-beta"]
-        match, ambiguous = fuzzy_match("project", candidates)
+        # 'pythen' is not a substring of 'python' or 'pythox' after norm, so
+        # branch 2 is skipped.  Both candidates score ≈ 0.43 (delta == 0.0 ≤ 0.15)
+        # → ambiguous result from branch 3.
+        candidates = ["python", "pythox"]
+        match, ambiguous = fuzzy_match("pythen", candidates)
         assert match is None
-        assert set(ambiguous) == {"project-alpha", "project-beta"}
+        assert set(ambiguous) == {"python", "pythox"}
+
+    def test_bigram_ambiguous_tie_covers_line_51(self):
+        """Explicitly cover the tie/ambiguous return path (fuzzy.py line ~51).
+
+        When two or more candidates share the top bigram score AND the delta
+        between top[0] and top[1] is <= 0.15, fuzzy_match returns (None, [top]).
+        This is the branch that was previously uncovered.
+
+        Input 'pythen' reaches this path:
+          - exact match: none (norm('pythen') not in candidates)
+          - substring: none ('pythen' not in 'python'/'pythox' and vice-versa)
+          - bigram: python ≈ 0.4286, pythox ≈ 0.4286 → delta == 0.0 → tie → ambiguous
+        """
+        match, ambiguous = fuzzy_match("pythen", ["python", "pythox"])
+        assert match is None, "tie must return None for match"
+        assert set(ambiguous) == {"python", "pythox"}, (
+            "tie must return both close candidates"
+        )
 
     def test_bigram_just_above_04_boundary(self):
         # pyton vs python-tool has similarity ~0.44 (above 0.4), single candidate above it
