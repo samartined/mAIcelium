@@ -6,6 +6,7 @@ Import from here instead of conftest.py to avoid circular import issues:
 """
 import os
 import sys
+import warnings
 
 # Ensure bin/ is on sys.path so _lib.platform is importable.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,13 +22,26 @@ def _symlink_privilege():
 
     Honoring MAICELIUM_FORCE_NO_SYMLINK=1 lets CI simulate a Windows
     no-privilege environment without actually disabling symlinks.
+
+    Import errors from _lib.platform propagate loudly (collection error)
+    rather than silently masking failures as skips.
     """
     if os.environ.get("MAICELIUM_FORCE_NO_SYMLINK") == "1":
         return False
+    # ImportError is intentionally NOT caught here so it propagates as a
+    # collection error rather than a silent skip (TR-2).
+    from _lib.platform import check_symlink_privilege
     try:
-        from _lib.platform import check_symlink_privilege
         return check_symlink_privilege()
-    except Exception:
+    except OSError:
+        return False
+    except Exception as exc:
+        warnings.warn(
+            f"symlink privilege probe failed unexpectedly: {exc!r};"
+            " treating as no-privilege",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return False
 
 
