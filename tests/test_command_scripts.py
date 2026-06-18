@@ -23,6 +23,12 @@ def _run_script(script_path, tmp_root, extra_env=None, encoding=None):
     """Run a command script with MAICELIUM_ROOT pointing at tmp_root."""
     env = os.environ.copy()
     env["MAICELIUM_ROOT"] = str(tmp_root)
+    # Force deterministic UTF-8 output from the child on all platforms.
+    # Windows defaults stdout to cp1252, so non-ASCII chars in the scripts'
+    # output (e.g. bullet 0x95 / em-dash 0x97) would otherwise be emitted as
+    # cp1252 bytes and break this UTF-8 capture (stdout would come back None).
+    # The cp1252 tests below intentionally override this via extra_env.
+    env["PYTHONIOENCODING"] = "utf-8"
     if extra_env:
         env.update(extra_env)
     kwargs = dict(
@@ -38,6 +44,7 @@ def _run_script(script_path, tmp_root, extra_env=None, encoding=None):
     else:
         kwargs["text"] = True
         kwargs["encoding"] = "utf-8"
+        kwargs["errors"] = "replace"
     return subprocess.run(**kwargs)
 
 
