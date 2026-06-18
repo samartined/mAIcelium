@@ -84,9 +84,24 @@ available repos with their paths and tech stacks.
 
 Two hooks run automatically before every tool call in Claude Code:
 
-**`guard_bash.py`** blocks shell commands that:
-- Use `rm -rf` targeting root, home, or wildcard paths (safe targets like `node_modules` are allowed)
-- Execute destructive SQL (`DROP TABLE`, `TRUNCATE`)
+**`guard_bash.py`** is a **best-effort speed-bump** (defense-in-depth, not a security barrier).
+It blocks common literal destructive shell commands including:
+- `rm -rf` targeting system roots (`/`, `/etc`, `/home`, `/usr`, `/var`, `/bin`, `/lib`,
+  `/lib64`, `/boot`, `/root`, `/sys`, `/proc`, `/dev`, `/opt`, `/srv`, `/sbin`),
+  exact subpaths of `/home/<user>`, bare relative/parent/wildcard operands (`.`, `..`,
+  `*`, `./*`), and home shortcuts (`~`, `~/`, `$HOME`)
+- Destructive SQL (`DROP TABLE`, `TRUNCATE`)
+- Force-push to `main`/`master`
+- Low-level disk ops (`mkfs`, `dd`)
+- `chmod 777`
+
+Safe cleanup targets (`node_modules`, `./build`, `/tmp/...`, etc.) are explicitly allowed.
+
+**Honesty contract:** `guard_bash.py` performs regex matching over the raw command string
+and is inherently bypassable (shell expansion, variable indirection, command substitution,
+sub-shells, eval, etc. are all invisible at this layer). The hook **fails open by design** —
+on any parse error it logs and exits without blocking. It is not a security boundary.
+Real boundaries: write-scope enforced by `guard_write.py` + human review.
 
 **`guard_write.py`** blocks writes/edits to:
 - `.env` files (may contain secrets)
