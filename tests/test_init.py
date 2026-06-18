@@ -3,10 +3,20 @@
 Each test builds a minimal workspace under tmp_path and exercises a single
 behavior of the initializer: directory tree, .gitkeep files, idempotence,
 settings-preservation, workspace file generation.
+
+Coverage note (TR-5 honesty):
+init's symlink-dependent happy path is unprovable on Windows-without-Dev-Mode
+(init aborts early, returning exit 2 without privilege). Coverage on that
+platform consists of:
+  (a) the abort branch — see tests/test_init_privilege.py;
+  (b) the symlink-free sub-path — see test_init_directory_tree_without_symlink_privilege
+      below (calls helpers directly, avoids init.main so no privilege check fires).
 """
 import json
 import os
 import sys
+
+import pytest
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BIN_DIR = os.path.join(_REPO_ROOT, "bin")
@@ -16,6 +26,25 @@ if _BIN_DIR not in sys.path:
 import init  # noqa: E402
 
 from _marks import requires_symlink
+
+
+# ── Autouse fixture: isolate HOME/XDG so init never writes to the real HOME ──
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path, monkeypatch):
+    """Redirect HOME and XDG_CONFIG_HOME into a throwaway dir for every test.
+
+    This prevents _create_smug_symlink from writing to the developer's real
+    ~/.config/smug/ directory (TR-3 isolation). MAICELIUM_CONFIG_HOME is the
+    authoritative override used by init._smug_config_home().
+    """
+    fake = tmp_path / "_home"
+    fake.mkdir()
+    monkeypatch.setenv("HOME", str(fake))           # POSIX expanduser
+    monkeypatch.setenv("USERPROFILE", str(fake))    # Windows expanduser
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(fake / ".config"))
+    monkeypatch.setenv("MAICELIUM_CONFIG_HOME", str(fake / ".config"))
 
 
 # ── Test 1: directory tree ──────────────────────────────────────────────────
@@ -211,3 +240,174 @@ def test_init_runs_sync_at_end(tmp_path):
 
     ws_file = tmp_path / "mAIcelium.code-workspace"
     assert ws_file.is_file(), "sync_symlinks must have run and produced the workspace file"
+
+
+# ── Test 11: SessionStart hook emits a short message, not a file dump ─────────
+
+
+@requires_symlink
+def test_init_hook_emits_short_message_not_file_dump(tmp_path):
+    """After init, the SessionStart command must instruct to Read the file, not cat it."""
+    rc = init.main(root=str(tmp_path))
+    assert rc == 0
+
+    settings_file = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings_file.read_text(encoding="utf-8"))
+    cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    # Must reference the read instruction and the sync script
+    assert "Read .claude/projects-context.md" in cmd, (
+        "SessionStart command must instruct the assistant to Read the context file"
+    )
+    assert "sync_symlinks.py" in cmd, (
+        "SessionStart command must invoke sync_symlinks.py"
+    )
+    # Must NOT dump the file via cat
+    assert "cat " not in cmd, (
+        "SessionStart command must not cat the context file (causes truncation)"
+    )
+    assert "cat .claude/projects-context.md" not in cmd, (
+        "SessionStart command must not cat .claude/projects-context.md directly"
+    )
+
+
+# ── Test 12: SessionStart hook command is CP1252-safe (ASCII-only) ────────────
+
+
+@requires_symlink
+def test_init_hook_message_is_cp1252_safe(tmp_path):
+    """The SessionStart command string must be ASCII-safe (no mojibake risk)."""
+    rc = init.main(root=str(tmp_path))
+    assert rc == 0
+
+    settings_file = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings_file.read_text(encoding="utf-8"))
+    cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    assert cmd.isascii(), (
+        f"SessionStart command contains non-ASCII characters which risk CP1252 "
+        f"mojibake on Windows. Offending chars: "
+        f"{[c for c in cmd if not c.isascii()]}"
+    )
+
+
+# ── Test 13: TR-3 — nothing written outside root ────────────────────────────
+
+
+@requires_symlink
+def test_init_creates_nothing_outside_root(tmp_path_factory, monkeypatch):
+    """init must not write anything under HOME when MAICELIUM_CONFIG_HOME redirects smug.
+
+    Uses two DISJOINT temp dirs: one for the workspace root, one for the
+    fake HOME. This ensures "outside root" is genuinely distinct from root.
+    The autouse fixture already sets HOME/XDG/MAICELIUM_CONFIG_HOME; this test
+    OVERRIDES those vars to point at a separate disjoint home, and redirects
+    MAICELIUM_CONFIG_HOME back into root so the smug link stays inside root.
+    """
+    root = tmp_path_factory.mktemp("workspace")
+    disjoint_home = tmp_path_factory.mktemp("home")
+
+    # Override the autouse fixture's env: disjoint_home is the "real" HOME,
+    # MAICELIUM_CONFIG_HOME points inside root so smug link lands there.
+    monkeypatch.setenv("HOME", str(disjoint_home))
+    monkeypatch.setenv("USERPROFILE", str(disjoint_home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(disjoint_home / ".config"))
+    monkeypatch.setenv("MAICELIUM_CONFIG_HOME", str(root / ".config"))
+
+    # Snapshot every path under disjoint_home BEFORE init.
+    def _snapshot(base):
+        result = set()
+        for dirpath, dirnames, filenames in os.walk(str(base)):
+            for name in filenames + dirnames:
+                result.add(os.path.join(dirpath, name))
+        return result
+
+    before = _snapshot(disjoint_home)
+
+    rc = init.main(root=str(root))
+    assert rc == 0
+
+    after = _snapshot(disjoint_home)
+
+    # Nothing new should have appeared under disjoint_home.
+    new_paths = after - before
+    assert new_paths == set(), (
+        f"init wrote {len(new_paths)} path(s) outside root into HOME:\n"
+        + "\n".join(sorted(new_paths))
+    )
+
+    # The smug symlink, if created, must live inside root — not under disjoint_home.
+    smug_link = root / ".config" / "smug" / "mAIcelium.yml"
+    if smug_link.exists() or smug_link.is_symlink():
+        assert str(smug_link).startswith(str(root)), (
+            f"smug symlink landed outside root: {smug_link}"
+        )
+    # Verify it did NOT land inside disjoint_home.
+    bad_link = disjoint_home / ".config" / "smug" / "mAIcelium.yml"
+    assert not (bad_link.exists() or bad_link.is_symlink()), (
+        f"smug symlink incorrectly written to disjoint HOME: {bad_link}"
+    )
+
+
+# ── Test 14: TR-5 — symlink-free directory tree (no privilege required) ─────
+
+
+def test_init_directory_tree_without_symlink_privilege(tmp_path, monkeypatch):
+    """Verify the symlink-free helpers produce the expected tree and .gitkeep files.
+
+    This test calls _create_directory_tree and the seed writers DIRECTLY,
+    bypassing init.main (which would abort on Windows without Developer Mode).
+    MAICELIUM_FORCE_NO_SYMLINK=1 documents the intent but is not strictly
+    needed here because the helpers don't check privilege themselves.
+    Nothing should be written outside tmp_path/root.
+    """
+    monkeypatch.setenv("MAICELIUM_FORCE_NO_SYMLINK", "1")
+    root = tmp_path / "workspace"
+    root.mkdir()
+
+    # Call the symlink-free helpers directly.
+    init._create_directory_tree(str(root))
+    init._create_settings_json(str(root))
+    init._create_workspace_md(str(root))
+
+    # The canonical directory tree must be in place.
+    expected_dirs = [
+        "mesh/skills/_common/code-review",
+        "mesh/skills/_common/testing",
+        "mesh/skills/_domains/frontend-react",
+        "mesh/layers",
+        "mesh/rules",
+        "mesh/prompts",
+        "mesh/commands",
+        ".cursor/rules",
+        ".cursor/skills-cursor",
+        ".claude/commands",
+        ".agents",
+        "projects",
+        "repos",
+        "bin",
+    ]
+    for rel in expected_dirs:
+        assert (root / rel).is_dir(), f"missing directory after symlink-free init: {rel}"
+
+    # .gitkeep sentinels must exist.
+    assert (root / "projects" / ".gitkeep").is_file()
+    assert (root / "mesh" / "layers" / ".gitkeep").is_file()
+    assert (root / "mesh" / "skills" / "_clients" / ".gitkeep").is_file()
+
+    # settings.json must have been dropped.
+    settings = root / ".claude" / "settings.json"
+    assert settings.is_file(), ".claude/settings.json must exist after symlink-free init"
+    data = json.loads(settings.read_text())
+    assert "permissions" in data
+
+    # Nothing was written outside root.
+    root_str = str(root)
+    home_str = str(tmp_path / "_home")  # from autouse fixture
+    if os.path.isdir(home_str):
+        for dirpath, _, filenames in os.walk(home_str):
+            for fname in filenames:
+                full = os.path.join(dirpath, fname)
+                assert full.startswith(root_str) or not full.startswith(home_str), (
+                    f"unexpected write outside root: {full}"
+                )
