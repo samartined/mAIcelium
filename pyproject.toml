@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+addopts = "--strict-markers -ra"
+testpaths = ["tests"]
+markers = [
+    "requires_symlink: test needs OS privilege to create symlinks (Windows Developer Mode; non-Windows always granted)",
+]
