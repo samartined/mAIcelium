@@ -48,7 +48,31 @@ jobs:
           sys.exit(0 if ok else 1)
 
       - name: Run tests
-        run: python -m pytest -v --tb=short
+        run: python -m pytest -v --tb=short --junitxml=pytest-report.xml
+
+      - name: Assert no tests were skipped (privileged runner)
+        shell: python
+        run: |
+          import sys
+          import xml.etree.ElementTree as ET
+
+          tree = ET.parse("pytest-report.xml")
+          root = tree.getroot()
+
+          # Sum skipped across all <testsuite> elements (handles both single and
+          # nested layouts produced by different pytest/junit-xml versions).
+          suites = root.findall("testsuite") or [root]
+          total_skipped = sum(
+              int(suite.get("skipped", 0)) for suite in suites
+          )
+
+          if total_skipped > 0:
+              print(
+                  f"::error::Privileged runner skipped {total_skipped} test(s)."
+                  " All symlink tests must run here."
+              )
+              sys.exit(1)
+          print(f"Skip guard passed: 0 skipped tests on privileged runner.")
 
   test-no-symlink:
     name: pytest (no-symlink simulation)
@@ -67,4 +91,30 @@ jobs:
       - name: Run tests with symlinks forced off
         env:
           MAICELIUM_FORCE_NO_SYMLINK: "1"
-        run: python -m pytest -v --tb=short
+        run: python -m pytest -v --tb=short --junitxml=pytest-report.xml
+
+      - name: Assert some tests were skipped (no-symlink simulation)
+        shell: python
+        run: |
+          import sys
+          import xml.etree.ElementTree as ET
+
+          tree = ET.parse("pytest-report.xml")
+          root = tree.getroot()
+
+          suites = root.findall("testsuite") or [root]
+          total_skipped = sum(
+              int(suite.get("skipped", 0)) for suite in suites
+          )
+
+          if total_skipped == 0:
+              print(
+                  "::error::No-symlink simulation produced 0 skips."
+                  " MAICELIUM_FORCE_NO_SYMLINK=1 must cause requires_symlink"
+                  " tests to be skipped."
+              )
+              sys.exit(1)
+          print(
+              f"No-symlink guard passed: {total_skipped} test(s) skipped"
+              " as expected under MAICELIUM_FORCE_NO_SYMLINK=1."
+          )
