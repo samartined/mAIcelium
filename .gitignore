@@ -45,6 +45,9 @@ __pycache__/
 *.pyc
 .env
 
+# Test artifacts
+pytest-report.xml
+
 # Image backups (pre-rename originals)
 docs/assets/backup/
 
