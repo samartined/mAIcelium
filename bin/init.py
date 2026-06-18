@@ -46,7 +46,7 @@ _SETTINGS_JSON = """\
         "hooks": [
           {
             "type": "command",
-            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed — context may be stale. Read .claude/projects-context.md.\\"",
+            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed - context may be stale. Read .claude/projects-context.md.\\"",
             "timeout": 10
           }
         ]
@@ -285,15 +285,28 @@ def _create_registry_yaml(root):
 
 # ── Platform-specific operations ────────────────────────────────────────────
 
+def _smug_config_home():
+    """Return the base config dir for smug, honouring MAICELIUM_CONFIG_HOME override.
+
+    Resolution order:
+      1. MAICELIUM_CONFIG_HOME env var (used by tests to redirect writes)
+      2. XDG_CONFIG_HOME env var (standard XDG spec)
+      3. ~/.config (POSIX default)
+    """
+    override = os.environ.get("MAICELIUM_CONFIG_HOME")
+    if override:
+        return override
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+
+
 def _create_smug_symlink(root):
     """Drop a smug symlink under ${XDG_CONFIG_HOME:-~/.config}/smug/. Linux/macOS only."""
     if is_windows():
         return
 
-    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-        os.path.expanduser("~"), ".config"
-    )
-    smug_dir = os.path.join(xdg, "smug")
+    smug_dir = os.path.join(_smug_config_home(), "smug")
     print("  -> Creating smug symlink...")
     os.makedirs(smug_dir, exist_ok=True)
     src = os.path.join(root, ".smug.yml")
