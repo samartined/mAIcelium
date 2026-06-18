@@ -181,55 +181,72 @@ def test_is_correct_relative_symlink_true_for_correct_link(tmp_path):
 
 # ── Test 4: normpath separator fix ──────────────────────────────────────────
 
-def test_is_correct_relative_symlink_windows_backslash_target(monkeypatch, tmp_path):
-    """Verify _is_correct_relative_symlink handles a Windows-style backslash target.
+def test_is_correct_relative_symlink_windows_backslash_target(monkeypatch):
+    """_is_correct_relative_symlink returns True when readlink's separators diverge
+    from os.path.relpath's separators — the case ntpath.normpath collapses.
 
-    Scenario: on Windows, os.readlink can return a path with backslash separators
-    (e.g. '..\\..\\mesh\\rules\\global.mdc') while os.path.relpath produces the
-    forward-slash form ('../../../mesh/rules/global.mdc').
+    The bug (raw ==): on Windows, os.readlink can return a forward-slash target
+    (e.g. '../../mesh/rules/global.mdc') while os.path.relpath under ntpath
+    produces backslashes ('..\\\\..\\\\mesh\\\\rules\\\\global.mdc').  A raw ==
+    comparison returns False even though the paths are semantically equal.
 
-    Without the normpath fix: the raw string comparison fails (False).
-    After the fix: os.path.normpath normalises both sides to the native separator,
-    making the comparison succeed on Windows (True). On POSIX, normpath does not
-    convert backslashes, so the test uses the replace('/', os.path.sep) idiom
-    to produce a portable 'native-sep target' that os.path.normpath CAN normalise.
+    The fix (os.path.normpath both sides): ntpath.normpath collapses both forms
+    to the same backslash string, so the comparison returns True.
 
-    Additionally, a direct string-comparison assertion confirms the 'fail before fix'
-    behaviour: when a backslash path is compared raw to a forward-slash path, they
-    differ — regardless of platform.  This is the bug the fix addresses.
+    This test simulates Windows path semantics on any platform by:
+      1. Patching sync_symlinks.os.path to ntpath (so relpath/normpath/dirname
+         all use Windows-style logic producing backslash strings).
+      2. Patching sync_symlinks.os.path.islink to simulate a live symlink.
+      3. Patching sync_symlinks.os.readlink to return the divergent forward-slash
+         form — the exact divergence the normpath fix is designed to close.
+
+    Revert-sensitivity: if the fix (os.path.normpath on both sides) were replaced
+    with a raw string comparison, this test would fail because
+    '../../mesh/rules/global.mdc' != '..\\\\..\\\\mesh\\\\rules\\\\global.mdc'.
     """
-    src_abs = str(tmp_path / "mesh" / "rules" / "global.mdc")
-    dst_abs = str(tmp_path / ".cursor" / "rules" / "global.mdc")
+    import ntpath
+    import types
 
-    expected = os.path.relpath(src_abs, os.path.dirname(dst_abs))
+    # Windows-style absolute paths so ntpath.relpath produces a meaningful result.
+    src_abs = "C:/workspace/mesh/rules/global.mdc"
+    dst_abs = "C:/workspace/.cursor/rules/global.mdc"
 
-    # ── Part A: demonstrate the conceptual bug ──────────────────────────────
-    # Hard-coded Windows backslash target (valid cross-platform for string comparison).
-    windows_target = expected.replace("/", "\\")
-    # Raw string comparison fails when targets use different separators.
-    assert windows_target != expected or os.sep == "\\", (
-        "Expected the Windows-backslash target to differ from the forward-slash "
-        "expected path (this assertion fires only when they are different, i.e. "
-        "when running on POSIX)."
+    # Under ntpath, this is the backslash form the production code computes as
+    # 'expected': '..\\..\\mesh\\rules\\global.mdc'
+    expected_ntpath = ntpath.relpath(src_abs, ntpath.dirname(dst_abs))
+    assert "\\" in expected_ntpath, (
+        "Sanity: ntpath.relpath must produce backslashes"
     )
-    # The ORIGINAL code would do: os.readlink(dst) == expected
-    # This returns False when readlink returns the backslash form (on POSIX too).
-    if os.sep != "\\":  # POSIX: literal backslash in string != forward-slash
-        assert windows_target != expected  # proves old code would return False
 
-    # ── Part B: normpath fix makes it work with native-sep form ────────────
-    # Use os.sep substitution: on POSIX this is a no-op; on Windows it produces
-    # the real backslash form.  normpath then normalises both sides identically.
-    native_target = expected.replace("/", os.sep)
+    # The divergent readlink result — forward slashes where ntpath gives backslashes.
+    readlink_fwd = expected_ntpath.replace("\\", "/")
+    assert readlink_fwd != expected_ntpath, (
+        "Sanity: readlink result must differ from ntpath.relpath result (the bug)"
+    )
 
-    monkeypatch.setattr(os.path, "islink", lambda p: p == dst_abs)
-    monkeypatch.setattr(os, "readlink", lambda p: native_target)
+    # Demonstrate that the fix is necessary: raw == is False, normpath is True.
+    assert readlink_fwd != expected_ntpath, (
+        "raw == (the bug): divergent separators compare unequal"
+    )
+    assert ntpath.normpath(readlink_fwd) == ntpath.normpath(expected_ntpath), (
+        "ntpath.normpath (the fix): both sides normalise to the same backslash form"
+    )
+
+    # Build a minimal ntpath-backed path namespace with islink patched in.
+    fake_path = types.SimpleNamespace(
+        **{k: getattr(ntpath, k) for k in dir(ntpath) if not k.startswith("_")}
+    )
+    fake_path.islink = lambda p: p == dst_abs
+
+    # Patch the module-level os used by _is_correct_relative_symlink.
+    monkeypatch.setattr(sync_symlinks.os, "path", fake_path)
+    monkeypatch.setattr(sync_symlinks.os, "readlink", lambda p: readlink_fwd)
 
     result = sync_symlinks._is_correct_relative_symlink(dst_abs, src_abs)
     assert result is True, (
-        f"_is_correct_relative_symlink returned False after normpath fix.\n"
-        f"readlink returned: {native_target!r}\n"
-        f"expected:          {expected!r}\n"
-        f"normpath readlink: {os.path.normpath(native_target)!r}\n"
-        f"normpath expected: {os.path.normpath(expected)!r}"
+        f"_is_correct_relative_symlink returned False — normpath fix not working.\n"
+        f"readlink returned (fwd):    {readlink_fwd!r}\n"
+        f"ntpath.relpath expected:    {expected_ntpath!r}\n"
+        f"ntpath.normpath(fwd):       {ntpath.normpath(readlink_fwd)!r}\n"
+        f"ntpath.normpath(expected):  {ntpath.normpath(expected_ntpath)!r}"
     )
