@@ -254,3 +254,58 @@ def test_regenerate_claude_context_layer_rules(tmp_path):
     assert "layer rule body" in content
     assert "##### layer-skill" in content
     assert "layer skill body" in content
+
+
+@requires_symlink
+def test_no_inline_avoids_duplicate_layer_content(tmp_path):
+    """A project with context_inline:false must not have its body inlined twice.
+
+    This is the dedup regression test for KI-001: when a project is also
+    covered by a mesh layer, flagging it context_inline:false prevents the
+    layer content from appearing twice in the generated file.
+    """
+    root = str(tmp_path)
+
+    # Build a large unique body that would be easy to spot if duplicated
+    unique_marker = "UNIQUE_LAYER_CONTENT_XK7Q2P"
+    large_body = "\n".join([f"# Layer rule line {i}: {unique_marker}" for i in range(200)])
+
+    # Create a mesh layer with this body
+    layer = tmp_path / "client_layer_dedup"
+    layer.mkdir()
+    _write(str(layer / "rules" / "layer-rule.md"), large_body + "\n")
+
+    # WORKSPACE.md: project is flagged context_inline:false and has a layer
+    _write(
+        os.path.join(root, "WORKSPACE.md"),
+        "projects:\n"
+        "  - name: bigproj\n"
+        "    path: /abs/bigproj\n"
+        "    context_inline: false\n"
+        "mesh_layers:\n"
+        f"  - name: client_layer_dedup\n"
+        f"    path: {layer}\n"
+        f"    client: bigproj\n",
+    )
+
+    # Create a real repo symlink so the project is discovered
+    repo = tmp_path / "bigproj_repo"
+    repo.mkdir()
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "bigproj"))
+
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+
+    # Project heading must appear
+    assert "### bigproj" in content
+
+    # The no-inline placeholder must appear
+    assert "Framework repo" in content
+
+    # The large layer body must NOT be inlined (context_inline:false suppresses it)
+    assert unique_marker not in content, (
+        "Layer content must not be inlined when context_inline:false is set — "
+        "this prevents duplication when a project is also covered by a mesh layer"
+    )

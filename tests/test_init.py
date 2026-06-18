@@ -242,7 +242,56 @@ def test_init_runs_sync_at_end(tmp_path):
     assert ws_file.is_file(), "sync_symlinks must have run and produced the workspace file"
 
 
-# ── Test 11: TR-3 — nothing written outside root ────────────────────────────
+# ── Test 11: SessionStart hook emits a short message, not a file dump ─────────
+
+
+@requires_symlink
+def test_init_hook_emits_short_message_not_file_dump(tmp_path):
+    """After init, the SessionStart command must instruct to Read the file, not cat it."""
+    rc = init.main(root=str(tmp_path))
+    assert rc == 0
+
+    settings_file = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings_file.read_text(encoding="utf-8"))
+    cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    # Must reference the read instruction and the sync script
+    assert "Read .claude/projects-context.md" in cmd, (
+        "SessionStart command must instruct the assistant to Read the context file"
+    )
+    assert "sync_symlinks.py" in cmd, (
+        "SessionStart command must invoke sync_symlinks.py"
+    )
+    # Must NOT dump the file via cat
+    assert "cat " not in cmd, (
+        "SessionStart command must not cat the context file (causes truncation)"
+    )
+    assert "cat .claude/projects-context.md" not in cmd, (
+        "SessionStart command must not cat .claude/projects-context.md directly"
+    )
+
+
+# ── Test 12: SessionStart hook command is CP1252-safe (ASCII-only) ────────────
+
+
+@requires_symlink
+def test_init_hook_message_is_cp1252_safe(tmp_path):
+    """The SessionStart command string must be ASCII-safe (no mojibake risk)."""
+    rc = init.main(root=str(tmp_path))
+    assert rc == 0
+
+    settings_file = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings_file.read_text(encoding="utf-8"))
+    cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+
+    assert cmd.isascii(), (
+        f"SessionStart command contains non-ASCII characters which risk CP1252 "
+        f"mojibake on Windows. Offending chars: "
+        f"{[c for c in cmd if not c.isascii()]}"
+    )
+
+
+# ── Test 13: TR-3 — nothing written outside root ────────────────────────────
 
 
 @requires_symlink
@@ -300,7 +349,7 @@ def test_init_creates_nothing_outside_root(tmp_path_factory, monkeypatch):
     )
 
 
-# ── Test 12: TR-5 — symlink-free directory tree (no privilege required) ─────
+# ── Test 14: TR-5 — symlink-free directory tree (no privilege required) ─────
 
 
 def test_init_directory_tree_without_symlink_privilege(tmp_path, monkeypatch):
