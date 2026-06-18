@@ -15,7 +15,7 @@ All scripts live in `bin/` and are executed from the workspace root.
 | `remove_project.py` | Unplug a project — removes symlinks, original repo untouched | `python3 bin/remove_project.py <name>` |
 | `sync_symlinks.py` | Rebuild all symlinks — cleans broken ones, recreates from `mesh/`, mounted layers, and active projects | `python3 bin/sync_symlinks.py` |
 | `separate_git.py` | Move `.git` outside workspace to avoid IDE conflicts with linked projects | `python3 bin/separate_git.py` |
-| `hooks/guard_bash.py` | Security hook that blocks destructive shell commands before they execute | — |
+| `hooks/guard_bash.py` | Best-effort PreToolUse guard that blocks common literal destructive shell commands (defense-in-depth, not a security barrier; bypassable via shell expansion; fails open by design) | — |
 | `hooks/guard_write.py` | Security hook that protects sensitive and auto-generated files from being modified | — |
 | `_lib.py` | Shared functions (imported by other scripts, not run directly) | — |
 
