@@ -22,12 +22,20 @@ The hook FAILS OPEN by design (logged to .claude/hook-failures.log):
     2. Human review of agent-proposed commands
     3. Principle of least privilege on the OS side
 
-COVERED (cheap, false-positive-free literal cases)
----------------------------------------------------
+COVERED (common literal destructive cases — best-effort, NOT guaranteed
+false-positive-free or complete)
+---------------------------------------------------------------------
+This list is what the regexes *aim* to catch.  It is a best-effort speed-bump,
+not a complete or provably false-positive-free matcher: novel quoting,
+wrapper, or encoding tricks can still slip past or, in principle, mis-fire.
   * rm -rf / rm -fr on protected root paths: /, /etc, /home, /usr, /var,
     /bin, /lib, /lib64, /boot, /root, /sys, /proc, /dev, /opt, /srv,
     /sbin (and subpaths thereof, e.g. /home/user, /etc/*)
   * rm -rf on the bare root followed by a glob/dotfile: /* /.* /*.txt /.bashrc
+  * A RUN of leading slashes is treated like a single leading slash, because
+    the kernel collapses them (``//`` and ``///`` resolve to ``/``).  So
+    ``//``, ``///``, ``//*``, ``//etc``, ``//home/user``, ``//.bashrc`` block
+    exactly like their single-slash forms.
   * rm -rf on bare cwd/parent/wildcard operands: . .. ./ ../ * ./*
   * rm -rf on ~ / ~/... / $HOME / ${HOME}
   * Per-segment evaluation of compound commands: a dangerous rm -rf in ANY
@@ -35,6 +43,17 @@ COVERED (cheap, false-positive-free literal cases)
     when other segments are safe (e.g. ``rm -rf dist && rm -rf /`` is blocked);
     the safe-operand allowlist only ever waives the block within its own
     segment.
+  * Command-position anchoring: ``rm -rf`` is treated as dangerous only when
+    ``rm`` is the command actually being run in a segment — after stripping a
+    leading run of common wrappers (``sudo``, ``doas``, ``time``,
+    ``nice [-n N]``, ``env VAR=val ...``).  So ``sudo rm -rf /`` blocks, while
+    a segment whose command is something else (git/grep/echo/cat/...) is NOT
+    blocked merely because it CONTAINS the literal string ``rm -rf /...`` in a
+    quoted argument (e.g. ``git commit -m "...rm -rf /..."`` and
+    ``grep "rm -rf /" .`` are allowed).  Wrappers BEYOND the listed set are a
+    residual best-effort gap (e.g. ``stdbuf rm -rf /``, ``xargs rm -rf``),
+    consistent with the documented variable-indirection / command-substitution
+    gaps below — this anchoring is not claimed to be complete.
   * Destructive SQL (DROP TABLE, TRUNCATE)
   * git push --force to main/master
   * Low-level disk ops (mkfs, dd)
@@ -80,30 +99,20 @@ _PROTECTED_ROOTS = frozenset(
     ]
 )
 
-# Build an alternation of protected root prefixes for the regex.
-# Each root is followed by either end-of-operand (quote/space/EOL) or "/",
-# so that /tmp never matches (it is not in the set) but /etc and /etc/foo do.
-_PROT_PATTERN = "|".join(
-    re.escape(r) for r in sorted(_PROTECTED_ROOTS, key=len, reverse=True)
-)
-
-# Alternation of NON-bare protected roots (everything except "/").  The bare
-# root "/" is handled by dedicated branches in _RM_RF_BLOCK because, unlike a
-# named root such as "/etc", a bare "/" must NOT greedily swallow an ordinary
-# subpath like "/tmp/foo" (that would be a false positive) — it may only match
-# when it is the whole operand ("rm -rf /") or is immediately followed by a
-# glob/dotfile metachar ("rm -rf /*", "rm -rf /.bashrc").
-_PROT_NONROOT_PATTERN = "|".join(
-    re.escape(r)
+# Alternation of NON-bare protected root NAMES (everything except "/", with the
+# leading slash stripped: "etc", "home", ...).  The leading slash is factored
+# out of the alternation so a single ``/+`` in _RM_RF_BLOCK can consume a RUN of
+# leading slashes ahead of the name (the kernel collapses ``//etc`` to ``/etc``,
+# so it must block identically — Finding 1).  The bare root "/" itself is handled
+# by dedicated branches in _RM_RF_BLOCK because, unlike a named root such as
+# "/etc", a bare "/" must NOT greedily swallow an ordinary subpath like
+# "/tmp/foo" (that would be a false positive) — it may only match when it is the
+# whole operand ("rm -rf /", "rm -rf //") or is immediately followed by a
+# glob/dotfile metachar ("rm -rf /*", "rm -rf //.bashrc").
+_PROT_NONROOT_NAMES = "|".join(
+    re.escape(r[1:])  # drop the leading "/" — restored as "/+" in the regex
     for r in sorted((x for x in _PROTECTED_ROOTS if x != "/"), key=len, reverse=True)
 )
-
-# Matches rm with recursive+force flags in either order, with optional extra
-# single-letter flags between them, and an optional -- separator.
-# Normalisation below collapses runs of spaces so \s+ catches single space.
-_RM_FLAGS = r"rm\s+-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*"
-# Full rm -rf/-fr expression:
-_RM_RF = rf"rm\s+(?:-[a-z]*[rf][a-z]*\s+)*"
 
 # The complete rm -rf guard (assembled at module load; not inside a loop to
 # avoid ReDoS — all alternations are linear prefix-anchored strings).
@@ -125,8 +134,24 @@ _RM_RF = rf"rm\s+(?:-[a-z]*[rf][a-z]*\s+)*"
 # ordinary ``/tmp/foo`` and create a false positive).  So the bare root gets
 # two dedicated branches: (A2) "/" + glob/dotfile metachar + rest, and (A3) a
 # lone "/" that is the entire operand.
+#
+# Leading-slash RUN (Finding 1, round 3): every absolute branch consumes a RUN
+# of leading slashes ``/+`` instead of a single ``/``.  The kernel collapses
+# consecutive leading slashes (``//`` and ``///`` resolve to ``/``;
+# ``bash -c 'echo //*'`` globs the root filesystem identically to ``/*``), so
+# ``//``, ``///``, ``//*``, ``//etc``, ``//home/user`` and ``//.bashrc`` MUST
+# block exactly like their single-slash forms.  ``/+`` only matches LEADING
+# slashes of the operand; embedded ``//`` in a relative path (``foo//bar``) is
+# untouched because the operand does not start with ``/``.
+#
+# Command-position anchoring (Finding 2): the pattern is anchored with ``^`` and
+# applied in _command_is_dangerous only AFTER leading wrappers are stripped from
+# the segment, so it fires only when ``rm`` is the command actually being run —
+# not when ``rm -rf /...`` merely appears inside a quoted argument to another
+# command (``git commit -m "...rm -rf /..."``, ``grep "rm -rf /" .``).
 _RM_RF_BLOCK = re.compile(
     r"""
+    ^                             # command position (segment start, post-wrapper)
     rm \s+                        # rm command
     (?:                           # optional flags block (e.g. -rf -- or -fr)
       -[a-z]*[rf][a-z]* \s+
@@ -134,15 +159,16 @@ _RM_RF_BLOCK = re.compile(
     (?:--\s+)?                    # optional -- separator
     (?P<q>['"])?                  # optional opening quote
     (?:                           # operand alternatives
-      # A1) named protected root (/etc, /home, ...): exact or /subpath or /glob
-      (?:""" + _PROT_NONROOT_PATTERN + r""")(?:/[^\s"']*)?
+      # A1) named protected root (/etc, /home, ...): exact or /subpath or /glob,
+      #     preceded by a RUN of leading slashes (//etc collapses to /etc)
+      /+ (?:""" + _PROT_NONROOT_NAMES + r""")(?:/[^\s"']*)?
       |
-      # A2) bare root "/" + glob/dotfile metachar + remainder (rm -rf /*, /.*,
-      #     /.bashrc, /*.txt) — the lookahead keeps /tmp/foo from matching here
-      /(?=[*?.\[~])[^\s"']*
+      # A2) bare root run "/+" + glob/dotfile metachar + remainder (rm -rf /*,
+      #     //*, /.*, /.bashrc, /*.txt) — the lookahead keeps /tmp/foo out here
+      /+(?=[*?.\[~])[^\s"']*
       |
-      # A3) bare root "/" as the entire operand (rm -rf /)
-      /
+      # A3) bare root run "/+" as the entire operand (rm -rf /, //, ///)
+      /+
       |
       # B) bare relative dangerous operands (whole operand only)
       \.\.?/?
@@ -164,11 +190,13 @@ _RM_RF_BLOCK = re.compile(
 )
 
 # Safe-operand allowlist — if the rm -rf operand matches one of these the
-# block is waived.  Checked PER SEGMENT (see _command_is_dangerous): the
-# allowlist may only ever waive the block for an rm -rf within its OWN segment,
-# never for a dangerous rm -rf elsewhere in a compound command (Finding 2).
+# block is waived.  Checked PER SEGMENT (see _command_is_dangerous) against the
+# same wrapper-stripped, command-position-anchored segment as _RM_RF_BLOCK, so
+# the allowlist may only ever waive the block for an rm -rf within its OWN
+# segment, never for a dangerous rm -rf elsewhere in a compound command
+# (Finding 2).  Anchored with ``^`` for the same command-position reason.
 _RM_SAFE_OPERANDS = re.compile(
-    r"rm\s+-[a-z]*[rf][a-z]*\s+(?:--\s+)?"
+    r"^rm\s+-[a-z]*[rf][a-z]*\s+(?:--\s+)?"
     r"(?:"
     r"node_modules"
     r"|__pycache__"
@@ -188,20 +216,48 @@ _RM_SAFE_OPERANDS = re.compile(
 # which can only make the guard MORE conservative, never less.
 _SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\||\n")
 
+# Leading command WRAPPERS that delegate to a real command (Finding 2).  A
+# segment beginning with a run of these still counts as an ``rm`` invocation if
+# ``rm`` is what they ultimately run, so they are stripped before the
+# command-position-anchored _RM_RF_BLOCK / _RM_SAFE_OPERANDS check.  Covered:
+#   sudo / doas            privilege escalation
+#   time                   timing wrapper
+#   nice [-n N]            scheduling-priority wrapper
+#   env VAR=val ...        environment-setting wrapper (zero or more assignments)
+# This is a deliberately SMALL, best-effort set.  Wrappers OUTSIDE it (e.g.
+# ``stdbuf``, ``xargs``, ``timeout``, ``setsid``, arbitrary ``env <prog>``) are
+# a residual gap, consistent with the documented variable-indirection /
+# command-substitution gaps — anchoring is NOT claimed to be complete.  The
+# anchored ``\d+`` for ``nice -n`` and ``\S+=\S+`` for ``env`` keep this linear.
+_LEADING_WRAPPERS = re.compile(
+    r"^\s*(?:(?:sudo|doas|time|nice(?:\s+-n\s+\d+)?|env(?:\s+\S+=\S+)*)\s+)+",
+    re.IGNORECASE,
+)
+
 
 def _command_is_dangerous(cmd):
     """Return True if any segment of *cmd* is a blockable rm -rf invocation.
 
     The raw (lower-cased) command is split into segments on command separators
-    and EACH segment is evaluated independently with the same rule the hook has
-    always used (``_RM_RF_BLOCK`` matches and ``_RM_SAFE_OPERANDS`` does not).
+    and EACH segment is evaluated independently.  Within a segment, leading
+    command wrappers (``sudo``, ``doas``, ``time``, ``nice [-n N]``,
+    ``env VAR=val ...``) are stripped, then the command-position-anchored
+    ``_RM_RF_BLOCK`` must match AND ``_RM_SAFE_OPERANDS`` must not.  Because the
+    block pattern is anchored at the (post-wrapper) segment start, ``rm -rf`` is
+    treated as dangerous only when ``rm`` is the command actually being run.
+
     A single dangerous segment blocks the whole command regardless of how many
     safe segments accompany it; conversely the safe-operand allowlist can only
     waive the block within the segment it appears in.
 
-    Behaviour for a single-segment command is identical to the historical
-    whole-string check, so legitimate cases (``git rm -rf src``,
-    ``echo "rm -rf /etc"``, ``cd app && rm -rf dist``) are unaffected.
+    Consequences (all intentional):
+      * ``git rm -rf src`` / ``cd app && rm -rf dist`` stay allowed.
+      * ``git commit -m "...rm -rf /..."``, ``grep "rm -rf /" .`` and other
+        commands that merely CONTAIN the literal string ``rm -rf /...`` in a
+        quoted argument are allowed (the segment's command is git/grep/...,
+        not rm) — Finding 2.
+      * ``sudo rm -rf /`` / ``doas rm -rf /`` still block (wrappers stripped).
+      * Wrappers beyond the listed set are a residual best-effort gap.
     """
     lowered = cmd.lower()
     for segment in _SEGMENT_SPLIT.split(lowered):
@@ -209,7 +265,10 @@ def _command_is_dangerous(cmd):
         # (collapse whitespace, append a trailing space so operand-terminating
         # lookaheads still fire at end of segment).
         seg_norm = " ".join(segment.split()) + " "
-        if _RM_RF_BLOCK.search(seg_norm) and not _RM_SAFE_OPERANDS.search(seg_norm):
+        # Strip leading wrappers so the command-position anchor sees the real
+        # command token; only then is this segment an ``rm`` invocation.
+        seg_cmd = _LEADING_WRAPPERS.sub("", seg_norm, count=1)
+        if _RM_RF_BLOCK.search(seg_cmd) and not _RM_SAFE_OPERANDS.search(seg_cmd):
             return True
     return False
 
@@ -259,12 +318,15 @@ def _evaluate(cmd):
     # Catastrophic deletion guard (rm -rf on dangerous targets)
     # -----------------------------------------------------------------------
     # Evaluated PER SEGMENT (Finding 2): the command is split on separators and
-    # each segment is checked with the historical rule (block-pattern matches
-    # AND safe-operand allowlist does not).  A safe ``rm -rf dist`` can no
-    # longer waive the block on a dangerous ``rm -rf /`` in another segment.
-    # "git rm -rf src" stays allowed because its segment never starts with a
-    # bare "rm " operand the block-pattern recognises, and "cd app && rm -rf
-    # dist" stays allowed because the only rm segment hits the allowlist.
+    # each segment is wrapper-stripped then checked at command position
+    # (block-pattern matches AND safe-operand allowlist does not).  A safe
+    # ``rm -rf dist`` can no longer waive the block on a dangerous ``rm -rf /``
+    # in another segment.  ``git rm -rf src`` stays allowed because its segment's
+    # command is ``git`` (the anchored block-pattern needs ``rm`` at command
+    # position), ``cd app && rm -rf dist`` stays allowed because the only rm
+    # segment hits the allowlist, and ``grep "rm -rf /" .`` stays allowed
+    # because its command is ``grep`` (the literal string is just an argument).
+    # See _command_is_dangerous for the full rationale.
     if _command_is_dangerous(cmd):
         _block(
             "Blocked: rm -rf on a protected or dangerous target. "

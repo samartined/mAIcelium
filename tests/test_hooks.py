@@ -694,3 +694,154 @@ def test_guard_bash_redos_linear_on_pathological_input():
     # Generous bound (subprocess + interpreter startup dominate); a ReDoS would
     # blow far past this.
     assert elapsed < 5.0, f"rm -rf guard too slow ({elapsed:.2f}s) — possible ReDoS"
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — TR-7 round 3
+# F-1: multi-leading-slash root family must BLOCK (was an under-block)
+# F-2: command-position anchoring (literal-string false positives -> ALLOW;
+#      wrapped rm -rf still BLOCKs)
+# ---------------------------------------------------------------------------
+
+# --- F-1: a RUN of leading slashes resolves to the root and must BLOCK ---
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf //*",
+    "rm -rf //",
+    "rm -rf ///",
+    "rm -rf //etc",
+    "rm -rf //home/user",
+    "rm -rf //.bashrc",
+    'rm -rf "//*"',
+    "rm -fr //",
+    "rm -rf -- //etc",
+    "rm -rf ////",
+])
+def test_guard_bash_blocks_multi_leading_slash_root(command):
+    """A run of leading slashes is collapsed by the kernel (``//`` -> ``/``), so
+    the multi-slash root family must block exactly like the single-slash forms.
+    Regression (F-1): the bare-root branches only matched a SINGLE leading ``/``,
+    so a second slash defeated both the glob lookahead and the whole-operand
+    branch and these catastrophic commands were wrongly ALLOWED.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf /*",
+    "rm -rf /etc/*",
+    "rm -rf /home/*",
+    "rm -rf /",
+])
+def test_guard_bash_single_slash_root_still_blocks(command):
+    """F-1 must not regress the single-slash forms it generalises from."""
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+def test_guard_bash_allows_embedded_double_slash_relative():
+    """``/+`` only collapses LEADING slashes; an embedded ``//`` in a relative
+    operand must NOT be treated as a root operand (no false positive)."""
+    for command in ("rm -rf foo//bar", "rm -rf ./a//b"):
+        result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+        assert result.returncode == 0
+        assert not _is_block(result), f"Unexpected block for: {command}"
+
+
+# --- F-2: command-position anchoring ---
+# Commands that merely CONTAIN the literal string ``rm -rf /...`` as a quoted
+# argument to another command must be ALLOWED (their command is not ``rm``).
+
+
+@pytest.mark.parametrize("command", [
+    'git commit -m "...rm -rf /..."',
+    'grep -r "rm -rf /" .',
+    'grep -rn "rm -rf /etc" .',
+    'echo "do not run rm -rf /etc"',
+    'cat docs.md | grep "rm -rf /home"',
+])
+def test_guard_bash_allows_literal_rm_rf_in_argument(command):
+    """F-2: ``rm -rf /...`` appearing inside a quoted argument to git/grep/echo/
+    cat (etc.) must not be blocked — only a segment whose COMMAND is ``rm`` is
+    dangerous. Regression: the block pattern used to ``search`` for the literal
+    anywhere in the segment, so these harmless commands were wrongly BLOCKED.
+    """
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), f"Unexpected block for: {command}"
+
+
+# A wrapped ``rm -rf`` IS an rm invocation and must still BLOCK.
+
+
+@pytest.mark.parametrize("command", [
+    "sudo rm -rf /",
+    "doas rm -rf /",
+    "sudo rm -rf /etc",
+    "doas rm -rf /home/user",
+    "time rm -rf /",
+    "nice rm -rf /",
+    "nice -n 10 rm -rf /",
+    "env FOO=bar rm -rf /",
+    "env A=1 B=2 rm -rf /home",
+    "sudo time rm -rf /",
+    "sudo rm -rf //*",
+])
+def test_guard_bash_blocks_wrapped_rm_rf(command):
+    """F-2: leading command wrappers (sudo/doas/time/nice/env VAR=val) are
+    stripped before the command-position check, so a dangerous ``rm -rf`` behind
+    them still blocks (no under-block relative to dev's ``sudo rm -rf /``)."""
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert _is_block(result), f"Expected block for: {command}"
+
+
+@pytest.mark.parametrize("command", [
+    "sudo rm -rf node_modules",
+    "doas rm -rf dist",
+    "env CI=1 rm -rf build",
+    "nice -n 5 rm -rf /tmp/foo",
+    "sudo ls /etc",
+    "sudo cat /etc/passwd",
+])
+def test_guard_bash_wrapped_safe_or_nonrm_allows(command):
+    """A wrapper in front of a SAFE rm operand (or a non-rm command) must still
+    be allowed: wrapper-stripping must not introduce a false positive."""
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), f"Unexpected block for: {command}"
+
+
+def test_guard_bash_known_gap_unlisted_wrapper():
+    """Documented residual gap (honest framing): wrappers OUTSIDE the small
+    listed set are not stripped, so ``stdbuf rm -rf /`` is not blocked. This is
+    consistent with the variable-indirection / command-substitution gaps; real
+    boundary is write-scope + human review. Asserted so the gap is explicit.
+    """
+    result = _run_hook(
+        GUARD_BASH, {"tool_input": {"command": "stdbuf -oL rm -rf /"}}
+    )
+    assert not _is_block(result), (
+        "Known gap: wrappers beyond the listed set are not stripped "
+        "(best-effort limit)"
+    )
+
+
+def test_guard_bash_redos_linear_multi_slash_and_wrappers():
+    """F-1/F-2 must stay linear: a long run of leading slashes and a long run of
+    leading wrappers must not trigger catastrophic backtracking.
+    """
+    import time
+    for payload in (
+        "rm -rf " + "/" * 50000,            # long leading-slash run
+        "sudo " * 20000 + "rm -rf /",       # long wrapper run
+        "env " + " ".join(f"A{i}=v{i}" for i in range(10000)) + " rm -rf /",
+    ):
+        start = time.perf_counter()
+        result = _run_hook(GUARD_BASH, {"tool_input": {"command": payload}})
+        elapsed = time.perf_counter() - start
+        assert _is_block(result), f"Expected block for pathological: {payload[:40]}..."
+        assert elapsed < 5.0, (
+            f"guard too slow ({elapsed:.2f}s) on pathological input — possible ReDoS"
+        )
