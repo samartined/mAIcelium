@@ -46,7 +46,7 @@ _SETTINGS_JSON = """\
         "hooks": [
           {
             "type": "command",
-            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed — context may be stale. Read .claude/projects-context.md.\\"",
+            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed - context may be stale. Read .claude/projects-context.md.\\"",
             "timeout": 10
           }
         ]
