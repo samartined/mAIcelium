@@ -68,12 +68,17 @@ def create_relative_link(src_abs, dst_abs, target_is_directory=False):
 
 
 def _is_correct_relative_symlink(dst_abs, src_abs):
-    """True if dst_abs is already a symlink whose target equals the expected relative path."""
+    """True if dst_abs is already a symlink whose target equals the expected relative path.
+
+    Normalizes both sides with os.path.normpath so that Windows-style
+    backslash separators in the stored link target compare equal to the
+    forward-slash relative path computed by os.path.relpath.
+    """
     if not os.path.islink(dst_abs):
         return False
     expected = os.path.relpath(src_abs, os.path.dirname(dst_abs))
     try:
-        return os.readlink(dst_abs) == expected
+        return os.path.normpath(os.readlink(dst_abs)) == os.path.normpath(expected)
     except OSError:
         return False
 

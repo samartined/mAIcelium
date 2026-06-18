@@ -7,15 +7,26 @@ import os
 import subprocess
 import sys
 
-ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
-PROJECTS_DIR = os.path.join(ROOT, "projects")
-CURSOR_RULES = os.path.join(ROOT, ".cursor", "rules")
-CURSOR_SKILLS = os.path.join(ROOT, ".cursor", "skills-cursor")
-SKILLS_COMMON = os.path.join(ROOT, "mesh", "skills", "_common")
-SKILLS_DOMAINS = os.path.join(ROOT, "mesh", "skills", "_domains")
 SKIP = {".gitkeep"}
+
+
+def _get_root():
+    """Resolve workspace root. Allow override via MAICELIUM_ROOT for tests."""
+    env_root = os.environ.get("MAICELIUM_ROOT")
+    if env_root:
+        return env_root
+    # mesh/commands/scripts/project_health.py -> root is 4 levels up from this file
+    return os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+
+
+def _safe_stdout():
+    """Reconfigure stdout to survive cp1252/latin-1 consoles without crashing."""
+    try:
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass
 
 
 def run_git(repo_path, *args):
@@ -89,25 +100,29 @@ def check_project(name, link_path):
     return emoji, detail
 
 
-def check_workspace_symlinks():
+def check_workspace_symlinks(root):
     """Check for broken symlinks in .cursor/ directories."""
+    cursor_rules = os.path.join(root, ".cursor", "rules")
+    cursor_skills = os.path.join(root, ".cursor", "skills-cursor")
     broken = []
-    for dir_path in [CURSOR_RULES, CURSOR_SKILLS]:
+    for dir_path in [cursor_rules, cursor_skills]:
         if not os.path.isdir(dir_path):
             continue
         for entry in os.listdir(dir_path):
             full = os.path.join(dir_path, entry)
             if os.path.islink(full) and not os.path.exists(full):
-                broken.append(os.path.relpath(full, ROOT))
+                broken.append(os.path.relpath(full, root))
     return broken
 
 
-def count_skills():
+def count_skills(root):
     """Count skills with SKILL.md vs placeholder directories."""
+    skills_common = os.path.join(root, "mesh", "skills", "_common")
+    skills_domains = os.path.join(root, "mesh", "skills", "_domains")
     complete = 0
     placeholder = 0
 
-    for base in [SKILLS_COMMON, SKILLS_DOMAINS]:
+    for base in [skills_common, skills_domains]:
         if not os.path.isdir(base):
             continue
         for entry in sorted(os.listdir(base)):
@@ -140,16 +155,20 @@ def count_skills():
 
 
 def main():
+    _safe_stdout()
+    root = _get_root()
+    projects_dir = os.path.join(root, "projects")
+
     print("# Project Health Report\n")
 
     # ── Projects ─────────────────────────────────────────────────────────────
-    if not os.path.isdir(PROJECTS_DIR):
+    if not os.path.isdir(projects_dir):
         print("📭 No projects directory found.\n")
     else:
         projects = sorted(
             e
-            for e in os.listdir(PROJECTS_DIR)
-            if os.path.islink(os.path.join(PROJECTS_DIR, e)) and e not in SKIP
+            for e in os.listdir(projects_dir)
+            if os.path.islink(os.path.join(projects_dir, e)) and e not in SKIP
         )
 
         if not projects:
@@ -157,14 +176,14 @@ def main():
         else:
             print(f"## Projects ({len(projects)})\n")
             for name in projects:
-                link_path = os.path.join(PROJECTS_DIR, name)
+                link_path = os.path.join(projects_dir, name)
                 emoji, detail = check_project(name, link_path)
                 print(f"  {emoji} **{name}** — {detail}")
             print()
 
     # ── Workspace symlinks ───────────────────────────────────────────────────
     print("## Workspace Integrity\n")
-    broken = check_workspace_symlinks()
+    broken = check_workspace_symlinks(root)
     if broken:
         print(f"  ⚠️  {len(broken)} broken symlink(s):")
         for b in broken:
@@ -173,7 +192,7 @@ def main():
         print("  ✅ All symlinks valid.")
 
     # ── Skills status ────────────────────────────────────────────────────────
-    complete, placeholder = count_skills()
+    complete, placeholder = count_skills(root)
     total = complete + placeholder
     print(f"\n  📦 Skills: {complete}/{total} complete", end="")
     if placeholder > 0:
