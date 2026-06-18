@@ -45,15 +45,21 @@ wrapper, or encoding tricks can still slip past or, in principle, mis-fire.
     segment.
   * Command-position anchoring: ``rm -rf`` is treated as dangerous only when
     ``rm`` is the command actually being run in a segment — after stripping a
-    leading run of common wrappers (``sudo``, ``doas``, ``time``,
-    ``nice [-n N]``, ``env VAR=val ...``).  So ``sudo rm -rf /`` blocks, while
-    a segment whose command is something else (git/grep/echo/cat/...) is NOT
+    leading run of common wrappers (``sudo`` / ``doas`` INCLUDING their
+    flag-only options, ``time``, ``nice [-n N]``, ``env VAR=val ...``).  So
+    ``sudo rm -rf /`` AND flagged forms like ``sudo -i rm -rf /``,
+    ``sudo --preserve-env rm -rf /`` and ``doas -n rm -rf /`` block, while a
+    segment whose command is something else (git/grep/echo/cat/...) is NOT
     blocked merely because it CONTAINS the literal string ``rm -rf /...`` in a
     quoted argument (e.g. ``git commit -m "...rm -rf /..."`` and
-    ``grep "rm -rf /" .`` are allowed).  Wrappers BEYOND the listed set are a
-    residual best-effort gap (e.g. ``stdbuf rm -rf /``, ``xargs rm -rf``),
-    consistent with the documented variable-indirection / command-substitution
-    gaps below — this anchoring is not claimed to be complete.
+    ``grep "rm -rf /" .`` are allowed).
+  * Full path to rm: an OPTIONAL path prefix that ENDS IN ``/`` is allowed at
+    the anchored command position, so ``/bin/rm -rf /`` and ``/usr/bin/rm -rf
+    /etc`` block.  The required trailing ``/`` means only a genuine path matches
+    — a word that merely ends in ``rm`` (``charm``, ``myrm``) or a flag
+    (``--rm``) never does, so ``git rm -rf src`` and ``charm -rf foo`` stay
+    allowed.  The safe-operand allowlist accepts the same prefix, so
+    ``/bin/rm -rf node_modules`` stays allowed too.
   * Destructive SQL (DROP TABLE, TRUNCATE)
   * git push --force to main/master
   * Low-level disk ops (mkfs, dd)
@@ -67,6 +73,17 @@ DOCUMENTED GAPS (not blocked — known best-effort limit)
   * cd /etc && rm -rf foo      (cwd tracking)
   * echo /etc | xargs rm -rf   (piped operands)
   * find /etc -delete           (non-rm deletion)
+  * sudo -u root rm -rf /      (sudo/doas flag that takes a SEPARATE value
+                                argument: only flag-only options are consumed;
+                                consuming a value generically would wrongly
+                                swallow ``rm`` in value-less forms like
+                                ``sudo -i rm`` and under-block, so the value
+                                form is left as a gap rather than risk it)
+  * stdbuf rm -rf / ; setsid rm -rf / ; timeout 5 rm -rf / ; command rm -rf / ;
+    \\rm -rf /                  (wrappers / quoting tricks beyond the small
+                                stripped set sudo|doas|time|nice|env)
+  * rm --recursive --force /   (GNU long-form flags: the flag matcher targets
+                                the common short clusters ``-rf``/``-fr``)
 """
 import json
 import os
@@ -152,6 +169,11 @@ _PROT_NONROOT_NAMES = "|".join(
 _RM_RF_BLOCK = re.compile(
     r"""
     ^                             # command position (segment start, post-wrapper)
+    (?:\S*/)?                     # optional path prefix that ENDS IN "/" (e.g.
+                                  # /bin/, /usr/bin/) so a full path to rm is
+                                  # covered; the trailing "/" means only a real
+                                  # path matches, never a word ending in "rm"
+                                  # (charm) or a flag (--rm)
     rm \s+                        # rm command
     (?:                           # optional flags block (e.g. -rf -- or -fr)
       -[a-z]*[rf][a-z]* \s+
@@ -194,9 +216,12 @@ _RM_RF_BLOCK = re.compile(
 # same wrapper-stripped, command-position-anchored segment as _RM_RF_BLOCK, so
 # the allowlist may only ever waive the block for an rm -rf within its OWN
 # segment, never for a dangerous rm -rf elsewhere in a compound command
-# (Finding 2).  Anchored with ``^`` for the same command-position reason.
+# (Finding 2).  Anchored with ``^`` for the same command-position reason, and it
+# accepts the same optional ``(?:\S*/)?`` path prefix as _RM_RF_BLOCK so a safe
+# operand stays allowed even when rm is invoked by full path (``/bin/rm -rf
+# node_modules`` must NOT block).
 _RM_SAFE_OPERANDS = re.compile(
-    r"^rm\s+-[a-z]*[rf][a-z]*\s+(?:--\s+)?"
+    r"^(?:\S*/)?rm\s+-[a-z]*[rf][a-z]*\s+(?:--\s+)?"
     r"(?:"
     r"node_modules"
     r"|__pycache__"
@@ -220,17 +245,32 @@ _SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\||\n")
 # segment beginning with a run of these still counts as an ``rm`` invocation if
 # ``rm`` is what they ultimately run, so they are stripped before the
 # command-position-anchored _RM_RF_BLOCK / _RM_SAFE_OPERANDS check.  Covered:
-#   sudo / doas            privilege escalation
+#   sudo / doas            privilege escalation, INCLUDING flag-only options
+#                          (``sudo -i``, ``sudo --preserve-env``, ``doas -n``)
 #   time                   timing wrapper
 #   nice [-n N]            scheduling-priority wrapper
 #   env VAR=val ...        environment-setting wrapper (zero or more assignments)
+# The sudo/doas ``(?:\s+-{1,2}\S+)*`` tail consumes only FLAG tokens (those
+# starting with ``-``); it deliberately does NOT consume a flag's separate value
+# argument, so ``sudo -u <user> rm`` (where ``<user>`` is the arg to ``-u``) is a
+# DOCUMENTED residual gap.  Consuming the value generically is unsafe: it would
+# swallow ``rm`` itself in ``sudo -i rm`` (a value-less flag) and UNDER-block, so
+# the value form is intentionally left as a best-effort gap rather than risk
+# either a regression or over-blocking ``sudo <prog> <arg> ...``.
 # This is a deliberately SMALL, best-effort set.  Wrappers OUTSIDE it (e.g.
-# ``stdbuf``, ``xargs``, ``timeout``, ``setsid``, arbitrary ``env <prog>``) are
-# a residual gap, consistent with the documented variable-indirection /
-# command-substitution gaps — anchoring is NOT claimed to be complete.  The
-# anchored ``\d+`` for ``nice -n`` and ``\S+=\S+`` for ``env`` keep this linear.
+# ``stdbuf``, ``xargs``, ``timeout``, ``setsid``, ``command``, arbitrary
+# ``env <prog>``) are a residual gap, consistent with the documented
+# variable-indirection / command-substitution gaps — anchoring is NOT claimed to
+# be complete.  The anchored ``\d+`` for ``nice -n``, ``\S+=\S+`` for ``env`` and
+# the single-star ``(?:\s+-{1,2}\S+)*`` for sudo/doas keep this linear.
 _LEADING_WRAPPERS = re.compile(
-    r"^\s*(?:(?:sudo|doas|time|nice(?:\s+-n\s+\d+)?|env(?:\s+\S+=\S+)*)\s+)+",
+    r"^\s*(?:(?:"
+    r"sudo(?:\s+-{1,2}\S+)*"      # sudo + flag-only options (-i, --preserve-env)
+    r"|doas(?:\s+-{1,2}\S+)*"     # doas + flag-only options (-n)
+    r"|time"
+    r"|nice(?:\s+-n\s+\d+)?"
+    r"|env(?:\s+\S+=\S+)*"
+    r")\s+)+",
     re.IGNORECASE,
 )
 
@@ -240,11 +280,14 @@ def _command_is_dangerous(cmd):
 
     The raw (lower-cased) command is split into segments on command separators
     and EACH segment is evaluated independently.  Within a segment, leading
-    command wrappers (``sudo``, ``doas``, ``time``, ``nice [-n N]``,
-    ``env VAR=val ...``) are stripped, then the command-position-anchored
-    ``_RM_RF_BLOCK`` must match AND ``_RM_SAFE_OPERANDS`` must not.  Because the
-    block pattern is anchored at the (post-wrapper) segment start, ``rm -rf`` is
-    treated as dangerous only when ``rm`` is the command actually being run.
+    command wrappers (``sudo`` / ``doas`` with their flag-only options,
+    ``time``, ``nice [-n N]``, ``env VAR=val ...``) are stripped, then the
+    command-position-anchored ``_RM_RF_BLOCK`` must match AND
+    ``_RM_SAFE_OPERANDS`` must not.  Because the block pattern is anchored at the
+    (post-wrapper) segment start — allowing only an optional ``/``-terminated
+    path prefix before ``rm`` — ``rm -rf`` is treated as dangerous only when
+    ``rm`` (possibly via a full path like ``/bin/rm``) is the command actually
+    being run.
 
     A single dangerous segment blocks the whole command regardless of how many
     safe segments accompany it; conversely the safe-operand allowlist can only
@@ -256,8 +299,14 @@ def _command_is_dangerous(cmd):
         commands that merely CONTAIN the literal string ``rm -rf /...`` in a
         quoted argument are allowed (the segment's command is git/grep/...,
         not rm) — Finding 2.
-      * ``sudo rm -rf /`` / ``doas rm -rf /`` still block (wrappers stripped).
-      * Wrappers beyond the listed set are a residual best-effort gap.
+      * ``sudo rm -rf /`` / ``doas rm -rf /`` still block (wrappers stripped),
+        as do their flagged forms ``sudo -i rm -rf /`` /
+        ``sudo --preserve-env rm -rf /`` / ``doas -n rm -rf /``.
+      * ``/bin/rm -rf /`` / ``/usr/bin/rm -rf /etc`` block (full path to rm);
+        ``/bin/rm -rf node_modules`` stays allowed (safe operand).
+      * Wrappers beyond the listed set, a sudo/doas flag taking a SEPARATE value
+        argument (``sudo -u root rm``), and GNU long flags are residual
+        best-effort gaps (see module docstring).
     """
     lowered = cmd.lower()
     for segment in _SEGMENT_SPLIT.split(lowered):
