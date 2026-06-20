@@ -38,6 +38,8 @@ WORKSPACE.md
 .claude/projects-context.md
 .claude/settings.local.json
 .claude/hook-failures.log
+# Ephemeral agent worktrees (created by Claude Code subagent isolation)
+.claude/worktrees/
 
 # IDE caches
 .DS_Store
