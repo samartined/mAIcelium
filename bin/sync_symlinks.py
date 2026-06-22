@@ -564,13 +564,34 @@ def _plan_mcp_mount(root, mcp_source):
     return actions
 
 
-# ── Top-level planner ───────────────────────────────────────────────────────
+# ── Top-level planner (two-phase split) ─────────────────────────────────────
+#
+# WHY TWO PHASES?
+# _plan_skills_for / _plan_rules_for enumerate mesh/ via os.listdir at PLAN
+# time. When a brand-new layer is registered, phase 1 writes its entries into
+# mesh/skills/_common/, mesh/rules/_domains/, etc. for the first time. If
+# both phases were planned together (old plan_actions), those enumeration calls
+# would happen BEFORE phase 1 has executed, so the new entries are not yet on
+# disk and no reflection action is emitted — requiring a second sync to pick
+# them up.
+#
+# The fix: plan_phase1 (mesh/ writers) + plan_phase2 (outward reflectors).
+# main() executes phase 1 first, THEN plans and executes phase 2 so that the
+# reflection planners see the freshly-materialized mesh/ entries.
+#
+# NOTE: --dry-run keeps using the composed plan_actions, so it cannot preview
+# brand-new layer reflections (the composed plan reads mesh/ cold, before any
+# materialization has happened). This is acceptable and inherent to keeping
+# dry-run a pure preview — no real sync is executed to warm the state.
 
-def plan_actions(root, conventions, layers, mcp_source, fix_drift):
-    """Compute the full action plan to bring the workspace into sync.
+def plan_phase1(root, layers, fix_drift):
+    """Phase 1: everything that WRITES INTO mesh/.
 
-    Returns a list of Action dataclasses. Pure planner — no side effects
-    other than read-only filesystem inspection.
+    Includes broken-symlink cleanup steps and layer materialization.
+    ALL drift actions (kind=="drift") originate here — they are emitted only
+    by _safe_link_actions, called only from _plan_layer_materialization.
+
+    Pure planner — no side effects other than read-only filesystem inspection.
     """
     actions = []
 
@@ -596,6 +617,20 @@ def plan_actions(root, conventions, layers, mcp_source, fix_drift):
 
     # 3. Layer materialization + drift detection
     actions.extend(_plan_layer_materialization(root, layers, fix_drift))
+
+    return actions
+
+
+def plan_phase2(root, conventions, mcp_source):
+    """Phase 2: everything that READS mesh/ to reflect OUTWARD.
+
+    Enumerates mesh/skills/ and mesh/rules/ to plan reflections into
+    .cursor/ and .agents/. Must be planned (and called) AFTER phase 1 has
+    been executed so that newly-materialized mesh/ entries are visible on disk.
+
+    Pure planner — no side effects other than read-only filesystem inspection.
+    """
+    actions = []
 
     # 4. Global/domain/client rules → .cursor/rules/
     actions.extend(_plan_rules_for(os.path.join(root, ".cursor", "rules"), root))
@@ -633,6 +668,20 @@ def plan_actions(root, conventions, layers, mcp_source, fix_drift):
     actions.extend(_plan_mcp_mount(root, mcp_source))
 
     return actions
+
+
+def plan_actions(root, conventions, layers, mcp_source, fix_drift):
+    """Compute the full action plan to bring the workspace into sync.
+
+    Thin wrapper over plan_phase1 + plan_phase2 that preserves the composed
+    view needed by --dry-run, --check-only, and the purity test
+    test_sync_action_plan_separation. Both phases are planned against the
+    current on-disk state (no execution happens here).
+
+    Returns a list of Action dataclasses. Pure planner — no side effects
+    other than read-only filesystem inspection.
+    """
+    return plan_phase1(root, layers, fix_drift) + plan_phase2(root, conventions, mcp_source)
 
 
 # ── Execution ───────────────────────────────────────────────────────────────
@@ -888,11 +937,10 @@ def main(argv=None):
         if _has_section_marker(root, "mesh_layers") and not layers:
             degraded = True
 
-    # 4. Plan
-    actions = plan_actions(root, conventions, layers, mcp_source, args.fix_drift)
-
-    # 5. Check-only short-circuit
+    # 4a. Check-only: use the composed plan (all drift is in phase 1, which does
+    # not depend on a materialized mesh/, so planning both phases cold is safe).
     if args.check_only:
+        actions = plan_actions(root, conventions, layers, mcp_source, args.fix_drift)
         drifts = [a for a in actions if a.kind == "drift"]
         if drifts:
             for a in drifts:
@@ -900,13 +948,26 @@ def main(argv=None):
             return 1
         return 0
 
-    # 6. Execute
-    print("Syncing symlinks...")
-    execute(actions, dry_run=args.dry_run)
-
+    # 4b. Dry-run: preview the composed plan without executing. Note that this
+    # cannot show brand-new layer reflections (phase 2 reads mesh/ cold, before
+    # any materialization happens) — this is acceptable and inherent to keeping
+    # dry-run a pure preview.
     if args.dry_run:
+        actions = plan_actions(root, conventions, layers, mcp_source, args.fix_drift)
+        print("Syncing symlinks...")
+        execute(actions, dry_run=True)
         print("Dry run complete; no changes applied.")
         return 0
+
+    # 4c. Real sync: two-phase execute.
+    # Phase 1 executes first (materializes new layer entries into mesh/), THEN
+    # phase 2 is planned so its os.listdir calls see the just-written symlinks.
+    # This fixes the single-pass reflection bug (#27): previously both phases
+    # were planned together before any execution, so newly-materialized mesh/
+    # entries were invisible to the reflection planners.
+    print("Syncing symlinks...")
+    execute(plan_phase1(root, layers, args.fix_drift), dry_run=False)
+    execute(plan_phase2(root, conventions, mcp_source), dry_run=False)
 
     # 7. Post-actions (file generators, not part of the action plan)
     _generate_mcp_configs(root)
