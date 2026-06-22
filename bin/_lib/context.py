@@ -15,6 +15,27 @@ from _lib.workspace import load_workspace_section
 
 _FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.DOTALL)
 
+# Matches an explicit `alwaysApply: false` line inside a frontmatter block.
+# MULTILINE so ^ anchors to each line.  We scan ONLY the isolated frontmatter
+# block, never the rule body, to avoid false matches in prose.
+_ALWAYS_APPLY_FALSE_RE = re.compile(
+    r"^\s*alwaysApply\s*:\s*false\s*$", re.MULTILINE
+)
+
+
+def _is_opt_out(content):
+    """Return True only when frontmatter explicitly sets ``alwaysApply: false``.
+
+    No frontmatter, missing key, malformed, or ``alwaysApply: true`` → False
+    (include by default — opt-out semantics).  Scans the frontmatter block
+    only so body prose containing "alwaysApply: false" never triggers exclusion.
+    """
+    m = _FRONTMATTER_RE.match(content)
+    if not m:
+        return False  # no frontmatter → include
+    frontmatter_block = m.group(0)
+    return bool(_ALWAYS_APPLY_FALSE_RE.search(frontmatter_block))
+
 
 def _strip_frontmatter(content):
     """Remove a leading YAML frontmatter block (``---\\n...\\n---\\n``) if present."""
@@ -196,6 +217,46 @@ def regenerate_claude_context(root):
         out.append("\n")
         out.append(_strip_frontmatter(_read_text(rule_path)))
         out.append("\n")
+
+    # ── Domain Rules (mesh/rules/_domains/<domain>/*.mdc) ────────────────────
+    # Rules in _domains/ are opt-out by default: a rule is inlined UNLESS its
+    # frontmatter explicitly sets `alwaysApply: false`.
+    # Sorted deterministically: domain dir first, then filename.
+    # The `seen` set (by realpath inode) guards against a flat-tier symlink and
+    # a _domains/ file resolving to the same physical file.  It does NOT protect
+    # against two distinct files that share the same <domain>/<rule> heading
+    # name — callers must avoid shipping duplicate-named files across layers.
+    domains_dir = os.path.join(root, "mesh", "rules", "_domains")
+    domain_rules_out = []
+    if os.path.isdir(domains_dir):
+        seen_domain = set()
+        for domain in sorted(os.listdir(domains_dir)):
+            domain_path = os.path.join(domains_dir, domain)
+            if not os.path.isdir(domain_path):
+                continue
+            for fname in sorted(os.listdir(domain_path)):
+                if not fname.endswith(".mdc"):
+                    continue
+                rule_path = os.path.join(domain_path, fname)
+                if not os.path.isfile(rule_path):
+                    continue
+                real = os.path.realpath(rule_path)
+                if real in seen_domain:
+                    continue
+                seen_domain.add(real)
+                content = _read_text(rule_path)
+                if _is_opt_out(content):
+                    continue
+                rule_name = fname[: -len(".mdc")]
+                domain_rules_out.append(f"### {domain}/{rule_name}\n")
+                domain_rules_out.append("\n")
+                domain_rules_out.append(_strip_frontmatter(content))
+                domain_rules_out.append("\n")
+
+    if domain_rules_out:
+        out.append("## Domain Rules\n")
+        out.append("\n")
+        out.extend(domain_rules_out)
 
     # ── Active projects ──────────────────────────────────────────────────────
     out.append("## Active Projects\n")
