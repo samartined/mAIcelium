@@ -309,3 +309,107 @@ def test_no_inline_avoids_duplicate_layer_content(tmp_path):
         "Layer content must not be inlined when context_inline:false is set — "
         "this prevents duplication when a project is also covered by a mesh layer"
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Domain Rules (_domains/ tier) — issue #28
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_domain_rules_inlined(tmp_path):
+    """A _domains rule with no alwaysApply key is inlined under ## Domain Rules."""
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "software", "coding.mdc"),
+        "---\ndescription: Coding standards\n---\n\n# Coding Standards\nAlways write tests.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" in content
+    assert "### software/coding" in content
+    assert "Always write tests." in content
+
+
+def test_domain_rule_opt_out_excluded(tmp_path):
+    """A _domains rule with alwaysApply: false in frontmatter is NOT inlined."""
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "software", "coding.mdc"),
+        "---\ndescription: Coding standards\nalwaysApply: false\n---\n\n# Coding Standards\nAlways write tests.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" not in content
+    assert "### software/coding" not in content
+    assert "Always write tests." not in content
+
+
+def test_domain_rule_frontmatter_stripped(tmp_path):
+    """Frontmatter of a _domains rule does not appear in the output."""
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "software", "style.mdc"),
+        "---\ndescription: Style guide\nauthor: tester\n---\n\nStyle body content.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "Style body content." in content
+    assert "description: Style guide" not in content
+    assert "author: tester" not in content
+    # The --- delimiters must also be absent under the domain section heading
+    domain_section = content[content.index("### software/style"):]
+    domain_section_body = domain_section.split("##", 1)[0]
+    assert "---" not in domain_section_body
+
+
+def test_domain_rule_body_false_still_inlined(tmp_path):
+    """A rule whose BODY prose says 'alwaysApply: false' is still inlined.
+
+    The opt-out helper must scan frontmatter only, not the body.
+    """
+    root = str(tmp_path)
+    body = (
+        "---\ndescription: Tricky rule\n---\n\n"
+        "This rule is always applied even if the body says:\n"
+        "alwaysApply: false\n"
+        "That line is in the body, not the frontmatter.\n"
+    )
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "tricky", "trap.mdc"),
+        body,
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" in content
+    assert "### tricky/trap" in content
+    assert "That line is in the body, not the frontmatter." in content
+
+
+def test_flat_tier_still_unconditional(tmp_path):
+    """Flat mesh/rules/*.mdc with no alwaysApply key is unconditionally inlined.
+
+    Regression guard: the flat Workspace Rules tier must remain gating-free.
+    """
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "x.mdc"),
+        "# Flat rule\nFlat body here.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Workspace Rules" in content
+    assert "### x" in content
+    assert "Flat body here." in content
+
+
+def test_no_domain_section_when_empty(tmp_path):
+    """When there are no _domains rules, no ## Domain Rules heading is emitted."""
+    root = str(tmp_path)
+    # Only a flat workspace rule exists — no _domains dir
+    _write(
+        os.path.join(root, "mesh", "rules", "flat.mdc"),
+        "flat content\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" not in content
