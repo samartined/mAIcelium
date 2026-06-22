@@ -311,7 +311,6 @@ def test_no_inline_avoids_duplicate_layer_content(tmp_path):
     )
 
 
-# ────────────────────────────────────────────────────────────────────────────
 # Domain Rules (_domains/ tier) — issue #28
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -413,3 +412,83 @@ def test_no_domain_section_when_empty(tmp_path):
     regenerate_claude_context(root)
     content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
     assert "## Domain Rules" not in content
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Symlinked _domains rules (production path regression tests)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@requires_symlink
+def test_regenerate_claude_context_symlinked_domain_rule_inlined(tmp_path):
+    """mesh/rules/_domains/<domain>/<rule>.mdc as a SYMLINK is followed and inlined.
+
+    This is the production path: sync_symlinks materialises domain rules into
+    mesh/rules/_domains/ as symlinks pointing to files elsewhere on disk.
+    The fix must follow the symlink and inline the body.
+    """
+    root = str(tmp_path)
+
+    # Source rule lives in a fake "layer" dir — NOT inside mesh/rules/
+    source_dir = tmp_path / "fake_layer_source" / "rules"
+    source_dir.mkdir(parents=True)
+    unique_marker = "SYMLINK_DOMAIN_RULE_BODY_X9Z3W"
+    source_file = source_dir / "mydomainrule.mdc"
+    _write(
+        str(source_file),
+        "---\nalwaysApply: true\n---\n\n# Domain rule via symlink\n"
+        f"Body marker: {unique_marker}\n",
+    )
+
+    # Materialise it as a symlink inside mesh/rules/_domains/mydomain/
+    domains_dir = tmp_path / "mesh" / "rules" / "_domains" / "mydomain"
+    domains_dir.mkdir(parents=True)
+    symlink_path = domains_dir / "mydomainrule.mdc"
+    os.symlink(str(source_file), str(symlink_path))
+
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+
+    assert "## Domain Rules" in content, "Domain Rules section must appear"
+    assert "### mydomain/mydomainrule" in content, "Heading must name <domain>/<rule>"
+    assert unique_marker in content, (
+        "Body of the symlinked rule must be inlined — "
+        "inlining must follow the symlink (production path)"
+    )
+    # Frontmatter must be stripped even through a symlink
+    assert "alwaysApply: true" not in content
+
+
+@requires_symlink
+def test_regenerate_claude_context_symlinked_domain_rule_opt_out(tmp_path):
+    """A symlinked _domains rule with alwaysApply: false is excluded (opt-out through symlink).
+
+    Ensures that opt-out detection works correctly when the rule file is
+    accessed via a symlink, matching the production materialization path.
+    """
+    root = str(tmp_path)
+
+    # Source rule with explicit opt-out frontmatter
+    source_dir = tmp_path / "fake_layer_optout" / "rules"
+    source_dir.mkdir(parents=True)
+    absent_marker = "SYMLINK_OPTOUT_RULE_BODY_Q7Y5V"
+    source_file = source_dir / "optrule.mdc"
+    _write(
+        str(source_file),
+        "---\nalwaysApply: false\n---\n\n# Opt-out rule\n"
+        f"This must not appear: {absent_marker}\n",
+    )
+
+    # Materialise as a symlink inside mesh/rules/_domains/optdomain/
+    domains_dir = tmp_path / "mesh" / "rules" / "_domains" / "optdomain"
+    domains_dir.mkdir(parents=True)
+    symlink_path = domains_dir / "optrule.mdc"
+    os.symlink(str(source_file), str(symlink_path))
+
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+
+    assert absent_marker not in content, (
+        "Body of a symlinked rule with alwaysApply: false must NOT be inlined — "
+        "opt-out must work through a symlink too"
+    )
