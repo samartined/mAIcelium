@@ -155,11 +155,28 @@ def count_skills(root):
 
 
 def main():
+    """Run health checks and return an exit code.
+
+    Returns:
+        0 -- healthy or issues found (warnings, placeholder skills, no-git, no-README)
+        2 -- broken project symlinks detected (a project/ entry points at a non-existent target)
+
+    D1 override: main() now computes and returns an int instead of returning None.
+    __main__ calls sys.exit(main()) so the process exits with the correct code.
+    The '1 = issues' tier from the original D1 parenthetical was deliberately dropped:
+    D1 also mandates 'The 4 existing healthy-case project_health tests stay exit 0', and
+    those tests cover projects with real issues (no git, no README) that must stay 0.
+    Only broken project symlinks (projects/ entries with non-existent targets) trigger 2.
+    Workspace-level warnings (broken .cursor symlinks, placeholder skills) stay 0.
+    The existing report TEXT (header, 'Broken symlink' line) is preserved.
+    """
     _safe_stdout()
     root = _get_root()
     projects_dir = os.path.join(root, "projects")
 
     print("# Project Health Report\n")
+
+    has_broken = False
 
     # ── Projects ─────────────────────────────────────────────────────────────
     if not os.path.isdir(projects_dir):
@@ -179,6 +196,8 @@ def main():
                 link_path = os.path.join(projects_dir, name)
                 emoji, detail = check_project(name, link_path)
                 print(f"  {emoji} **{name}** — {detail}")
+                if emoji == "❌":
+                    has_broken = True
             print()
 
     # ── Workspace symlinks ───────────────────────────────────────────────────
@@ -201,9 +220,19 @@ def main():
         print(" — all complete")
 
     # ── Overall ──────────────────────────────────────────────────────────────
-    all_ok = not broken and placeholder == 0
+    all_ok = not broken and placeholder == 0 and not has_broken
     print(f"\n{'✅' if all_ok else '⚠️'} Health check complete.")
+
+    # Return exit code: 2=broken project symlinks, 0=healthy/issues
+    # D1 override: main() now returns an int; only broken project symlinks
+    # (projects/ entries pointing at non-existent targets) cause exit 2.
+    # Workspace-level warnings (placeholder skills, broken .cursor symlinks)
+    # and project-level issues (no git, no README) keep exit 0 per the spec:
+    # "The 4 existing healthy-case project_health tests stay exit 0."
+    if has_broken:
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

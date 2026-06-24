@@ -300,6 +300,31 @@ class TestUNIT3:
         assert "verb" in captured, "Router should have dispatched, not errored on unknown flag"
         assert "--totally-unknown-flag" in captured["args"]
 
+    def test_unknown_global_flag_no_verb_errors_2(self, monkeypatch, tmp_path):
+        """UNIT-3 (adversarial gap): an unknown GLOBAL flag with no verb is a usage
+        error (exit 2), not a silent help/exit-0. `mai --foo` previously fell through
+        to help and swallowed the option."""
+        cli = self._import_cli()
+        ws = _make_fake_ws(tmp_path)
+        monkeypatch.setenv("MAICELIUM_ROOT", str(ws))
+        dispatched = []
+        monkeypatch.setattr(cli, "dispatch", lambda *a, **kw: dispatched.append(a) or 0)
+        result = cli.main(["--totally-unknown-global"])
+        assert result == 2
+        assert not dispatched
+
+    def test_unknown_global_flag_before_verb_errors_2(self, monkeypatch, tmp_path):
+        """UNIT-3 (adversarial gap): an unknown GLOBAL flag before a valid verb must
+        error (exit 2), not be silently dropped while the verb still dispatches."""
+        cli = self._import_cli()
+        ws = _make_fake_ws(tmp_path)
+        monkeypatch.setenv("MAICELIUM_ROOT", str(ws))
+        dispatched = []
+        monkeypatch.setattr(cli, "dispatch", lambda *a, **kw: dispatched.append(a) or 0)
+        result = cli.main(["--totally-unknown-global", "list"])
+        assert result == 2
+        assert not dispatched, "unknown global flag must not be silently dropped"
+
 
 class TestUNIT4:
     """UNIT-4: --version/-V prints the version and exits 0 without dispatching."""
