@@ -34,19 +34,27 @@ graph LR
 git clone https://github.com/your-user/mAIcelium.git
 cd mAIcelium
 
-# 2. Initialize the workspace
-python3 bin/init.py
+# 2. (Recommended) Install the `mai` CLI — puts `mai` on your PATH
+pip install -e .
 
-# 3. Register your repos (edit with your actual paths)
+# 3. Initialize the workspace
+mai init
+# zero-install alternative (no pip required): python3 bin/init.py
+
+# 4. Register your repos (edit with your actual paths)
 cp repos/_registry.yaml.example repos/_registry.yaml
 # edit repos/_registry.yaml
 
-# 4. Plug in a project (from shell)
-python3 bin/add_project.py my-api ~/dev/my-api
+# 5. Plug in a project
+mai add my-api ~/dev/my-api
+# zero-install alternative: python3 bin/add_project.py my-api ~/dev/my-api
 # or from inside an IDE with fuzzy matching:
 #   /add_project my-api
 
-# 5. Open this directory in your IDEs and start working
+# 6. Sync the workspace
+mai sync
+
+# 7. Open this directory in your IDEs and start working
 ```
 
 ## Workspace structure
@@ -109,7 +117,34 @@ The `.code-workspace` file is regenerated automatically by `add_project.py`, `re
 
 ## Key commands
 
-### Shell scripts
+### The `mai` CLI
+
+Install once with `pip install -e .` (editable; recommended) to get `mai` on your PATH. Alternatively, run the committed `./mai` shim (POSIX) or `mai.cmd` (Windows) directly from the checkout without any install step.
+
+```bash
+mai --help          # show all verbs
+mai --version       # print version
+mai <verb> --help   # verb-specific help (forwarded to the target script)
+```
+
+| Verb | Aliases | What it does |
+|------|---------|--------------|
+| `init` | — | Scaffold a new mAIcelium workspace |
+| `add` | `add-project` | Add a project symlink |
+| `remove` | `rm`, `remove-project` | Remove a project symlink |
+| `sync` | `sync-symlinks` | Sync workspace symlinks (check/fix drift) |
+| `separate-git` | `git-separate` | Separate a project's git history |
+| `add-mcp` | `add-mcp-source` | Mount an external MCP definitions directory |
+| `remove-mcp` | `remove-mcp-source` | Unmount the current MCP source |
+| `add-layer` | `add-mesh-layer` | Add a mesh layer |
+| `remove-layer` | `remove-mesh-layer` | Remove a mesh layer |
+| `set-flag` | `set-project-flag` | Set a project flag |
+| `list` | `ls`, `list-projects` | List all linked projects |
+| `health` | `project-health` | Run health checks across all linked projects |
+
+Global flags (must appear **before** the verb): `--root <path>`, `--version` / `-V`, `--help` / `-h`.
+
+### Shell scripts (direct invocation, no install required)
 
 | Command | Description |
 |---------|-------------|
