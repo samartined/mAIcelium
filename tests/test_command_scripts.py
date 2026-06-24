@@ -168,3 +168,39 @@ def test_project_health_no_crash_on_cp1252_console(tmp_path):
     )
     assert "Traceback" not in result.stderr
     assert "UnicodeEncodeError" not in result.stderr
+
+
+# ── D1 override: project_health broken-symlink exit-code test ────────────────
+# USER DECISION OVERRIDE D1: mesh/commands/scripts/project_health.py WILL be
+# changed (by a later implementer) so main() returns/exits an int:
+#   0 = healthy / 1 = issues / 2 = broken
+# and __main__ gets `sys.exit(main())`.
+# This test is currently RED (project_health.py still exits 0 unconditionally).
+# It will go GREEN after the implementer makes that change.
+
+@requires_symlink
+def test_project_health_broken_symlink_returns_2(tmp_path):
+    """project_health.py run directly against a workspace WITH a broken project symlink
+    must return exit code 2 (broken).
+
+    D1 override: This test will be RED until project_health.py is updated to:
+      - return/exit 2 when broken project symlinks are detected
+      - use sys.exit(main()) in __main__
+
+    The 4 healthy-case tests above still assert exit 0 (healthy stays 0).
+    """
+    ws = _make_workspace_with_empty_projects(tmp_path)
+    # Create a dangling symlink (target does not exist)
+    broken_link = ws / "projects" / "broken-proj"
+    os.symlink(str(tmp_path / "nonexistent_target"), str(broken_link))
+
+    result = _run_script(_PROJECT_HEALTH, ws)
+    assert result.returncode == 2, (
+        f"Expected returncode == 2 (broken) per D1 override, got {result.returncode}.\n"
+        f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}\n"
+        "NOTE: project_health.py must be updated to sys.exit(main()) with main() "
+        "returning 0/1/2 based on health status."
+    )
+    assert "Broken symlink" in result.stdout, (
+        f"Expected 'Broken symlink' in stdout: {result.stdout!r}"
+    )
