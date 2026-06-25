@@ -189,6 +189,23 @@ It performs a full cleanup and recreation cycle:
 8. Regenerates `mAIcelium.code-workspace`
 9. Removes legacy `.antigravity/` if present
 
+## The `mai` CLI (command router)
+
+`maicelium_cli.py` (repo root) is a thin router exposed as the `mai` console
+script (`pip install -e .`) plus committed `mai` / `mai.cmd` shims for zero-install
+use. It maps friendly verbs to the real scripts and dispatches via **subprocess**
+(`sys.executable <script>`), never importing them — so each script keeps its own
+argument parsing, encoding handling and exit code, which `mai` passes through
+verbatim. Everything after the verb is forwarded untouched; only `--root`,
+`--version` and `--help` are consumed before the verb.
+
+The workspace root is resolved in order: `--root` → `MAICELIUM_ROOT` → upward
+search for a directory containing `bin/_bootstrap.py` + `mesh/` (nearest ancestor)
+→ the `maicelium_cli.py` directory. The resolved root is exported as
+`MAICELIUM_ROOT` to the child so every downstream resolver agrees. If no workspace
+can be located, `mai` exits 2 with an actionable message. See `docs/reference.md`
+for the full verb table.
+
 ## Rules and skills taxonomy
 
 ```mermaid

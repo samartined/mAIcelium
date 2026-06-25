@@ -14,6 +14,15 @@
 - Execution of scripts in `bin/`.
 - Execution of scripts in `bin/hooks/` (PreToolUse security checks).
 - Execution of Python scripts: `python3 mesh/commands/scripts/*.py`.
+- Execution of the `mai` CLI router (`maicelium_cli.py` / the `mai` and `mai.cmd` shims).
+
+## The `mai` CLI
+The workspace ships a `mai` command (install with `pip install -e .`, or run the
+committed `./mai` / `mai.cmd` shims) that routes verbs to the `bin/` and
+`mesh/commands/scripts/` scripts: `mai add`, `mai remove`, `mai sync`, `mai init`,
+`mai list`, `mai health`, etc. It is the shell counterpart of the IDE slash
+commands. Run `mai --help` for the full verb list. Everything after the verb is
+forwarded verbatim to the underlying script.
 
 ## Multi-agent coordination
 When two agents work on the same project simultaneously,
