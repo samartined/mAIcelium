@@ -204,10 +204,19 @@ def resolve_root_for_cli(
             break
         current = parent
 
-    # Layer 4: maicelium_cli.__file__ dir fallback
-    # Works for editable install (maicelium_cli.py lives next to bin/ and mesh/).
-    # A non-editable wheel severs this link -- detached users must set MAICELIUM_ROOT.
-    return str(Path(file).parent)
+    # Layer 4: maicelium_cli.__file__ dir fallback -- ONLY if it is a real workspace.
+    # For an editable install, maicelium_cli.py lives next to bin/ and mesh/, so this
+    # resolves the repo root. A severed (non-editable) wheel or a stray copy has no
+    # marker here: rather than return a non-workspace dir and let the child fail with a
+    # confusing "No projects directory found" (exit 0), report an actionable error.
+    fallback = Path(file).parent
+    if _is_workspace_root(fallback):
+        return str(fallback)
+    _print_error(
+        "Error: could not locate a mAIcelium workspace. Run mai from inside a "
+        "workspace, set MAICELIUM_ROOT=<path>, or pass --root <path>."
+    )
+    raise SystemExit(2)
 
 
 def _print_error(msg: str) -> None:
@@ -353,9 +362,6 @@ def main(argv: list[str] | None = None) -> int:
         return dispatch(canonical_verb, verb_args, root)
     except KeyboardInterrupt:
         return 130
-    except FileNotFoundError as exc:
-        _print_error(f"Error: script not found: {exc}. Run 'mai --help'.")
-        return 2
     except Exception as exc:
         _print_error(f"Error dispatching '{canonical_verb}': {exc}")
         return 2

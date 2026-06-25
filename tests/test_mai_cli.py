@@ -556,11 +556,14 @@ class TestUNIT7:
         assert result == str(ws), f"Expected ws via cwd-walk, got {result}"
 
     def test_file_fallback_when_no_marker(self, tmp_path):
-        """UNIT-7: No marker in cwd tree falls back to maicelium_cli.py dir."""
+        """UNIT-7: No marker in the cwd tree falls back to the maicelium_cli.py dir.
+
+        The __file__ fallback dir must itself be a real workspace (the editable-install
+        layout: maicelium_cli.py sits next to bin/_bootstrap.py + mesh/). If it is NOT a
+        workspace, that is the 'no resolvable root' case (covered by INT-14)."""
         cli = self._import_cli()
-        # tmp_path has no bin/_bootstrap.py+mesh/
-        fake_cli_dir = tmp_path / "install_dir"
-        fake_cli_dir.mkdir()
+        # The install dir IS a workspace; cwd has no marker, so layer 4 is used.
+        fake_cli_dir = _make_fake_ws(tmp_path, "install_dir")
         fake_cli = fake_cli_dir / "maicelium_cli.py"
         fake_cli.write_text("# stub\n", encoding="utf-8")
 
@@ -1319,47 +1322,29 @@ class TestINT13:
 class TestINT14:
     """INT-14: mai with no resolvable root exits 2 with an actionable message."""
 
-    def test_no_root_exits_2(self, tmp_path, monkeypatch):
-        """INT-14: No resolvable root -> exit 2 with message naming MAICELIUM_ROOT and --root."""
+    def test_no_root_exits_2(self, tmp_path):
+        """INT-14: No resolvable root (no --root, no env, cwd + __file__ dir both lack the
+        marker) -> exit 2."""
         import sys as _sys
         if "maicelium_cli" in _sys.modules:
             del _sys.modules["maicelium_cli"]
         import maicelium_cli
 
-        # Clear MAICELIUM_ROOT, set cwd outside any workspace,
-        # monkeypatch __file__ to a non-workspace dir
         no_ws_dir = tmp_path / "no_workspace"
         no_ws_dir.mkdir()
+        fake_cli = no_ws_dir / "maicelium_cli.py"  # no bin/_bootstrap.py+mesh/ here
 
-        fake_cli = no_ws_dir / "maicelium_cli.py"
-        # Don't create the fake markers — no bin/_bootstrap.py+mesh/ here
-
-        monkeypatch.delenv("MAICELIUM_ROOT", raising=False)
-
-        try:
-            result = maicelium_cli.resolve_root_for_cli(
+        with pytest.raises(SystemExit) as exc_info:
+            maicelium_cli.resolve_root_for_cli(
                 args=["list"],
                 env={},
                 cwd=str(no_ws_dir),
                 file=str(fake_cli),
             )
-            # If it returns something, call main and check for the error
-        except SystemExit as e:
-            assert e.code == 2
-            return
+        assert exc_info.value.code == 2
 
-        # If resolve_root_for_cli doesn't raise, main should handle it
-        # We check via subprocess where we can fully control the environment
-        env = os.environ.copy()
-        env.pop("MAICELIUM_ROOT", None)
-        env["PYTHONIOENCODING"] = "utf-8"
-
-        # Note: The __file__ fallback will find the real REPO_ROOT if run from there,
-        # so this test relies on monkeypatching or the unit-level approach above.
-        # The subprocess approach is documented here as the authoritative behavior.
-
-    def test_no_root_message_actionable(self, tmp_path):
-        """INT-14: Message is actionable, mentions MAICELIUM_ROOT and --root."""
+    def test_no_root_message_actionable(self, tmp_path, capsys):
+        """INT-14: The no-root error message is actionable and names MAICELIUM_ROOT and --root."""
         import sys as _sys
         if "maicelium_cli" in _sys.modules:
             del _sys.modules["maicelium_cli"]
@@ -1368,26 +1353,18 @@ class TestINT14:
         no_ws_dir = tmp_path / "no_workspace"
         no_ws_dir.mkdir()
 
-        captured_output = []
-        try:
-            result = maicelium_cli.resolve_root_for_cli(
+        with pytest.raises(SystemExit) as exc_info:
+            maicelium_cli.resolve_root_for_cli(
                 args=["list"],
                 env={},
                 cwd=str(no_ws_dir),
-                file=str(no_ws_dir / "maicelium_cli.py"),  # __file__ fallback to no_ws_dir
+                file=str(no_ws_dir / "maicelium_cli.py"),  # __file__ fallback dir lacks the marker
             )
-        except SystemExit as e:
-            assert e.code == 2
-            return
-
-        # If resolve_root doesn't raise for __file__ dir (because no_ws_dir is the fallback),
-        # we still want the overall main() to handle the case where the dir isn't a real workspace.
-        # This test documents the expected behavior; the implementer must make it work.
-        pytest.skip(
-            "resolve_root_for_cli returns __file__ dir as fallback without validation. "
-            "Full no-root error path requires main() to validate the resolved root. "
-            "See spec INT-14 key assertions."
-        )
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        message = captured.out + captured.err
+        assert "MAICELIUM_ROOT" in message
+        assert "--root" in message
 
 
 class TestINT15:
@@ -1908,28 +1885,41 @@ class TestCI2:
         )
 
     def test_no_unconditional_skip_in_cli_tests(self):
-        """CI-2: No unconditional @pytest.mark.skip or xfail in test_mai_cli.py.
+        """CI-2: No unconditional skip/xfail in test_mai_cli.py.
 
-        Unconditional skips would trip the privileged skip-guard which counts xfail as skipped.
+        Unconditional skips trip the privileged skip-guard (which counts xfail as
+        skipped). This catches BOTH skip/xfail decorators AND bare skip()/xfail()
+        calls in a test body. Skips guarded by an if/elif (e.g. platform gates) are
+        allowed because they do not fire on the privileged Linux runner. Hardened
+        after an unconditional body-level skip in INT-14 slipped past the
+        decorator-only check and reddened the CI matrix.
         """
-        content = (TESTS_DIR / "test_mai_cli.py").read_text(encoding="utf-8")
-        lines = content.splitlines()
-        in_docstring = False
-        for i, line in enumerate(lines, 1):
+        lines = (TESTS_DIR / "test_mai_cli.py").read_text(encoding="utf-8").splitlines()
+
+        def _prev_code_line(idx):
+            j = idx - 1
+            while j >= 0:
+                s = lines[j].strip()
+                if s and not s.startswith("#"):
+                    return s
+                j -= 1
+            return ""
+
+        for i, line in enumerate(lines):
             stripped = line.strip()
-            # Skip lines inside docstrings (triple-quoted strings)
-            if '"""' in stripped or "'''" in stripped:
-                # Toggle docstring tracking (simplified: count triple-quotes)
-                # Just skip checking within doc comments — decorators start at col 0 or 4
-                continue
-            # Decorators appear as @marker on their own line, not inside strings
-            # Only flag lines where @pytest.mark.skip appears as an actual decorator
-            # (starts after indentation, first non-space char is @)
-            if stripped.startswith("@pytest.mark.skip"):
+            if stripped.startswith("@pytest.mark.skip") or stripped.startswith("@pytest.mark.xfail"):
                 pytest.fail(
-                    f"Unconditional @pytest.mark.skip found at line {i}: {line!r}\n"
+                    f"Unconditional skip/xfail decorator at line {i + 1}: {line!r}\n"
                     "This would trip the privileged skip-guard."
                 )
+            if stripped.startswith("pytest.skip(") or stripped.startswith("pytest.xfail("):
+                prev = _prev_code_line(i)
+                if not (prev.startswith("if ") or prev.startswith("elif ")):
+                    pytest.fail(
+                        f"Unconditional pytest.skip()/xfail() at line {i + 1}: {line!r}\n"
+                        "Guard it with an if/elif (e.g. a platform gate) or remove it -- "
+                        "it would trip the privileged skip-guard."
+                    )
 
     def test_install_marked_tests_can_be_deselected(self):
         """CI-2: install-marked tests are deselected by -m 'not install' (not counted as skipped)."""
