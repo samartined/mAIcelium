@@ -58,3 +58,37 @@ This is per-machine configuration and is not tracked in git.
 ### Incident
 
 Discovered while resolving SM00001-163159 (Tiber IAM grant). The tiber-specific rules (`tiber--bitacora`, `tiber--jira-workflow`, `tiber--commit-workflow`, `tiber--plans-storage`) were completely invisible. The ticket was resolved without following the mandatory bitácora/plan/worklog workflows, and the Jira comment was sent without human review.
+
+## KI-002 — `mai` CLI: known limitations and intentional trade-offs
+
+**Date detected**: 2026-06-24
+**Severity**: Low
+**Status**: Documented (by design)
+
+### Description
+
+The `mai` command router (`maicelium_cli.py`) ships with a few deliberate
+limitations, pinned by tests so any future change is explicit:
+
+- **Editable install only.** `mai` is supported via `pip install -e .` (or the
+  committed `./mai` / `mai.cmd` shims). A non-editable wheel copies
+  `maicelium_cli.py` into `site-packages` and severs its link to the sibling
+  `bin/` directory, so a detached install must set `MAICELIUM_ROOT` (or run from
+  inside a workspace). Detached/global install (packaging `bin/` + `mesh/` as data)
+  is out of scope for now.
+- **Exit code `2` is overloaded.** Router-level errors (unknown verb, bad
+  `--root`, no resolvable workspace) use exit `2`, but child scripts also
+  legitimately return `2` and `3` (e.g. `sync`), and `init` returns `2` without
+  symlink privilege. Do **not** key CI gates on "exit 2 == bad invocation"; the
+  child returncode is passed through verbatim.
+- **`mai health` reports `0`/`2`, not `0`/`1`/`2`.** It exits `2` when a project
+  symlink is broken and `0` otherwise. The intermediate "issues" tier (`1`) was
+  dropped because existing tests pin no-git / no-README projects at exit `0`;
+  reintroducing it requires redefining what counts as an "issue" and updating
+  those tests.
+
+### Resolution
+
+These are accepted trade-offs, not bugs. Each is covered by a test so a future
+decision to change the behavior is a deliberate red->green. See the council
+decisions D1 (health) and D2 (distribution) in the PR history.
