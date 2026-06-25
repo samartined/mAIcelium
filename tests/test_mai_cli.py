@@ -325,6 +325,32 @@ class TestUNIT3:
         assert result == 2
         assert not dispatched, "unknown global flag must not be silently dropped"
 
+    def test_post_verb_root_forwarded_not_parsed(self, monkeypatch, tmp_path):
+        """UNIT-3 (adversarial): a --root AFTER the verb is the child's flag — forwarded
+        verbatim, NOT consumed by the router. Only a PRE-verb --root steers routing.
+        Previously `mai list --root <decoy>` both hijacked routing to <decoy> AND
+        forwarded --root, double-handling it."""
+        cli = self._import_cli()
+        ws = _make_fake_ws(tmp_path)
+        decoy = _make_fake_ws(tmp_path, "decoy")
+        captured = {}
+
+        def fake_dispatch(verb, args, root):
+            captured["verb"] = verb
+            captured["args"] = list(args)
+            captured["root"] = root
+            return 0
+
+        monkeypatch.setattr(cli, "dispatch", fake_dispatch)
+        monkeypatch.setenv("MAICELIUM_ROOT", str(ws))
+        cli.main(["list", "--root", str(decoy)])
+
+        assert captured["verb"] == "list"
+        # post-verb --root is forwarded to the child verbatim...
+        assert "--root" in captured["args"] and str(decoy) in captured["args"]
+        # ...and did NOT hijack routing: root came from MAICELIUM_ROOT, not the decoy
+        assert captured["root"] == str(ws)
+
 
 class TestUNIT4:
     """UNIT-4: --version/-V prints the version and exits 0 without dispatching."""
@@ -683,6 +709,27 @@ class TestUNIT8:
 
         assert captured["kwargs"].get("check") is False
 
+    def test_signal_killed_child_maps_to_128_plus_signum(self, monkeypatch, tmp_path):
+        """UNIT-8 (adversarial): a child killed by a signal (negative POSIX returncode)
+        is mapped to the conventional 128+signum, not leaked as a negative code that the
+        shell would wrap to garbage. Positive codes pass through verbatim."""
+        cli = self._import_cli()
+        ws = _make_fake_ws(tmp_path)
+
+        def fake_run_rc(rc):
+            class FakeResult:
+                returncode = rc
+            return lambda *a, **k: FakeResult()
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run_rc(-2))
+        assert cli.dispatch("list", [], str(ws)) == 130  # SIGINT
+        monkeypatch.setattr(cli.subprocess, "run", fake_run_rc(-9))
+        assert cli.dispatch("list", [], str(ws)) == 137  # SIGKILL
+        monkeypatch.setattr(cli.subprocess, "run", fake_run_rc(-15))
+        assert cli.dispatch("list", [], str(ws)) == 143  # SIGTERM
+        monkeypatch.setattr(cli.subprocess, "run", fake_run_rc(3))
+        assert cli.dispatch("list", [], str(ws)) == 3  # positive unchanged
+
     def test_dispatch_propagates_returncode(self, monkeypatch, tmp_path):
         """UNIT-8: dispatch returns the faked returncode unchanged (0,1,2,7)."""
         cli = self._import_cli()
@@ -779,9 +826,13 @@ class TestUNIT10:
         )
 
     def test_child_env_maicelium_root_equals_unvalidated_env(self, monkeypatch, tmp_path):
-        """UNIT-10: Child env MAICELIUM_ROOT equals the (unvalidated) env value."""
+        """UNIT-10: Child env MAICELIUM_ROOT equals the env value verbatim, with NO
+        workspace-marker validation — a bare (non-marker) but EXISTING dir is trusted and
+        forwarded as-is. (A NON-existent root is now rejected by main() with an actionable
+        error; see TestINT14.test_nonexistent_maicelium_root_actionable_error.)"""
         cli = self._import_cli()
-        nonexistent = str(tmp_path / "does_not_exist")
+        bare = tmp_path / "bare_but_existing"
+        bare.mkdir()  # exists, but has no bin/_bootstrap.py + mesh marker pair
         captured = {}
 
         def fake_run(cmd, **kwargs):
@@ -792,10 +843,10 @@ class TestUNIT10:
             return FakeResult()
 
         monkeypatch.setattr(cli.subprocess, "run", fake_run)
-        monkeypatch.setenv("MAICELIUM_ROOT", nonexistent)
+        monkeypatch.setenv("MAICELIUM_ROOT", str(bare))
         cli.main(["list"])
 
-        assert captured.get("env", {}).get("MAICELIUM_ROOT") == nonexistent
+        assert captured.get("env", {}).get("MAICELIUM_ROOT") == str(bare)
 
     def test_nonexistent_root_flag_rejected(self, tmp_path, capsys):
         """UNIT-10: A non-existent --root IS rejected with exit 2 (asymmetry documented).
@@ -1365,6 +1416,23 @@ class TestINT14:
         message = captured.out + captured.err
         assert "MAICELIUM_ROOT" in message
         assert "--root" in message
+
+    def test_nonexistent_maicelium_root_actionable_error(self, tmp_path, monkeypatch, capsys):
+        """INT-14 (adversarial): a MAICELIUM_ROOT pointing at a non-existent dir yields an
+        actionable exit-2 error from main(), not a confusing subprocess FileNotFoundError.
+        MAICELIUM_ROOT is trusted verbatim by the resolver, so main() validates existence."""
+        import sys as _sys
+        if "maicelium_cli" in _sys.modules:
+            del _sys.modules["maicelium_cli"]
+        import maicelium_cli
+
+        bogus = tmp_path / "does_not_exist"
+        monkeypatch.setenv("MAICELIUM_ROOT", str(bogus))
+        rc = maicelium_cli.main(["list"])
+        assert rc == 2
+        message = capsys.readouterr().err
+        assert "does not exist" in message
+        assert "Errno 2" not in message  # not the raw subprocess error
 
 
 class TestINT15:
