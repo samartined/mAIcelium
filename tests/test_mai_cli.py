@@ -1787,18 +1787,26 @@ class TestSH1:
             )
 
     def test_mai_shim_version_equals_cli_version(self, tmp_path):
-        """SH-1: ./mai --version stdout == python maicelium_cli.py --version stdout."""
-        if sys.platform == "win32":
-            pytest.skip("POSIX shim test skipped on Windows")
-        mai_shim = REPO_ROOT / "mai"
-        if not mai_shim.exists():
-            pytest.skip("mai shim not yet committed")
+        """SH-1: the committed shim's --version equals `python maicelium_cli.py --version`.
 
+        Runs the platform-appropriate committed shim (mai.cmd via `cmd /c` on Windows,
+        the ./mai POSIX shim elsewhere) so the check holds on every runner WITHOUT
+        skipping -- an unconditional Windows skip would trip the privileged skip-guard.
+        """
         ws = _make_fake_ws(tmp_path)
         env = _cli_env(ws)
 
+        if sys.platform == "win32":
+            shim = REPO_ROOT / "mai.cmd"
+            assert shim.exists(), "mai.cmd shim is missing"
+            shim_cmd = ["cmd", "/c", str(shim), "--version"]
+        else:
+            shim = REPO_ROOT / "mai"
+            assert shim.exists(), "mai shim is missing"
+            shim_cmd = [str(shim), "--version"]
+
         shim_result = subprocess.run(
-            [str(mai_shim), "--version"],
+            shim_cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             env=env, timeout=20,
         )
@@ -1807,7 +1815,11 @@ class TestSH1:
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             env=env, timeout=20,
         )
-        assert shim_result.stdout == cli_result.stdout, (
+        assert shim_result.returncode == 0, (
+            f"shim failed: rc={shim_result.returncode}\n"
+            f"stdout={shim_result.stdout!r}\nstderr={shim_result.stderr!r}"
+        )
+        assert shim_result.stdout.strip() == cli_result.stdout.strip(), (
             f"Shim version: {shim_result.stdout!r}\n"
             f"CLI version:  {cli_result.stdout!r}"
         )
