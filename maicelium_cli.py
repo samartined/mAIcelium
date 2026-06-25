@@ -184,9 +184,12 @@ def resolve_root_for_cli(
             return os.path.abspath(root_path)
         i += 1
 
-    # Layer 2: MAICELIUM_ROOT env (trusted verbatim -- no existence check, matches
-    # platform.resolve_root() line 20 behavior; asymmetry vs --root is documented
-    # as doubt #4 in the canonical spec)
+    # Layer 2: MAICELIUM_ROOT env, returned verbatim with NO marker validation
+    # (matches platform.resolve_root() line 20). The resolver does not check
+    # existence here; main() validates that the FINAL resolved root exists before
+    # dispatching, so a bogus MAICELIUM_ROOT gets an actionable error instead of a
+    # confusing subprocess FileNotFoundError (resolves the former doubt #4 toward
+    # "validate existence, but not the workspace marker").
     env_root = env.get("MAICELIUM_ROOT", "")
     if env_root:
         return env_root
@@ -245,7 +248,9 @@ def dispatch(verb: str, args: list[str], root: str) -> int:
     Streams are INHERITED (not captured) so child _safe_stdout/emoji handling
     and interactive output are preserved. PYTHONIOENCODING is NEVER force-set.
 
-    Returns the child returncode verbatim (never remapped).
+    Returns the child returncode. A child killed by a signal (negative POSIX
+    returncode) is mapped to the conventional 128+signum so the shell exit status
+    is meaningful; all non-signal codes pass through verbatim (never remapped).
     """
     spec = VERBS[verb]
     # Resolve script path from the directory where maicelium_cli.py lives
@@ -264,7 +269,13 @@ def dispatch(verb: str, args: list[str], root: str) -> int:
         env=child_env,
         check=False,
     )
-    return result.returncode
+    rc = result.returncode
+    # On POSIX a signal-killed child returns a negative code (e.g. -2 for SIGINT);
+    # returning it verbatim makes the shell wrap it to garbage (e.g. -2 -> 254).
+    # Map to the conventional 128+signum (SIGINT -> 130). Positive codes pass through.
+    if rc < 0:
+        return 128 + (-rc)
+    return rc
 
 
 # ---------------------------------------------------------------------------
@@ -337,12 +348,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     # ---- Resolve root ----
-    # Build args list including --root if provided (for resolve_root_for_cli)
+    # Build the resolver's arg list from the PRE-VERB --root only. verb_args are
+    # NEVER scanned for --root: a post-verb --root is the child script's own flag
+    # and is forwarded verbatim (fixes the router double-handling a verb-level
+    # --root -- both hijacking routing and forwarding it).
     resolve_args: list[str] = []
     if root_override is not None:
-        resolve_args = ["--root", root_override, verb_token] + verb_args
-    else:
-        resolve_args = [verb_token] + verb_args
+        resolve_args = ["--root", root_override]
+    resolve_args.append(verb_token)
 
     try:
         root = resolve_root_for_cli(
@@ -357,11 +370,30 @@ def main(argv: list[str] | None = None) -> int:
         _print_error(f"Error resolving workspace root: {exc}")
         return 2
 
+    # Validate the resolved root exists before dispatching. MAICELIUM_ROOT is
+    # trusted verbatim by the resolver (UNIT-10), so a bogus value would otherwise
+    # make subprocess.run(cwd=root) raise a confusing FileNotFoundError. Give an
+    # actionable message instead. (--root existence is already validated upstream.)
+    if not os.path.isdir(root):
+        _print_error(
+            f"Error: workspace root does not exist: {root!r}\n"
+            "Set MAICELIUM_ROOT to a valid workspace or pass --root <path>."
+        )
+        return 2
+
     # ---- Dispatch ----
     try:
         return dispatch(canonical_verb, verb_args, root)
     except KeyboardInterrupt:
         return 130
+    except FileNotFoundError as exc:
+        # Defensive: the root existence check above normally prevents this, but a
+        # race (root removed mid-run) or a missing script would still land here.
+        _print_error(
+            f"Error: workspace root or target script not found: {exc}. "
+            "Check MAICELIUM_ROOT / --root."
+        )
+        return 2
     except Exception as exc:
         _print_error(f"Error dispatching '{canonical_verb}': {exc}")
         return 2

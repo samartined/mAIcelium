@@ -124,7 +124,7 @@ Install once with `pip install -e .` (editable; recommended) to get `mai` on you
 ```bash
 mai --help          # show all verbs
 mai --version       # print version
-mai <verb> --help   # verb-specific help (forwarded to the target script)
+mai <verb> --help   # forwarded to the target script (shows its own help if it supports --help)
 ```
 
 | Verb | Aliases | What it does |
