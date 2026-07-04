@@ -167,6 +167,76 @@ def test_add_project_code_only_skips_imports(tmp_path, monkeypatch):
     assert not (ws / ".cursor" / "skills-cursor" / "demo--myskill").exists()
 
 
+@requires_symlink
+def test_add_project_reversed_order_path_first(tmp_path, monkeypatch):
+    """Either-order: <path> <name> works the same as the classic <name> <path>."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", str(repo), "demo"])  # path first
+
+    assert rc == 0, buf.getvalue()
+    link = ws / "projects" / "demo"
+    assert link.is_symlink()
+    assert os.path.realpath(str(link)) == os.path.realpath(str(repo))
+
+
+@requires_symlink
+def test_add_project_bare_cwd_folder_as_path(tmp_path, monkeypatch):
+    """A folder in the current directory given WITHOUT a slash is detected as the path."""
+    ws = _bootstrap_workspace(tmp_path)
+    _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "fakeproj", "demo"])  # bare, no slash
+
+    assert rc == 0, buf.getvalue()
+    link = ws / "projects" / "demo"
+    assert link.is_symlink()
+    assert os.path.realpath(str(link)) == os.path.realpath(str(tmp_path / "fakeproj"))
+
+
+def test_add_project_ambiguous_two_existing_dirs_errors(tmp_path, monkeypatch):
+    """Both args are bare existing directories -> hard error forcing --path/--name; nothing created."""
+    ws = _bootstrap_workspace(tmp_path)
+    (tmp_path / "aaa").mkdir()
+    (tmp_path / "bbb").mkdir()
+    _patch_root(monkeypatch, ws)
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "aaa", "bbb"])
+
+    out = buf.getvalue()
+    assert rc == 1
+    assert "mbiguous" in out
+    assert "--path" in out and "--name" in out
+    assert not (ws / "projects" / "aaa").exists()
+    assert not (ws / "projects" / "bbb").exists()
+
+
+@requires_symlink
+def test_add_project_explicit_flags(tmp_path, monkeypatch):
+    """--path/--name resolve roles unambiguously regardless of order/existence."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "--path", str(repo), "--name", "demo"])
+
+    assert rc == 0, buf.getvalue()
+    assert (ws / "projects" / "demo").is_symlink()
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # remove_project
 # ────────────────────────────────────────────────────────────────────────────
