@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Register a mesh layer in WORKSPACE.md and sync symlinks.
 
-Usage: add_mesh_layer.py <name> <path> [--client CLIENT] [--repo URL]
+Usage: add_mesh_layer.py [--path <path>] [--name <name>] <path> <name> [--client CLIENT] [--repo URL]
 
+- <path> and <name> may be given in either order: whichever is an existing directory
+  (resolved relative to the current directory, bare folder name allowed) is the path,
+  the other the name. If both are existing directories, the command errors and asks
+  for --path/--name.
 - Validates that <path> exists and is a directory.
 - Warns (non-fatal) if <path>/rules and <path>/skills are both missing.
 - Inserts a new entry under `mesh_layers:` in WORKSPACE.md (creates the
@@ -18,19 +22,28 @@ import argparse
 import os
 import sys
 
+from _lib.argresolve import AmbiguousArgsError, resolve_name_and_path
 from _lib.platform import resolve_root
 from _lib.workspace_writer import add_layer_entry
 import sync_symlinks
 
 
+_USAGE = (
+    "Usage: add_mesh_layer.py [--path <path>] [--name <name>] <path> <name> "
+    "[--client CLIENT] [--repo URL]"
+)
+
+
 def _parse_args(argv):
-    """Parse CLI args. argparse handles usage/error formatting."""
+    """Parse CLI args. Positionals are order-agnostic (resolved in main)."""
     parser = argparse.ArgumentParser(
         prog="add_mesh_layer.py",
         description="Register a mesh layer in WORKSPACE.md and sync symlinks.",
     )
-    parser.add_argument("name", help="Identifier for this layer (e.g. acme-corp)")
-    parser.add_argument("path", help="Local path to the mesh layer repo")
+    parser.add_argument("pos1", nargs="?", help="Layer name or path (either order)")
+    parser.add_argument("pos2", nargs="?", help="Layer name or path (either order)")
+    parser.add_argument("--name", default=None, help="Layer identifier (explicit)")
+    parser.add_argument("--path", default=None, help="Local path to the layer repo (explicit)")
     parser.add_argument(
         "--client",
         default="",
@@ -61,8 +74,22 @@ def main(argv=None):
         argv = sys.argv
 
     args = _parse_args(argv)
-    name = args.name
-    raw_path = args.path
+    positionals = [p for p in (args.pos1, args.pos2) if p is not None]
+    try:
+        name, raw_path = resolve_name_and_path(
+            positionals, name_flag=args.name, path_flag=args.path
+        )
+    except AmbiguousArgsError as exc:
+        print(
+            f"Ambiguous: '{exc.a}' and '{exc.b}' are both existing directories, so I "
+            "can't tell which is the path and which is the name.\n"
+            "Be explicit:  add_mesh_layer.py --path <path> --name <name>"
+        )
+        return 1
+    except ValueError:
+        print(_USAGE)
+        return 1
+
     client = args.client
     repo = args.repo
 

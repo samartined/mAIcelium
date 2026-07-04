@@ -114,7 +114,7 @@ The `.code-workspace` file is regenerated automatically by `add_project.py`, `re
 | Command | Description |
 |---------|-------------|
 | `bin/init.py` | Initialize a fresh workspace |
-| `bin/add_project.py <name> <path>` | Plug in a project |
+| `bin/add_project.py <path> <name>` | Plug in a project (positionals in either order; `--path`/`--name` to force) |
 | `bin/remove_project.py <name>` | Unplug a project (original repo untouched) |
 | `bin/sync_symlinks.py` | Rebuild all symlinks after changes |
 | `bin/separate_git.py` | Move `.git` outside the workspace (avoids IDE git conflicts) |
