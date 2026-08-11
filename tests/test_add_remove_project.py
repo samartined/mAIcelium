@@ -465,3 +465,73 @@ def test_separate_git_cleans_backup_on_move_failure(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# .claude/skills/ reflection (Claude Code native skill discovery)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@requires_symlink
+def test_add_project_imports_skills_into_claude_skills(tmp_path, monkeypatch):
+    """A plugged-in project's skills must land in .claude/skills/ too, so Claude
+    Code registers them natively instead of relying on the operator to browse
+    mesh/ by hand."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "demo", str(repo)])
+
+    assert rc == 0, buf.getvalue()
+
+    claude_link = ws / ".claude" / "skills" / "demo--myskill"
+    assert claude_link.is_symlink(), (
+        ".claude/skills/demo--myskill missing — project skills are not "
+        "registered for Claude Code"
+    )
+    assert (claude_link / "SKILL.md").is_file()
+
+
+@requires_symlink
+def test_remove_project_prunes_claude_skills(tmp_path, monkeypatch):
+    """Unplugging must prune .claude/skills/<name>--*.
+
+    The link points at the real repo, which still exists on disk, so it never
+    goes dangling — sync's broken-symlink cleanup would not catch it. Without
+    an explicit prune the unplugged project's skills stay registered in Claude
+    Code forever.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        add_project.main(["add_project.py", "demo", str(repo)])
+        assert (ws / ".claude" / "skills" / "demo--myskill").is_symlink()
+        rc = remove_project.main(["remove_project.py", "demo"])
+
+    assert rc == 0, buf.getvalue()
+    assert not os.path.lexists(str(ws / ".claude" / "skills" / "demo--myskill")), (
+        "unplugged project skill still registered under .claude/skills/"
+    )
+    # The real repo must be untouched.
+    assert (repo / ".cursor" / "skills" / "myskill" / "SKILL.md").is_file()
+
+
+@requires_symlink
+def test_add_project_code_only_skips_claude_skills(tmp_path, monkeypatch):
+    """--code-only must not register skills in .claude/skills/ either."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "--code-only", "demo", str(repo)])
+
+    assert rc == 0
+    assert not (ws / ".claude" / "skills" / "demo--myskill").exists()

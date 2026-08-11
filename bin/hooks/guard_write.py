@@ -224,6 +224,13 @@ def main():
             "sync_symlinks.py."
         )
 
+    # Auto-generated skill reflections for Claude Code
+    if rel_path_posix.startswith(".claude/skills/"):
+        _block(
+            f"Protected path: {rel_path_posix} is auto-generated via symlinks "
+            f"by sync_symlinks.py. Write to mesh/ (or the owning layer) instead."
+        )
+
     # Agent config (prevent self-modification of permissions)
     if re.match(r"^\.claude/settings.*\.json$", rel_path_posix):
         _block(

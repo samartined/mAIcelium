@@ -3,8 +3,13 @@ name: CI
 on:
   push:
     branches: [main, dev]
+  # No `branches:` filter here on purpose. Feature work in this repo is routinely
+  # stacked — a branch is opened against the feature branch it was cut from, not
+  # against main/dev (e.g. #34 -> feat/mai-cli -> dev). With a [main, dev] filter
+  # those PRs matched nothing, so the whole matrix silently never ran and the PR
+  # went green on the title lint alone. Every pull request gets tested, whatever
+  # its base; the push filter above keeps feature-branch pushes from double-running.
   pull_request:
-    branches: [main, dev]
 
 permissions:
   contents: read

@@ -350,9 +350,12 @@ def _plan_rules_for(target_dir, root):
 def _plan_skills_for(target_dir, root):
     """Emit link actions to mirror mesh skills into target_dir.
 
-    target_dir is .cursor/skills-cursor/ or .agents/skills/. Mirrors bash
-    `ln -sfn` semantics: always emits link actions so later sources (e.g.
-    _common) overwrite earlier ones (e.g. native) when filenames collide.
+    target_dir is .cursor/skills-cursor/, .claude/skills/ or .agents/skills/.
+    Mirrors bash `ln -sfn` semantics: always emits link actions so later sources
+    (e.g. _common) overwrite earlier ones (e.g. native) when filenames collide.
+
+    The flat `<domain>--<skill>` / `<client>--<skill>` naming keeps the target a
+    single flat namespace, which is what all three IDEs scan.
     """
     actions = []
     actions.append(Action(kind="mkdir", dst=target_dir))
@@ -432,10 +435,15 @@ def _plan_skills_for(target_dir, root):
 
 
 def _plan_project_imports(root, conventions):
-    """Mirror per-project rules/skills/data_dirs into .cursor/ and .agents/projects/.
+    """Mirror per-project rules/skills/data_dirs into .cursor/, .claude/ and .agents/projects/.
 
     Equivalent of sync_symlinks.sh:324-367. Uses absolute symlinks (matching bash
-    `ln -sfn $rule $dst` where $rule is already absolute).
+    `ln -sfn $rule $dst` where $rule is already absolute) — the project repo
+    lives outside the workspace, so a relative link would not be portable.
+
+    Project skills are reflected into BOTH .cursor/skills-cursor/ and
+    .claude/skills/ under the same `<project>--<skill>` name, so a plugged-in
+    project's skills are natively discoverable in Claude Code too.
     """
     actions = []
     projects_dir = os.path.join(root, "projects")
@@ -449,6 +457,7 @@ def _plan_project_imports(root, conventions):
 
     cursor_rules_dir = os.path.join(root, ".cursor", "rules")
     cursor_skills_dir = os.path.join(root, ".cursor", "skills-cursor")
+    claude_skills_dir = os.path.join(root, ".claude", "skills")
 
     for project_name in sorted(os.listdir(projects_dir)):
         link = os.path.join(projects_dir, project_name)
@@ -475,14 +484,17 @@ def _plan_project_imports(root, conventions):
                 src = os.path.join(skills_dir, entry)
                 if not os.path.isdir(src):
                     continue
-                dst = os.path.join(cursor_skills_dir, f"{project_name}--{entry}")
-                # Bash skips if link already exists, matches our intent
-                if os.path.islink(dst):
-                    continue
-                actions.append(Action(
-                    kind="link_abs", src=src, dst=dst,
-                    target_is_directory=True,
-                ))
+                for target_dir in (cursor_skills_dir, claude_skills_dir):
+                    dst = os.path.join(target_dir, f"{project_name}--{entry}")
+                    # Bash skips if link already exists, matches our intent.
+                    # Evaluated per target so an earlier skills_subdir winning
+                    # in one dotfolder does not suppress the other.
+                    if os.path.islink(dst):
+                        continue
+                    actions.append(Action(
+                        kind="link_abs", src=src, dst=dst,
+                        target_is_directory=True,
+                    ))
 
         # Project data directories → .agents/projects/<project>/
         for data_sub in data_subdirs:
@@ -625,8 +637,9 @@ def plan_phase2(root, conventions, mcp_source):
     """Phase 2: everything that READS mesh/ to reflect OUTWARD.
 
     Enumerates mesh/skills/ and mesh/rules/ to plan reflections into
-    .cursor/ and .agents/. Must be planned (and called) AFTER phase 1 has
-    been executed so that newly-materialized mesh/ entries are visible on disk.
+    .cursor/, .claude/ and .agents/. Must be planned (and called) AFTER phase 1
+    has been executed so that newly-materialized mesh/ entries are visible on
+    disk.
 
     Pure planner — no side effects other than read-only filesystem inspection.
     """
@@ -645,7 +658,19 @@ def plan_phase2(root, conventions, mcp_source):
     actions.extend(_plan_skills_for(
         os.path.join(root, ".cursor", "skills-cursor"), root))
 
-    # 7. Per-project rules/skills/data into .cursor/ and .agents/projects/
+    # 6b. Same skills → .claude/skills/ (Claude Code's native skill directory).
+    # Claude Code discovers skills by scanning this folder for <name>/SKILL.md;
+    # without it, mesh skills are reachable only if the agent follows the
+    # CLAUDE.md pointer to mesh/skills/ by hand. Reflecting here puts Claude
+    # Code on par with Cursor and Antigravity. Kept workspace-local (never
+    # ~/.claude/skills/) so the links stay relative and scoped to this
+    # workspace instead of leaking into every project on the machine.
+    claude_skills = os.path.join(root, ".claude", "skills")
+    actions.append(Action(kind="mkdir", dst=claude_skills))
+    actions.extend(_broken_unlink_actions(claude_skills, label=".claude/skills"))
+    actions.extend(_plan_skills_for(claude_skills, root))
+
+    # 7. Per-project rules/skills/data into .cursor/, .claude/ and .agents/projects/
     actions.extend(_plan_project_imports(root, conventions))
 
     # 8. Antigravity legacy cleanup + skills mirror

@@ -22,7 +22,7 @@ mAIcelium provides a single workspace directory where:
 ```mermaid
 graph LR
     Mesh["mesh/"] -->|symlinks| Cursor[".cursor/"]
-    Mesh -->|"CLAUDE.md"| Claude[".claude/"]
+    Mesh -->|"symlinks + CLAUDE.md"| Claude[".claude/"]
     Mesh -->|symlinks| Agents[".agents/"]
     Projects["projects/"] -->|symlinks| Repos["Your repos"]
 ```
@@ -82,6 +82,7 @@ mAIcelium/
 ├── repos/                     # Repository registry
 ├── .cursor/                   # Auto-generated Cursor config (symlinks)
 ├── .claude/                   # Claude Code config + auto-generated context
+│   └── skills/                # Auto-generated skill symlinks (git-ignored)
 ├── .agents/                   # Auto-generated Antigravity config (symlinks)
 ├── CLAUDE.md                  # Entry point for Claude Code agents
 ├── AGENTS.md                  # Agent permissions and coordination rules
@@ -94,7 +95,7 @@ mAIcelium/
 | IDE | Role | How it connects |
 |-----|------|----------------|
 | **Cursor** | Code implementation | Symlinks in `.cursor/rules/` and `.cursor/skills-cursor/` |
-| **Claude Code** | Planning, architecture, analysis | Reads `CLAUDE.md` → navigates to `mesh/` directly |
+| **Claude Code** | Planning, architecture, analysis | Symlinks in `.claude/skills/` (native skill discovery) + `CLAUDE.md` and `.claude/projects-context.md` for rules |
 | **Antigravity** | Refactoring, review, scoped tasks | Symlinks in `.agents/` (rules, skills, workflows, MCP) |
 
 ## Documentation
