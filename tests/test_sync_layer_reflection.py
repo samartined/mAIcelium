@@ -303,3 +303,52 @@ def test_tr8_idempotency_with_external_layer(tmp_path, monkeypatch):
         f"Removed: {set(before) - set(after)}\n"
         f"Changed: {[k for k in before if k in after and before[k] != after[k]]}"
     )
+
+
+# ── Test: layer skills reach .claude/skills/ in a single pass ───────────────
+
+@requires_symlink
+def test_single_pass_reflects_layer_skills_into_claude_skills(tmp_path, monkeypatch):
+    """A brand-new layer's skills must reach .claude/skills/ in ONE sync,
+    for both the shared (_common) and client-scoped buckets.
+
+    This is the case the framework used to miss entirely: layer skills were
+    reflected for Cursor and Antigravity but never registered for Claude Code.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+    layer = _make_external_layer(tmp_path)
+
+    shared = layer / "skills" / "_common" / "newskill"
+    shared.mkdir(parents=True)
+    _write(str(shared / "SKILL.md"), "# newskill\nBody.\n")
+
+    # Flat folder inside the layer -> client bucket -> <client>--<skill>
+    scoped = layer / "skills" / "jira-workflow"
+    scoped.mkdir(parents=True)
+    _write(str(scoped / "SKILL.md"), "# jira-workflow\nBody.\n")
+
+    _write(
+        str(ws / "WORKSPACE.md"),
+        "mesh_layers:\n"
+        f"  - name: {layer.name}\n"
+        f"    path: {layer}\n"
+        "    client: tiber\n",
+    )
+
+    _patch_root(monkeypatch, ws)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = sync_symlinks.main([])
+    assert rc == 0, f"sync failed:\n{buf.getvalue()}"
+
+    claude_skills = ws / ".claude" / "skills"
+    for name in ("newskill", "tiber--jira-workflow"):
+        link = claude_skills / name
+        assert link.is_symlink(), (
+            f".claude/skills/{name} is not a symlink after a single sync"
+        )
+        assert (link / "SKILL.md").is_file(), (
+            f".claude/skills/{name} does not resolve to the layer"
+        )
+        # Must resolve into the layer, not into a stale mesh/ copy.
+        assert str(layer) in os.path.realpath(str(link))
