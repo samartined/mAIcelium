@@ -126,6 +126,7 @@ def _create_directory_tree(root):
     dirs.append(os.path.join(root, ".cursor", "rules"))
     dirs.append(os.path.join(root, ".cursor", "skills-cursor"))
     dirs.append(os.path.join(root, ".claude", "commands"))
+    dirs.append(os.path.join(root, ".claude", "skills"))
     dirs.append(os.path.join(root, ".agents"))
     dirs.append(os.path.join(root, "projects"))
     dirs.append(os.path.join(root, "repos"))
@@ -194,6 +195,40 @@ def _create_cursor_symlinks(root):
             create_link(link_target, target, target_is_directory=True)
 
     print("  OK Cursor symlinks created")
+
+
+def _create_claude_symlinks(root):
+    """Mirror mesh/skills/{_common,_domains}/*/ into .claude/skills/.
+
+    Claude Code scans .claude/skills/<name>/SKILL.md to register skills. Kept
+    workspace-local on purpose — never ~/.claude/skills/ — so the links stay
+    relative and scoped to this workspace.
+
+    Mirrors _create_cursor_symlinks bucket for bucket, including the absence of
+    a SKILL.md check: sync_symlinks.py runs at the end of init and on every
+    SessionStart with the same (unfiltered) `_common` semantics, so filtering
+    here would only make the two paths disagree. A linked directory with no
+    SKILL.md is simply ignored by Claude Code. Nested domains land as
+    <domain>--<skill> via the sync.
+    """
+    print("  -> Creating Claude Code (.claude/skills/) symlinks...")
+
+    claude_skills = os.path.join(root, ".claude", "skills")
+    os.makedirs(claude_skills, exist_ok=True)
+
+    for bucket in ("_common", "_domains"):
+        bucket_dir = os.path.join(root, "mesh", "skills", bucket)
+        if not os.path.isdir(bucket_dir):
+            continue
+        for entry in sorted(os.listdir(bucket_dir)):
+            src = os.path.join(bucket_dir, entry)
+            if not os.path.isdir(src):
+                continue
+            target = os.path.join(claude_skills, entry)
+            link_target = os.path.join("..", "..", "mesh", "skills", bucket, entry)
+            create_link(link_target, target, target_is_directory=True)
+
+    print("  OK Claude Code (.claude/skills/) symlinks created")
 
 
 def _create_agents_symlinks(root):
@@ -336,6 +371,7 @@ def main(root=None):
 
     _create_directory_tree(root)
     _create_cursor_symlinks(root)
+    _create_claude_symlinks(root)
     _create_agents_symlinks(root)
     _create_settings_json(root)
     _create_workspace_md(root)

@@ -31,6 +31,8 @@
 .cursor/
 .agents/
 .mcp.json
+# Claude Code native skill reflections (.claude/ itself IS tracked)
+/.claude/skills/
 
 # Dynamic workspace state
 WORKSPACE.md
