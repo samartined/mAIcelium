@@ -22,6 +22,11 @@ _ALWAYS_APPLY_FALSE_RE = re.compile(
     r"^\s*alwaysApply\s*:\s*false\s*$", re.MULTILINE
 )
 
+# Frontmatter keys Claude Code requires to register a skill found under
+# .claude/skills/<name>/SKILL.md. Matched inside the frontmatter block only.
+_SKILL_NAME_RE = re.compile(r"^\s*name\s*:", re.MULTILINE)
+_SKILL_DESCRIPTION_RE = re.compile(r"^\s*description\s*:", re.MULTILINE)
+
 
 def _is_opt_out(content):
     """Return True only when frontmatter explicitly sets ``alwaysApply: false``.
@@ -40,6 +45,24 @@ def _is_opt_out(content):
 def _strip_frontmatter(content):
     """Remove a leading YAML frontmatter block (``---\\n...\\n---\\n``) if present."""
     return _FRONTMATTER_RE.sub("", content, count=1)
+
+
+def _is_natively_registrable(content):
+    """True if a SKILL.md carries frontmatter with both ``name:`` and ``description:``.
+
+    Claude Code registers a skill from ``.claude/skills/<name>/SKILL.md`` only
+    when both keys are present; anything else is ignored silently. Scans the
+    isolated frontmatter block, never the body, so prose cannot produce a false
+    positive. Callers use this to decide whether the body still needs inlining:
+    a registrable skill is reachable on demand, an unregistrable one is not.
+    """
+    m = _FRONTMATTER_RE.match(content)
+    if not m:
+        return False
+    block = m.group(0)
+    return bool(
+        _SKILL_NAME_RE.search(block) and _SKILL_DESCRIPTION_RE.search(block)
+    )
 
 
 def _read_text(path):
@@ -142,7 +165,19 @@ def _emit_project(out, pname, repo_path, conventions, mesh_layers, no_inline):
             out.append("\n")
 
     # ── Skills: project-native + mesh layer ──────────────────────────────────
-    has_skills = False
+    # sync_symlinks.py reflects these same skills into .claude/skills/, where
+    # Claude Code registers them and loads each SKILL.md on demand. Inlining
+    # their full bodies here as well would duplicate every skill in the context
+    # file — the KI-001 failure mode that pushed it to 204KB. So a registrable
+    # skill gets an index entry only.
+    #
+    # A skill WITHOUT usable frontmatter never registers natively, and dropping
+    # its body would make it invisible in Claude Code instead of merely
+    # duplicated. Those keep being inlined in full.
+    registered = []
+    unregistered = []
+    seen = set()
+
     skills_dirs = [os.path.join(repo_path, data_dir, s) for s in skills_subdirs]
     if layer_skills_dir:
         skills_dirs.append(layer_skills_dir)
@@ -157,13 +192,43 @@ def _emit_project(out, pname, repo_path, conventions, mesh_layers, no_inline):
             skill_file = os.path.join(skill_dir, "SKILL.md")
             if not os.path.isfile(skill_file):
                 continue
-            if not has_skills:
-                out.append("#### Skills\n")
-                out.append("\n")
-                has_skills = True
+            # First source wins, matching the reflection planner's
+            # skip-if-link-exists behaviour for duplicate skill names.
+            if skill_name in seen:
+                continue
+            seen.add(skill_name)
+            content = _read_text(skill_file)
+            if _is_natively_registrable(content):
+                registered.append(skill_name)
+            else:
+                unregistered.append((skill_name, content))
+
+    has_skills = bool(registered or unregistered)
+    if has_skills:
+        out.append("#### Skills\n")
+        out.append("\n")
+
+    if registered:
+        out.append(
+            f"Registered natively under `.claude/skills/` as `{pname}--<skill>`. "
+            "Claude Code loads each one on demand, so the bodies are not "
+            "inlined here:\n"
+        )
+        out.append("\n")
+        for skill_name in registered:
+            out.append(f"- `{pname}--{skill_name}`\n")
+        out.append("\n")
+
+    if unregistered:
+        out.append(
+            "_Inlined below because they lack the frontmatter (`name` + "
+            "`description`) Claude Code needs to register them natively:_\n"
+        )
+        out.append("\n")
+        for skill_name, content in unregistered:
             out.append(f"##### {skill_name}\n")
             out.append("\n")
-            out.append(_strip_frontmatter(_read_text(skill_file)))
+            out.append(_strip_frontmatter(content))
             out.append("\n")
 
     # ── Project data directories ─────────────────────────────────────────────
@@ -189,8 +254,10 @@ def regenerate_claude_context(root):
     """Regenerate .claude/projects-context.md from mesh/ and projects/.
 
     Writes a markdown file with workspace rules (from mesh/rules/*.mdc) and
-    per-project sections containing inlined rules, skills, and a project-data
-    index. Mirrors _regenerate_claude_context from bin/_lib.sh.
+    per-project sections containing inlined rules, a skills index, and a
+    project-data index. Mirrors _regenerate_claude_context from bin/_lib.sh,
+    except that skill bodies are no longer inlined when the skill registers
+    natively under .claude/skills/ (see _emit_project).
     """
     claude_dir = os.path.join(root, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
