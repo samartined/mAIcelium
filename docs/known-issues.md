@@ -72,6 +72,62 @@ This is per-machine configuration and is not tracked in git.
 
 Discovered while resolving SM00001-163159 (Tiber IAM grant). The tiber-specific rules (`tiber--bitacora`, `tiber--jira-workflow`, `tiber--commit-workflow`, `tiber--plans-storage`) were completely invisible. The ticket was resolved without following the mandatory bitácora/plan/worklog workflows, and the Jira comment was sent without human review.
 
+## KI-003 — `remove_project` stripped the same-named mesh layer
+
+**Date detected**: 2026-08-11
+**Severity**: High
+**Status**: Resolved (2026-08-11)
+
+### Description
+
+Unplugging a project silently deregistered the mesh layer that shared its name,
+wiping the `mesh_layers:` section of `WORKSPACE.md`:
+
+```
+mesh_layers:                    mesh_layers:
+- name: tiber        ── remove_project tiber ──▶
+  path: ~/mesh-tiber            projects:
+                                                 ← layer entry gone
+projects:
+- name: tiber
+```
+
+Name collision across the two sections is the **normal** client setup, not an
+edge case: `bin/add_mesh_layer.py` defaults a layer's `client` to its `name`, and
+client content is routed to `mesh/skills/_clients/<client>/`, so a client layer
+and its project are routinely both called `tiber`.
+
+### Root cause
+
+`_remove_entry_block` in `bin/_lib/workspace_writer.py` scanned the whole file
+for `- name: <target>` with no notion of the enclosing section. Its docstring
+even advertised this ("It operates globally… callers that need section-scoped
+removal should use `remove_layer_entry` instead") — but `remove_project_entry`
+was exactly such a caller and passed no scope. `remove_layer_entry` had its own
+section-scoped implementation, so the bug was one-directional.
+
+Test coverage missed it because `test_add_project_preserves_other_sections`
+pinned the guarantee only for *adding*, and the removal fixtures used distinct
+names (`acme` layer, `alpha` project) — the collision is required to reproduce.
+
+### Cascade
+
+The damage was not limited to `WORKSPACE.md`. With the layer no longer
+registered, `bin/remove_mesh_layer.py` aborted with "layer not found" and never
+cleaned `mesh/skills/_clients/<client>/`, so the next `sync_symlinks.py` happily
+re-reflected the departed client's skills into all three IDE dotfolders. The
+operator saw skills for a client they had just unplugged, and `sync` reported the
+degraded exit code 3 from the now-empty `mesh_layers:` marker.
+
+### Resolution
+
+`_remove_entry_block` takes a mandatory `section` argument and only removes
+entries inside it; `remove_project_entry` passes `"projects"`. The parameter is
+required rather than defaulted so the global-scan footgun is gone instead of
+merely unused. Six regression tests pin both directions of the guarantee
+(project removal preserving the layer and vice versa), both section orderings,
+the `mcp_source:` block in between, and the full two-step unplug sequence.
+
 ## KI-002 — `mai` CLI: known limitations and intentional trade-offs
 
 **Date detected**: 2026-06-24
