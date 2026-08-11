@@ -193,6 +193,31 @@ def test_guard_write_blocks_cursor_folder(tmp_path):
     assert _is_block(result)
 
 
+def test_guard_write_blocks_claude_skills_reflection(tmp_path):
+    """.claude/skills/ holds auto-generated symlinks — writes must be refused,
+    same as .cursor/ and .agents/. The agent has to edit mesh/ (or the owning
+    layer) instead."""
+    target = tmp_path / ".claude" / "skills" / "tiber--jira-workflow" / "SKILL.md"
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_input": {"file_path": str(target)}},
+        env={"MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert _is_block(result)
+
+
+def test_guard_write_allows_claude_commands(tmp_path):
+    """The block is scoped to .claude/skills/ — .claude/commands/ is committed
+    content and stays writable."""
+    target = tmp_path / ".claude" / "commands" / "custom.yaml"
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_input": {"file_path": str(target)}},
+        env={"MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert not _is_block(result)
+
+
 def test_guard_write_blocks_lockfile(tmp_path):
     target = tmp_path / "package-lock.json"
     result = _run_hook(

@@ -13,10 +13,17 @@ All rules live in `./mesh/rules/`. They are automatically inlined into
 Claude Code reads them without manual intervention.
 
 ## Available skills
-In `./mesh/skills/`. Check the relevant SKILL.md before executing any task.
+Canonical source: `./mesh/skills/`.
 - `_common/`  — universal skills
 - `_clients/` — client-specific skills
 - `_domains/` — tech stack skills
+
+Every sync reflects them into `.claude/skills/` (flattened, as
+`<domain>--<skill>` / `<client>--<skill>` / `<project>--<skill>`), so Claude Code
+registers them natively and you can invoke them by name. If a skill you expect is
+missing there, run `mai sync` and check its `SKILL.md` has `name` + `description`
+frontmatter. Never hand-link into `~/.claude/skills/` — the reflection is
+workspace-local on purpose.
 
 ## Active projects
 Projects live in `./projects/` as symlinks to real repos.

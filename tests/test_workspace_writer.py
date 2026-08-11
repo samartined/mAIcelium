@@ -598,3 +598,177 @@ def test_unset_mcp_source_preserves_surrounding_sections(tmp_path):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ── section scoping: same name in projects: and mesh_layers: ─────────────────
+
+
+def test_remove_project_preserves_same_named_layer(tmp_path):
+    """Unplugging a project must NOT strip a mesh layer that shares its name.
+
+    This is the normal client setup, not an edge case: add_mesh_layer.py defaults
+    `client` to the layer `name`, so a client layer and its project are routinely
+    both called e.g. `tiber`. The removal used to scan the whole file and deleted
+    both `- name: tiber` blocks.
+    """
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        mesh_layers:
+        - name: tiber
+          path: /opt/mesh-tiber
+          client: tiber
+
+        projects:
+        - name: tiber
+          path: /opt/tiber-repo
+        """,
+    )
+    remove_project_entry(str(tmp_path), "tiber")
+    content = _read(tmp_path)
+
+    assert "mesh_layers:" in content
+    assert "- name: tiber\n  path: /opt/mesh-tiber" in content, (
+        "the mesh layer entry was stripped along with the project"
+    )
+    assert "client: tiber" in content
+    assert "path: /opt/tiber-repo" not in content, "project entry was not removed"
+
+
+def test_remove_project_preserves_same_named_layer_when_layer_is_last(tmp_path):
+    """Same guarantee with the section order reversed, so the fix does not depend
+    on mesh_layers preceding projects."""
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        projects:
+        - name: tiber
+          path: /opt/tiber-repo
+
+        mesh_layers:
+        - name: tiber
+          path: /opt/mesh-tiber
+          client: tiber
+        """,
+    )
+    remove_project_entry(str(tmp_path), "tiber")
+    content = _read(tmp_path)
+
+    assert "path: /opt/mesh-tiber" in content
+    assert "client: tiber" in content
+    assert "path: /opt/tiber-repo" not in content
+
+
+def test_remove_project_ignores_entry_that_only_exists_as_layer(tmp_path):
+    """A name present only under mesh_layers: is not a project — no-op."""
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        mesh_layers:
+        - name: core
+          path: /opt/mesh-core
+
+        projects:
+        - name: alpha
+          path: /opt/alpha
+        """,
+    )
+    before = _read(tmp_path)
+    remove_project_entry(str(tmp_path), "core")
+    assert _read(tmp_path) == before
+
+
+def test_remove_project_preserves_mcp_source_block(tmp_path):
+    """The mcp_source: block between the two sections survives untouched."""
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        mesh_layers:
+        - name: tiber
+          path: /opt/mesh-tiber
+
+        mcp_source:
+          path: /opt/mcp
+
+        projects:
+        - name: tiber
+          path: /opt/tiber-repo
+        """,
+    )
+    remove_project_entry(str(tmp_path), "tiber")
+    content = _read(tmp_path)
+
+    assert "mcp_source:" in content
+    assert "path: /opt/mcp" in content
+    assert "path: /opt/mesh-tiber" in content
+    assert "path: /opt/tiber-repo" not in content
+
+
+def test_remove_layer_preserves_same_named_project(tmp_path):
+    """The symmetric guarantee: removing a layer must not touch the project of
+    the same name."""
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        mesh_layers:
+        - name: tiber
+          path: /opt/mesh-tiber
+          client: tiber
+
+        projects:
+        - name: tiber
+          path: /opt/tiber-repo
+        """,
+    )
+    remove_layer_entry(str(tmp_path), "tiber")
+    content = _read(tmp_path)
+
+    assert "- name: tiber\n  path: /opt/tiber-repo" in content, (
+        "the project entry was stripped along with the layer"
+    )
+    assert "path: /opt/mesh-tiber" not in content
+
+
+def test_remove_project_then_remove_layer_leaves_clean_state(tmp_path):
+    """The full unplug sequence for a client: project first, then its layer.
+
+    Regression for the cascade — the layer registration used to be gone by the
+    time remove_mesh_layer ran, so it aborted with "layer not found" and left
+    mesh/skills/_clients/<client>/ behind for the next sync to re-reflect.
+    """
+    _write(
+        tmp_path,
+        """\
+        # Active workspace
+
+        mesh_layers:
+        - name: tiber
+          path: /opt/mesh-tiber
+          client: tiber
+
+        projects:
+        - name: tiber
+          path: /opt/tiber-repo
+        """,
+    )
+    remove_project_entry(str(tmp_path), "tiber")
+    assert "path: /opt/mesh-tiber" in _read(tmp_path), (
+        "layer must still be registered so remove_mesh_layer can find it"
+    )
+
+    remove_layer_entry(str(tmp_path), "tiber")
+    content = _read(tmp_path)
+    assert "path: /opt/mesh-tiber" not in content
+    assert "path: /opt/tiber-repo" not in content
+    # Last layer removed -> the bare marker is collapsed (existing behaviour).
+    assert "mesh_layers:" not in content
