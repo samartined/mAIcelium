@@ -45,6 +45,19 @@ projects:
 
 This flag is per-machine configuration (WORKSPACE.md is gitignored) and must be set via `bin/set_project_flag.py` on each initialized workspace.
 
+**Structural dedup for skills (2026-08-11).** The `context_inline: false` flag is a
+per-machine opt-in that suppresses a project's rules *and* skills wholesale. Skill
+duplication is now handled structurally instead, and independently of the flag:
+`sync_symlinks.py` reflects mesh, layer, and project skills into `.claude/skills/`,
+Claude Code's native skill directory, so it loads each `SKILL.md` on demand. With the
+body reachable that way, `regenerate_claude_context` emits a skill *index* per project
+rather than inlining bodies — removing the largest contributor to the 204KB file.
+Rules are unaffected and still inlined in full.
+
+A skill whose `SKILL.md` lacks `name` + `description` frontmatter cannot be registered
+by Claude Code, so those are still inlined in full. Without that fallback, dropping the
+body would turn a duplicated skill into an invisible one — the failure this KI is about.
+
 ### Operational note
 
 To prevent duplication for projects that are also covered by a mesh layer, flag them `context_inline: false` using the project-flag command:
