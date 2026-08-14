@@ -22,8 +22,20 @@ Every sync reflects them into `.claude/skills/` (flattened, as
 `<domain>--<skill>` / `<client>--<skill>` / `<project>--<skill>`), so Claude Code
 registers them natively and you can invoke them by name. If a skill you expect is
 missing there, run `mai sync` and check its `SKILL.md` has `name` + `description`
-frontmatter. Never hand-link into `~/.claude/skills/` — the reflection is
-workspace-local on purpose.
+frontmatter. Never hand-link mAIcelium's own reflections (anything under
+`.claude/skills/`, `mesh/skills/`, `.cursor/`, `.agents/`) into the global
+`~/.claude/skills/` — those reflections are workspace-local on purpose, and
+hand-linking one would leak a mAIcelium-scoped skill into every session on the
+machine.
+
+That is different from a skill whose **source of truth is a mesh layer that
+lives outside mAIcelium** (e.g. the personal `core` layer at
+`~/Dev/general/my-ai-ground-truth`, or a client layer under
+`i2tic_clients_skills_rules/`). Layer-owned skills that are meant to be
+personal/global tools rather than workspace-scoped may be symlinked from
+`~/.claude/skills/<name>` straight to the layer's own skill folder — never to a
+mAIcelium reflection. mAIcelium then becomes one consumer among several, not the
+skill's home.
 
 ## Active projects
 Projects live in `./projects/` as symlinks to real repos.
