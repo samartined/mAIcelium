@@ -112,6 +112,11 @@ its contents into context. You MUST explicitly read the file before doing any wo
 Read .claude/projects-context.md
 ```
 
-The file can be large. Read it in two passes if needed:
-- Lines 1–300: workspace rules (always read first)
-- Lines 300+: per-project rules (read the section for the active project)
+The file is large (currently ~2500 lines) and must NOT be read whole. It opens
+with a generated reading index listing every section, its tier, and its exact
+line range. Read the index first, then:
+- read every row marked `always` (the workspace and domain rules), and
+- read only the `on-demand` row for the project you are working on.
+
+Never hardcode line numbers from a previous session: the index is regenerated
+with the content on every sync, so it is the only ranges that are current.
