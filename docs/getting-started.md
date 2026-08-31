@@ -36,7 +36,7 @@ This gives you the workspace structure with all the scripts, rules, and skills a
 pip install -e .
 
 # Verify
-mai --version   # prints e.g. "mai 0.1.0"
+mai --version   # prints e.g. "mai 0.2.0"
 mai --help      # lists all 12 verbs with aliases
 
 # Check which projects are active
