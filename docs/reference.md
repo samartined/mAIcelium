@@ -103,7 +103,7 @@ All scripts live in `bin/` and are executed from the workspace root.
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `init.py` | Initialize a fresh workspace — creates directories, symlinks, and config files | `python3 bin/init.py` |
-| `add_project.py` | Plug in a project by creating symlinks and importing its rules/skills | `python3 bin/add_project.py <name> <path>` |
+| `add_project.py` | Plug in a project by creating symlinks and importing its rules/skills | `python3 bin/add_project.py <path> <name>` |
 | `remove_project.py` | Unplug a project — removes symlinks, original repo untouched | `python3 bin/remove_project.py <name>` |
 | `sync_symlinks.py` | Rebuild all symlinks — cleans broken ones, recreates from `mesh/`, mounted layers, and active projects | `python3 bin/sync_symlinks.py` |
 | `separate_git.py` | Move `.git` outside workspace to avoid IDE conflicts with linked projects | `python3 bin/separate_git.py` |
@@ -114,9 +114,16 @@ All scripts live in `bin/` and are executed from the workspace root.
 ### `add_project.py` details
 
 ```bash
-python3 bin/add_project.py my-api ~/dev/my-api
+# path first (canonical) — or name first; both work
+python3 bin/add_project.py ~/dev/my-api my-api
 ```
 
+- **Either order**: the positional that is an existing directory (resolved relative to
+  the current directory, so a bare folder name with no slash also counts) is taken as
+  the path, the other as the name. Pass `--path <path>` / `--name <name>` to be explicit.
+- **Ambiguity is a hard error**: if both positionals are existing directories, the
+  command refuses to guess and asks you to use `--path`/`--name`.
+  (`add_mesh_layer.py` accepts its `<path>`/`<name>` the same either-order way.)
 - Validates project name (alphanumeric, hyphens, underscores only)
 - Warns if the path is not in `repos/_registry.yaml`
 - Fails if the project name already exists (use `remove_project.py` first)

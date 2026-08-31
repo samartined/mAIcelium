@@ -88,6 +88,48 @@ def test_add_layer_to_empty_workspace(tmp_path):
 
 
 @requires_symlink
+def test_add_layer_reversed_order_path_first(tmp_path):
+    """Either-order: <path> <name> works the same as the classic <name> <path>."""
+    ws = _bootstrap_workspace(tmp_path)
+    layer = _make_fake_layer(tmp_path, "acme")
+
+    result = _run("add_mesh_layer.py", str(layer), "acme", cwd=ws)  # path first
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    content = (ws / "WORKSPACE.md").read_text()
+    assert "- name: acme" in content
+    assert f"path: {os.path.realpath(str(layer))}" in content
+
+
+@requires_symlink
+def test_add_layer_explicit_flags(tmp_path):
+    """--path/--name resolve roles unambiguously."""
+    ws = _bootstrap_workspace(tmp_path)
+    layer = _make_fake_layer(tmp_path, "acme")
+
+    result = _run("add_mesh_layer.py", "--path", str(layer), "--name", "acme", cwd=ws)
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    content = (ws / "WORKSPACE.md").read_text()
+    assert "- name: acme" in content
+    assert f"path: {os.path.realpath(str(layer))}" in content
+
+
+def test_add_layer_ambiguous_two_existing_dirs_errors(tmp_path):
+    """Both args are bare existing directories -> hard error forcing --path/--name."""
+    ws = _bootstrap_workspace(tmp_path)
+    (ws / "aaa").mkdir()
+    (ws / "bbb").mkdir()
+
+    result = _run("add_mesh_layer.py", "aaa", "bbb", cwd=ws)
+
+    out = result.stdout + result.stderr
+    assert result.returncode == 1, out
+    assert "mbiguous" in out
+    assert "--path" in out and "--name" in out
+
+
+@requires_symlink
 def test_add_layer_appends_to_existing_section(tmp_path):
     """An existing mesh_layers: section gains a second entry without losing the first."""
     ws = _bootstrap_workspace(tmp_path)
