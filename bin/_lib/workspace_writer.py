@@ -110,6 +110,9 @@ def remove_project_entry(root, name):
     the first non-blank line following it is indented. This is tested
     separately in test_remove_project_handles_blank_lines_in_entry.
 
+    Scoped to the `projects:` section, so a `mesh_layers:` entry that happens
+    to share the project's name is left untouched.
+
     Idempotent: if the entry is not found the file is left unchanged.
     """
     wf = os.path.join(root, WORKSPACE_FILE)
@@ -117,7 +120,7 @@ def remove_project_entry(root, name):
         return
 
     lines = _read_lines(wf)
-    out = _remove_entry_block(lines, name)
+    out = _remove_entry_block(lines, name, "projects")
     _write_lines(wf, out)
 
 
@@ -497,24 +500,43 @@ def _section_exists_bare(content, section_name):
     return bool(re.search(rf"^{re.escape(section_name)}:\s*$", content, flags=re.MULTILINE))
 
 
-def _remove_entry_block(lines, target_name):
-    """Remove the `- name: target_name` entry and all its indented continuation,
-    including blank lines that belong to the entry block.
+def _remove_entry_block(lines, target_name, section):
+    """Remove the `- name: target_name` entry from `section` and all its indented
+    continuation, including blank lines that belong to the entry block.
 
     A blank line belongs to the entry when the next non-blank line is indented
     (starts with a space or tab). Once a non-blank, non-indented line follows,
     the entry has ended and the blank separators are kept.
 
-    This is the shared implementation used by remove_project_entry. It operates
-    globally (not restricted to a particular section), so callers that need
-    section-scoped removal should use remove_layer_entry instead.
+    `section` is mandatory on purpose. This used to scan globally, which deleted
+    every `- name: <target>` line in the file regardless of the section holding
+    it. Names collide across sections by design — `add_mesh_layer.py` defaults a
+    layer's `client` to its `name`, so the standard client setup is a layer and a
+    project sharing one name — and unplugging the project then silently stripped
+    the layer registration too.
     """
     out = []
     skip = False
+    in_section = False
     i = 0
     while i < len(lines):
         line = lines[i]
         stripped = line.rstrip("\n").strip()
+        raw = line.rstrip("\n")
+
+        if stripped == f"{section}:":
+            in_section = True
+            out.append(line)
+            i += 1
+            continue
+
+        # Any other top-level key terminates the section we care about.
+        if in_section and _is_top_level_key(raw, stripped):
+            in_section = False
+            skip = False
+            out.append(line)
+            i += 1
+            continue
 
         if skip:
             # Indented line -> still inside the entry block.
@@ -542,7 +564,7 @@ def _remove_entry_block(lines, target_name):
             # Non-blank, non-indented line: the entry has ended.
             skip = False
 
-        if stripped == f"- name: {target_name}":
+        if in_section and stripped == f"- name: {target_name}":
             skip = True
             i += 1
             continue

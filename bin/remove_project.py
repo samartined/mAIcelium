@@ -3,8 +3,8 @@
 
 Usage: remove_project.py <name>
 
-- Removes mirror symlinks <name>--* under .cursor/{rules,skills,skills-cursor}
-  and .agents/{rules,skills}.
+- Removes mirror symlinks <name>--* under .cursor/{rules,skills,skills-cursor},
+  .claude/skills and .agents/{rules,skills}.
 - Removes the projects/<name> symlink.
 - Removes the .agents/projects/<name>/ tree (symlinks-only, no real data).
 - Strips the matching `- name: <name>` block from WORKSPACE.md.
@@ -30,6 +30,7 @@ MIRROR_DIRS = (
     (".cursor", "rules"),
     (".cursor", "skills"),
     (".cursor", "skills-cursor"),
+    (".claude", "skills"),
     (".agents", "rules"),
     (".agents", "skills"),
 )

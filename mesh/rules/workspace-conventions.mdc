@@ -135,6 +135,19 @@ MCP server definitions live in `mesh/mcp/<name>.json`. Each file is IDE-agnostic
 All three are auto-generated and gitignored. Each IDE authenticates its own OAuth session
 independently — credentials are never stored in `mesh/`.
 
+## Adding a new bin/ command script
+
+When you add a new command script under `bin/`, register it in the `VERBS` dict in
+`maicelium_cli.py` so it is reachable via `mai <verb>`. Each entry needs:
+
+- A canonical verb name (kebab-case, e.g. `my-command`)
+- `rel_path` pointing at the script relative to the repo root (e.g. `bin/my_command.py`)
+- `aliases` list (may be empty)
+- A one-line `summary` describing what the command does
+
+After registering, update `docs/reference.md` (verb table) so the CLI is not shipped
+undocumented. The `mai --help` output is generated automatically from the registry.
+
 ## Auto-generated files (do not edit)
 
 - `WORKSPACE.md` — updated by `bin/add_project.py` / `bin/remove_project.py`

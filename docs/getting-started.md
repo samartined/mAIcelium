@@ -26,6 +26,38 @@ This gives you the workspace structure with all the scripts, rules, and skills a
 
 ---
 
+## Step 1b: Install the `mai` CLI (recommended)
+
+`mai` is the unified shell front-end for all mAIcelium commands. It dispatches to the same
+`bin/` and `mesh/commands/scripts/` scripts you would otherwise run with `python3 bin/…`.
+
+```bash
+# Editable install — keeps mai on PATH and auto-resolves the workspace root
+pip install -e .
+
+# Verify
+mai --version   # prints e.g. "mai 0.2.0"
+mai --help      # lists all 12 verbs with aliases
+
+# Check which projects are active
+mai list
+```
+
+**Zero-install alternative:** if you prefer not to use pip, run the committed shims directly
+from the checkout — `./mai` on POSIX (already `chmod +x`) or `mai.cmd` on Windows.
+Both shims delegate to the same `maicelium_cli.py` entry point; no verb-dispatch logic
+lives in the shims themselves.
+
+**Windows note:** `pip install -e .` produces `mai.exe` as a console-script entry point.
+The `mai.cmd` shim serves as the zero-install equivalent on Windows.
+
+**Root resolution:** `mai` finds the workspace root automatically — it checks `--root`,
+then the `MAICELIUM_ROOT` environment variable, then walks up the directory tree looking
+for a directory that contains `bin/_bootstrap.py` and `mesh/`. For daily use inside the
+checkout you rarely need to think about this.
+
+---
+
 ## Step 2: Initialize the workspace
 
 ```bash

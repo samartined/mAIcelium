@@ -167,6 +167,76 @@ def test_add_project_code_only_skips_imports(tmp_path, monkeypatch):
     assert not (ws / ".cursor" / "skills-cursor" / "demo--myskill").exists()
 
 
+@requires_symlink
+def test_add_project_reversed_order_path_first(tmp_path, monkeypatch):
+    """Either-order: <path> <name> works the same as the classic <name> <path>."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", str(repo), "demo"])  # path first
+
+    assert rc == 0, buf.getvalue()
+    link = ws / "projects" / "demo"
+    assert link.is_symlink()
+    assert os.path.realpath(str(link)) == os.path.realpath(str(repo))
+
+
+@requires_symlink
+def test_add_project_bare_cwd_folder_as_path(tmp_path, monkeypatch):
+    """A folder in the current directory given WITHOUT a slash is detected as the path."""
+    ws = _bootstrap_workspace(tmp_path)
+    _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "fakeproj", "demo"])  # bare, no slash
+
+    assert rc == 0, buf.getvalue()
+    link = ws / "projects" / "demo"
+    assert link.is_symlink()
+    assert os.path.realpath(str(link)) == os.path.realpath(str(tmp_path / "fakeproj"))
+
+
+def test_add_project_ambiguous_two_existing_dirs_errors(tmp_path, monkeypatch):
+    """Both args are bare existing directories -> hard error forcing --path/--name; nothing created."""
+    ws = _bootstrap_workspace(tmp_path)
+    (tmp_path / "aaa").mkdir()
+    (tmp_path / "bbb").mkdir()
+    _patch_root(monkeypatch, ws)
+    monkeypatch.chdir(tmp_path)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "aaa", "bbb"])
+
+    out = buf.getvalue()
+    assert rc == 1
+    assert "mbiguous" in out
+    assert "--path" in out and "--name" in out
+    assert not (ws / "projects" / "aaa").exists()
+    assert not (ws / "projects" / "bbb").exists()
+
+
+@requires_symlink
+def test_add_project_explicit_flags(tmp_path, monkeypatch):
+    """--path/--name resolve roles unambiguously regardless of order/existence."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "--path", str(repo), "--name", "demo"])
+
+    assert rc == 0, buf.getvalue()
+    assert (ws / "projects" / "demo").is_symlink()
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # remove_project
 # ────────────────────────────────────────────────────────────────────────────
@@ -465,3 +535,73 @@ def test_separate_git_cleans_backup_on_move_failure(tmp_path, monkeypatch):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# .claude/skills/ reflection (Claude Code native skill discovery)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@requires_symlink
+def test_add_project_imports_skills_into_claude_skills(tmp_path, monkeypatch):
+    """A plugged-in project's skills must land in .claude/skills/ too, so Claude
+    Code registers them natively instead of relying on the operator to browse
+    mesh/ by hand."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "demo", str(repo)])
+
+    assert rc == 0, buf.getvalue()
+
+    claude_link = ws / ".claude" / "skills" / "demo--myskill"
+    assert claude_link.is_symlink(), (
+        ".claude/skills/demo--myskill missing — project skills are not "
+        "registered for Claude Code"
+    )
+    assert (claude_link / "SKILL.md").is_file()
+
+
+@requires_symlink
+def test_remove_project_prunes_claude_skills(tmp_path, monkeypatch):
+    """Unplugging must prune .claude/skills/<name>--*.
+
+    The link points at the real repo, which still exists on disk, so it never
+    goes dangling — sync's broken-symlink cleanup would not catch it. Without
+    an explicit prune the unplugged project's skills stay registered in Claude
+    Code forever.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        add_project.main(["add_project.py", "demo", str(repo)])
+        assert (ws / ".claude" / "skills" / "demo--myskill").is_symlink()
+        rc = remove_project.main(["remove_project.py", "demo"])
+
+    assert rc == 0, buf.getvalue()
+    assert not os.path.lexists(str(ws / ".claude" / "skills" / "demo--myskill")), (
+        "unplugged project skill still registered under .claude/skills/"
+    )
+    # The real repo must be untouched.
+    assert (repo / ".cursor" / "skills" / "myskill" / "SKILL.md").is_file()
+
+
+@requires_symlink
+def test_add_project_code_only_skips_claude_skills(tmp_path, monkeypatch):
+    """--code-only must not register skills in .claude/skills/ either."""
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "--code-only", "demo", str(repo)])
+
+    assert rc == 0
+    assert not (ws / ".claude" / "skills" / "demo--myskill").exists()
