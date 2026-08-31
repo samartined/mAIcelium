@@ -156,7 +156,12 @@ def test_regenerate_claude_context_multiple_rules_sorted(tmp_path):
 
 @requires_symlink
 def test_regenerate_claude_context_project_with_rules_and_skills(tmp_path):
-    """A project symlink whose target has rules and skills must be inlined."""
+    """A project symlink whose target has rules and skills must be inlined.
+
+    The SKILL.md here carries NO frontmatter, so Claude Code cannot register it
+    under .claude/skills/ — which is exactly why its body must still be inlined.
+    See test_registrable_skill_is_indexed_not_inlined for the other branch.
+    """
     root = str(tmp_path)
     # Real repo with .cursor/rules/*.md and .cursor/skills/<name>/SKILL.md
     repo = tmp_path / "myrepo"
@@ -226,7 +231,11 @@ def test_regenerate_claude_context_project_no_rules_no_skills(tmp_path):
 
 @requires_symlink
 def test_regenerate_claude_context_layer_rules(tmp_path):
-    """A mesh layer whose client matches the project name contributes rules."""
+    """A mesh layer whose client matches the project name contributes rules.
+
+    The layer SKILL.md has no frontmatter, so it falls back to being inlined
+    rather than indexed (it cannot register natively).
+    """
     root = str(tmp_path)
     layer = tmp_path / "client_layer"
     layer.mkdir()
@@ -309,3 +318,379 @@ def test_no_inline_avoids_duplicate_layer_content(tmp_path):
         "Layer content must not be inlined when context_inline:false is set — "
         "this prevents duplication when a project is also covered by a mesh layer"
     )
+
+
+# Domain Rules (_domains/ tier) — issue #28
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_domain_rules_inlined(tmp_path):
+    """A _domains rule with no alwaysApply key is inlined under ## Domain Rules."""
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "software", "coding.mdc"),
+        "---\ndescription: Coding standards\n---\n\n# Coding Standards\nAlways write tests.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" in content
+    assert "### software/coding" in content
+    assert "Always write tests." in content
+
+
+def test_domain_rule_opt_out_excluded(tmp_path):
+    """A _domains rule with alwaysApply: false in frontmatter is NOT inlined."""
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "software", "coding.mdc"),
+        "---\ndescription: Coding standards\nalwaysApply: false\n---\n\n# Coding Standards\nAlways write tests.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" not in content
+    assert "### software/coding" not in content
+    assert "Always write tests." not in content
+
+
+def test_domain_rule_frontmatter_stripped(tmp_path):
+    """Frontmatter of a _domains rule does not appear in the output."""
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "software", "style.mdc"),
+        "---\ndescription: Style guide\nauthor: tester\n---\n\nStyle body content.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "Style body content." in content
+    assert "description: Style guide" not in content
+    assert "author: tester" not in content
+    # The --- delimiters must also be absent under the domain section heading
+    domain_section = content[content.index("### software/style"):]
+    domain_section_body = domain_section.split("##", 1)[0]
+    assert "---" not in domain_section_body
+
+
+def test_domain_rule_body_false_still_inlined(tmp_path):
+    """A rule whose BODY prose says 'alwaysApply: false' is still inlined.
+
+    The opt-out helper must scan frontmatter only, not the body.
+    """
+    root = str(tmp_path)
+    body = (
+        "---\ndescription: Tricky rule\n---\n\n"
+        "This rule is always applied even if the body says:\n"
+        "alwaysApply: false\n"
+        "That line is in the body, not the frontmatter.\n"
+    )
+    _write(
+        os.path.join(root, "mesh", "rules", "_domains", "tricky", "trap.mdc"),
+        body,
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" in content
+    assert "### tricky/trap" in content
+    assert "That line is in the body, not the frontmatter." in content
+
+
+def test_flat_tier_still_unconditional(tmp_path):
+    """Flat mesh/rules/*.mdc with no alwaysApply key is unconditionally inlined.
+
+    Regression guard: the flat Workspace Rules tier must remain gating-free.
+    """
+    root = str(tmp_path)
+    _write(
+        os.path.join(root, "mesh", "rules", "x.mdc"),
+        "# Flat rule\nFlat body here.\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Workspace Rules" in content
+    assert "### x" in content
+    assert "Flat body here." in content
+
+
+def test_no_domain_section_when_empty(tmp_path):
+    """When there are no _domains rules, no ## Domain Rules heading is emitted."""
+    root = str(tmp_path)
+    # Only a flat workspace rule exists — no _domains dir
+    _write(
+        os.path.join(root, "mesh", "rules", "flat.mdc"),
+        "flat content\n",
+    )
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+    assert "## Domain Rules" not in content
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Symlinked _domains rules (production path regression tests)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@requires_symlink
+def test_regenerate_claude_context_symlinked_domain_rule_inlined(tmp_path):
+    """mesh/rules/_domains/<domain>/<rule>.mdc as a SYMLINK is followed and inlined.
+
+    This is the production path: sync_symlinks materialises domain rules into
+    mesh/rules/_domains/ as symlinks pointing to files elsewhere on disk.
+    The fix must follow the symlink and inline the body.
+    """
+    root = str(tmp_path)
+
+    # Source rule lives in a fake "layer" dir — NOT inside mesh/rules/
+    source_dir = tmp_path / "fake_layer_source" / "rules"
+    source_dir.mkdir(parents=True)
+    unique_marker = "SYMLINK_DOMAIN_RULE_BODY_X9Z3W"
+    source_file = source_dir / "mydomainrule.mdc"
+    _write(
+        str(source_file),
+        "---\nalwaysApply: true\n---\n\n# Domain rule via symlink\n"
+        f"Body marker: {unique_marker}\n",
+    )
+
+    # Materialise it as a symlink inside mesh/rules/_domains/mydomain/
+    domains_dir = tmp_path / "mesh" / "rules" / "_domains" / "mydomain"
+    domains_dir.mkdir(parents=True)
+    symlink_path = domains_dir / "mydomainrule.mdc"
+    os.symlink(str(source_file), str(symlink_path))
+
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+
+    assert "## Domain Rules" in content, "Domain Rules section must appear"
+    assert "### mydomain/mydomainrule" in content, "Heading must name <domain>/<rule>"
+    assert unique_marker in content, (
+        "Body of the symlinked rule must be inlined — "
+        "inlining must follow the symlink (production path)"
+    )
+    # Frontmatter must be stripped even through a symlink
+    assert "alwaysApply: true" not in content
+
+
+@requires_symlink
+def test_regenerate_claude_context_symlinked_domain_rule_opt_out(tmp_path):
+    """A symlinked _domains rule with alwaysApply: false is excluded (opt-out through symlink).
+
+    Ensures that opt-out detection works correctly when the rule file is
+    accessed via a symlink, matching the production materialization path.
+    """
+    root = str(tmp_path)
+
+    # Source rule with explicit opt-out frontmatter
+    source_dir = tmp_path / "fake_layer_optout" / "rules"
+    source_dir.mkdir(parents=True)
+    absent_marker = "SYMLINK_OPTOUT_RULE_BODY_Q7Y5V"
+    source_file = source_dir / "optrule.mdc"
+    _write(
+        str(source_file),
+        "---\nalwaysApply: false\n---\n\n# Opt-out rule\n"
+        f"This must not appear: {absent_marker}\n",
+    )
+
+    # Materialise as a symlink inside mesh/rules/_domains/optdomain/
+    domains_dir = tmp_path / "mesh" / "rules" / "_domains" / "optdomain"
+    domains_dir.mkdir(parents=True)
+    symlink_path = domains_dir / "optrule.mdc"
+    os.symlink(str(source_file), str(symlink_path))
+
+    regenerate_claude_context(root)
+    content = open(os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8").read()
+
+    assert absent_marker not in content, (
+        "Body of a symlinked rule with alwaysApply: false must NOT be inlined — "
+        "opt-out must work through a symlink too"
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Skill inlining vs native registration under .claude/skills/
+# ────────────────────────────────────────────────────────────────────────────
+
+_VALID_SKILL = (
+    "---\n"
+    "name: jira-workflow\n"
+    "description: How to work a Jira ticket end to end\n"
+    "---\n"
+    "SECRET_BODY_MARKER\n"
+)
+
+
+@requires_symlink
+def test_registrable_skill_is_indexed_not_inlined(tmp_path):
+    """A skill with `name` + `description` frontmatter registers natively under
+    .claude/skills/, so its body must NOT be duplicated into the context file.
+
+    This is the KI-001 duplication class: inlining a body that Claude Code
+    already loads on demand is what pushed projects-context.md to 204KB.
+    """
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _write(str(repo / ".cursor" / "skills" / "jira-workflow" / "SKILL.md"), _VALID_SKILL)
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "#### Skills" in content
+    # Indexed under the name sync_symlinks.py actually creates.
+    assert "`myproj--jira-workflow`" in content
+    assert ".claude/skills/" in content
+    # The body is NOT duplicated.
+    assert "SECRET_BODY_MARKER" not in content, (
+        "body of a natively-registered skill was inlined — duplication (KI-001)"
+    )
+    # It must not be presented as an unregistrable fallback either.
+    assert "##### jira-workflow" not in content
+
+
+@requires_symlink
+def test_unregistrable_skill_is_still_inlined(tmp_path):
+    """A skill Claude Code cannot register must keep its body inlined, otherwise
+    dropping it would make the skill invisible instead of merely duplicated."""
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    # description present, name missing -> not registrable
+    _write(
+        str(repo / ".cursor" / "skills" / "half-baked" / "SKILL.md"),
+        "---\ndescription: no name key here\n---\nHALF_BAKED_BODY\n",
+    )
+    # no frontmatter at all -> not registrable
+    _write(
+        str(repo / ".cursor" / "skills" / "bare" / "SKILL.md"),
+        "BARE_BODY\n",
+    )
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "##### half-baked" in content
+    assert "HALF_BAKED_BODY" in content
+    assert "##### bare" in content
+    assert "BARE_BODY" in content
+    # Frontmatter is still stripped from what does get inlined.
+    assert "description: no name key here" not in content
+
+
+@requires_symlink
+def test_mixed_skills_index_and_inline_coexist(tmp_path):
+    """Registrable and unregistrable skills in the same project are handled
+    independently: one indexed, the other inlined."""
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _write(str(repo / ".cursor" / "skills" / "jira-workflow" / "SKILL.md"), _VALID_SKILL)
+    _write(str(repo / ".cursor" / "skills" / "bare" / "SKILL.md"), "BARE_BODY\n")
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "`myproj--jira-workflow`" in content
+    assert "SECRET_BODY_MARKER" not in content
+    assert "##### bare" in content
+    assert "BARE_BODY" in content
+    # Both counted as skills, so the empty marker must not fire.
+    assert "_No rules or skills found for this project._" not in content
+
+
+@requires_symlink
+def test_duplicate_skill_name_across_subdirs_indexed_once(tmp_path):
+    """The same skill name in `skills/` and `skills-cursor/` yields ONE index
+    entry — the reflection creates a single symlink, first source wins."""
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _write(str(repo / ".cursor" / "skills" / "dup" / "SKILL.md"),
+           "---\nname: dup\ndescription: first\n---\nbody\n")
+    _write(str(repo / ".cursor" / "skills-cursor" / "dup" / "SKILL.md"),
+           "---\nname: dup\ndescription: second\n---\nbody\n")
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert content.count("`myproj--dup`") == 1, (
+        "duplicate skill name produced more than one index entry"
+    )
+
+
+@requires_symlink
+def test_layer_registrable_skill_is_indexed_not_inlined(tmp_path):
+    """Same rule for mesh-layer client skills: reflected into
+    mesh/skills/_clients/<client>/ then .claude/skills/<client>--<skill>, so the
+    body is not inlined. This is the tiber-style case."""
+    root = str(tmp_path)
+    layer = tmp_path / "client_layer"
+    layer.mkdir()
+    _write(str(layer / "skills" / "jira-workflow" / "SKILL.md"), _VALID_SKILL)
+    _write(str(layer / "rules" / "layer-rule.md"), "layer rule body\n")
+
+    _write(
+        os.path.join(root, "WORKSPACE.md"),
+        "mesh_layers:\n"
+        "  - name: client_layer\n"
+        f"    path: {layer}\n"
+        "    client: tiber\n",
+    )
+
+    repo = tmp_path / "client_repo"
+    repo.mkdir()
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "tiber"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "`tiber--jira-workflow`" in content
+    assert "SECRET_BODY_MARKER" not in content
+    # Rules are unaffected — they are still inlined in full.
+    assert "layer rule body" in content
+
+
+def test_is_natively_registrable_scans_frontmatter_only(tmp_path):
+    """Body prose containing `name:`/`description:` must not fake a frontmatter."""
+    from _lib.context import _is_natively_registrable
+
+    assert _is_natively_registrable(
+        "---\nname: x\ndescription: y\n---\nbody\n"
+    )
+    # Order-independent and tolerant of extra keys.
+    assert _is_natively_registrable(
+        "---\nallowed-tools: Read\ndescription: y\nname: x\n---\nbody\n"
+    )
+    # No frontmatter at all — the keys only appear in the body.
+    assert not _is_natively_registrable("name: x\ndescription: y\n")
+    assert not _is_natively_registrable(
+        "---\nfoo: bar\n---\nname: x\ndescription: y\n"
+    )
+    # Missing one of the two required keys.
+    assert not _is_natively_registrable("---\nname: x\n---\nbody\n")
+    assert not _is_natively_registrable("---\ndescription: y\n---\nbody\n")
+    assert not _is_natively_registrable("")

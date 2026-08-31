@@ -22,7 +22,7 @@ mAIcelium provides a single workspace directory where:
 ```mermaid
 graph LR
     Mesh["mesh/"] -->|symlinks| Cursor[".cursor/"]
-    Mesh -->|"CLAUDE.md"| Claude[".claude/"]
+    Mesh -->|"symlinks + CLAUDE.md"| Claude[".claude/"]
     Mesh -->|symlinks| Agents[".agents/"]
     Projects["projects/"] -->|symlinks| Repos["Your repos"]
 ```
@@ -34,19 +34,27 @@ graph LR
 git clone https://github.com/your-user/mAIcelium.git
 cd mAIcelium
 
-# 2. Initialize the workspace
-python3 bin/init.py
+# 2. (Recommended) Install the `mai` CLI — puts `mai` on your PATH
+pip install -e .
 
-# 3. Register your repos (edit with your actual paths)
+# 3. Initialize the workspace
+mai init
+# zero-install alternative (no pip required): python3 bin/init.py
+
+# 4. Register your repos (edit with your actual paths)
 cp repos/_registry.yaml.example repos/_registry.yaml
 # edit repos/_registry.yaml
 
-# 4. Plug in a project (from shell)
-python3 bin/add_project.py my-api ~/dev/my-api
+# 5. Plug in a project
+mai add my-api ~/dev/my-api
+# zero-install alternative: python3 bin/add_project.py my-api ~/dev/my-api
 # or from inside an IDE with fuzzy matching:
 #   /add_project my-api
 
-# 5. Open this directory in your IDEs and start working
+# 6. Sync the workspace
+mai sync
+
+# 7. Open this directory in your IDEs and start working
 ```
 
 ## Workspace structure
@@ -74,6 +82,7 @@ mAIcelium/
 ├── repos/                     # Repository registry
 ├── .cursor/                   # Auto-generated Cursor config (symlinks)
 ├── .claude/                   # Claude Code config + auto-generated context
+│   └── skills/                # Auto-generated skill symlinks (git-ignored)
 ├── .agents/                   # Auto-generated Antigravity config (symlinks)
 ├── CLAUDE.md                  # Entry point for Claude Code agents
 ├── AGENTS.md                  # Agent permissions and coordination rules
@@ -86,7 +95,7 @@ mAIcelium/
 | IDE | Role | How it connects |
 |-----|------|----------------|
 | **Cursor** | Code implementation | Symlinks in `.cursor/rules/` and `.cursor/skills-cursor/` |
-| **Claude Code** | Planning, architecture, analysis | Reads `CLAUDE.md` → navigates to `mesh/` directly |
+| **Claude Code** | Planning, architecture, analysis | Symlinks in `.claude/skills/` (native skill discovery) + `CLAUDE.md` and `.claude/projects-context.md` for rules |
 | **Antigravity** | Refactoring, review, scoped tasks | Symlinks in `.agents/` (rules, skills, workflows, MCP) |
 
 ## Documentation
@@ -109,12 +118,39 @@ The `.code-workspace` file is regenerated automatically by `add_project.py`, `re
 
 ## Key commands
 
-### Shell scripts
+### The `mai` CLI
+
+Install once with `pip install -e .` (editable; recommended) to get `mai` on your PATH. Alternatively, run the committed `./mai` shim (POSIX) or `mai.cmd` (Windows) directly from the checkout without any install step.
+
+```bash
+mai --help          # show all verbs
+mai --version       # print version
+mai <verb> --help   # forwarded to the target script (shows its own help if it supports --help)
+```
+
+| Verb | Aliases | What it does |
+|------|---------|--------------|
+| `init` | — | Scaffold a new mAIcelium workspace |
+| `add` | `add-project` | Add a project symlink |
+| `remove` | `rm`, `remove-project` | Remove a project symlink |
+| `sync` | `sync-symlinks` | Sync workspace symlinks (check/fix drift) |
+| `separate-git` | `git-separate` | Separate a project's git history |
+| `add-mcp` | `add-mcp-source` | Mount an external MCP definitions directory |
+| `remove-mcp` | `remove-mcp-source` | Unmount the current MCP source |
+| `add-layer` | `add-mesh-layer` | Add a mesh layer |
+| `remove-layer` | `remove-mesh-layer` | Remove a mesh layer |
+| `set-flag` | `set-project-flag` | Set a project flag |
+| `list` | `ls`, `list-projects` | List all linked projects |
+| `health` | `project-health` | Run health checks across all linked projects |
+
+Global flags (must appear **before** the verb): `--root <path>`, `--version` / `-V`, `--help` / `-h`.
+
+### Shell scripts (direct invocation, no install required)
 
 | Command | Description |
 |---------|-------------|
 | `bin/init.py` | Initialize a fresh workspace |
-| `bin/add_project.py <name> <path>` | Plug in a project |
+| `bin/add_project.py <path> <name>` | Plug in a project (positionals in either order; `--path`/`--name` to force) |
 | `bin/remove_project.py <name>` | Unplug a project (original repo untouched) |
 | `bin/sync_symlinks.py` | Rebuild all symlinks after changes |
 | `bin/separate_git.py` | Move `.git` outside the workspace (avoids IDE git conflicts) |

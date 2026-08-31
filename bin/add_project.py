@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Link a project repo into the mAIcelium workspace.
 
-Usage: add_project.py [--code-only] <name> <path>
+Usage: add_project.py [--code-only] [--path <path>] [--name <name>] <path> <name>
+
+The <path> and <name> positionals may be given in either order: whichever one is an
+existing directory (resolved relative to the current directory, so a bare folder name
+with no slash also counts) is taken as the path, the other as the name. If both are
+existing directories, the command errors and asks for --path/--name.
 
 - Creates projects/<name> as a symlink to <path>.
 - Imports project rules into .cursor/rules/<name>--<rulename> (unless --code-only).
-- Imports project skills into .cursor/skills-cursor/<name>--<skillname> (unless --code-only).
+- Imports project skills into .cursor/skills-cursor/<name>--<skillname> and
+  .claude/skills/<name>--<skillname> (unless --code-only).
 - Appends an entry under `projects:` in WORKSPACE.md.
 - Regenerates .claude/projects-context.md and mAIcelium.code-workspace.
 
@@ -18,6 +24,7 @@ import os
 import re
 import sys
 
+from _lib.argresolve import AmbiguousArgsError, resolve_name_and_path
 from _lib.context import regenerate_claude_context, regenerate_workspace_file
 from _lib.conventions import load_conventions
 from _lib.platform import create_link, resolve_root
@@ -26,31 +33,46 @@ from _lib.workspace_writer import add_project_entry, create_workspace_template
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
+_USAGE = (
+    "Usage: add_project.py [--code-only] [--path <path>] [--name <name>] "
+    "<path> <name>"
+)
+
 
 def _parse_args(argv):
-    """Parse CLI args. Returns (code_only, name, repo_path) or exits on usage error."""
+    """Tokenize CLI args into (code_only, positionals, name_flag, path_flag).
+
+    Flags may appear anywhere; positionals are resolved into (name, path) by
+    resolve_name_and_path in main(). Exits on an unknown flag or a flag missing its
+    value (usage errors), matching the historical behavior.
+    """
     code_only = False
+    name_flag = None
+    path_flag = None
+    positionals = []
     args = list(argv[1:])
-    while args and args[0].startswith("--"):
-        flag = args.pop(0)
-        if flag == "--code-only":
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--code-only":
             code_only = True
-        else:
-            print(f"Unknown flag '{flag}'")
+            i += 1
+        elif a in ("--name", "--path"):
+            if i + 1 >= len(args):
+                print(_USAGE)
+                sys.exit(1)
+            if a == "--name":
+                name_flag = args[i + 1]
+            else:
+                path_flag = args[i + 1]
+            i += 2
+        elif a.startswith("--"):
+            print(f"Unknown flag '{a}'")
             sys.exit(1)
-
-    if len(args) < 2:
-        print("Usage: add_project.py [--code-only] <name> <path>")
-        sys.exit(1)
-
-    name = args[0]
-    raw_path = args[1]
-    try:
-        repo_path = os.path.realpath(raw_path)
-    except OSError:
-        repo_path = ""
-
-    return code_only, name, repo_path
+        else:
+            positionals.append(a)
+            i += 1
+    return code_only, positionals, name_flag, path_flag
 
 
 def _check_registered(root, repo_path):
@@ -102,9 +124,19 @@ def _import_rules(root, name, repo_path, conventions):
 
 
 def _import_skills(root, name, repo_path, conventions):
-    """Mirror skill directories from each configured skills subdir into .cursor/skills-cursor/."""
-    target_dir = os.path.join(root, ".cursor", "skills-cursor")
-    os.makedirs(target_dir, exist_ok=True)
+    """Mirror skill directories from each configured skills subdir into the dotfolders.
+
+    Targets .cursor/skills-cursor/ (Cursor) and .claude/skills/ (Claude Code's
+    native skill directory) under the same `<name>--<skill>` flat name, so a
+    freshly plugged-in project is discoverable in both without waiting for the
+    next sync. remove_project.py prunes both via MIRROR_DIRS.
+    """
+    target_dirs = (
+        os.path.join(root, ".cursor", "skills-cursor"),
+        os.path.join(root, ".claude", "skills"),
+    )
+    for target_dir in target_dirs:
+        os.makedirs(target_dir, exist_ok=True)
 
     for skills_subdir in conventions["project_skills_subdirs"]:
         skills_dir = os.path.join(
@@ -120,11 +152,15 @@ def _import_skills(root, name, repo_path, conventions):
             src = os.path.join(skills_dir, entry)
             if not os.path.isdir(src):
                 continue
-            target = os.path.join(target_dir, f"{name}--{entry}")
-            if os.path.islink(target):
-                continue
-            create_link(src, target, target_is_directory=True)
-            print(f"    + {name}--{entry}")
+            linked = False
+            for target_dir in target_dirs:
+                target = os.path.join(target_dir, f"{name}--{entry}")
+                if os.path.islink(target):
+                    continue
+                create_link(src, target, target_is_directory=True)
+                linked = True
+            if linked:
+                print(f"    + {name}--{entry}")
         print(f"  Project skills imported ({skills_subdir}/)")
 
 
@@ -164,10 +200,30 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv
 
-    code_only, name, repo_path = _parse_args(argv)
+    code_only, positionals, name_flag, path_flag = _parse_args(argv)
+
+    try:
+        name, raw_path = resolve_name_and_path(
+            positionals, name_flag=name_flag, path_flag=path_flag
+        )
+    except AmbiguousArgsError as exc:
+        print(
+            f"Ambiguous: '{exc.a}' and '{exc.b}' are both existing directories, so I "
+            "can't tell which is the path and which is the name.\n"
+            "Be explicit:  add_project.py --path <path> --name <name>"
+        )
+        return 1
+    except ValueError:
+        print(_USAGE)
+        return 1
+
+    try:
+        repo_path = os.path.realpath(raw_path)
+    except OSError:
+        repo_path = ""
 
     if not name or not repo_path:
-        print("Usage: add_project.py [--code-only] <name> <path>")
+        print(_USAGE)
         return 1
 
     if not NAME_RE.match(name):
@@ -199,6 +255,7 @@ def main(argv=None):
 
     os.makedirs(os.path.join(root, ".cursor", "rules"), exist_ok=True)
     os.makedirs(os.path.join(root, ".cursor", "skills-cursor"), exist_ok=True)
+    os.makedirs(os.path.join(root, ".claude", "skills"), exist_ok=True)
     os.makedirs(os.path.join(root, ".agents", "rules"), exist_ok=True)
     os.makedirs(os.path.join(root, ".agents", "skills"), exist_ok=True)
 

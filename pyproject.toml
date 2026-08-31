@@ -1,7 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maicelium"
+dynamic = ["version"]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+mai = "maicelium_cli:main"
+
+[tool.setuptools]
+py-modules = ["maicelium_cli"]
+
+[tool.setuptools.dynamic]
+version = {attr = "maicelium_cli.__version__"}
+
 [tool.pytest.ini_options]
 addopts = "--strict-markers -ra"
 strict_markers = true
 testpaths = ["tests"]
 markers = [
     "requires_symlink: test needs OS privilege to create symlinks (Windows Developer Mode; non-Windows always granted)",
+    "install: test requires pip install -e . / build tooling; only runs in the mai-install CI job (deselected from default matrix via -m 'not install')",
 ]
