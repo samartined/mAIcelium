@@ -156,7 +156,12 @@ def test_regenerate_claude_context_multiple_rules_sorted(tmp_path):
 
 @requires_symlink
 def test_regenerate_claude_context_project_with_rules_and_skills(tmp_path):
-    """A project symlink whose target has rules and skills must be inlined."""
+    """A project symlink whose target has rules and skills must be inlined.
+
+    The SKILL.md here carries NO frontmatter, so Claude Code cannot register it
+    under .claude/skills/ — which is exactly why its body must still be inlined.
+    See test_registrable_skill_is_indexed_not_inlined for the other branch.
+    """
     root = str(tmp_path)
     # Real repo with .cursor/rules/*.md and .cursor/skills/<name>/SKILL.md
     repo = tmp_path / "myrepo"
@@ -226,7 +231,11 @@ def test_regenerate_claude_context_project_no_rules_no_skills(tmp_path):
 
 @requires_symlink
 def test_regenerate_claude_context_layer_rules(tmp_path):
-    """A mesh layer whose client matches the project name contributes rules."""
+    """A mesh layer whose client matches the project name contributes rules.
+
+    The layer SKILL.md has no frontmatter, so it falls back to being inlined
+    rather than indexed (it cannot register natively).
+    """
     root = str(tmp_path)
     layer = tmp_path / "client_layer"
     layer.mkdir()
@@ -492,3 +501,196 @@ def test_regenerate_claude_context_symlinked_domain_rule_opt_out(tmp_path):
         "Body of a symlinked rule with alwaysApply: false must NOT be inlined — "
         "opt-out must work through a symlink too"
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Skill inlining vs native registration under .claude/skills/
+# ────────────────────────────────────────────────────────────────────────────
+
+_VALID_SKILL = (
+    "---\n"
+    "name: jira-workflow\n"
+    "description: How to work a Jira ticket end to end\n"
+    "---\n"
+    "SECRET_BODY_MARKER\n"
+)
+
+
+@requires_symlink
+def test_registrable_skill_is_indexed_not_inlined(tmp_path):
+    """A skill with `name` + `description` frontmatter registers natively under
+    .claude/skills/, so its body must NOT be duplicated into the context file.
+
+    This is the KI-001 duplication class: inlining a body that Claude Code
+    already loads on demand is what pushed projects-context.md to 204KB.
+    """
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _write(str(repo / ".cursor" / "skills" / "jira-workflow" / "SKILL.md"), _VALID_SKILL)
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "#### Skills" in content
+    # Indexed under the name sync_symlinks.py actually creates.
+    assert "`myproj--jira-workflow`" in content
+    assert ".claude/skills/" in content
+    # The body is NOT duplicated.
+    assert "SECRET_BODY_MARKER" not in content, (
+        "body of a natively-registered skill was inlined — duplication (KI-001)"
+    )
+    # It must not be presented as an unregistrable fallback either.
+    assert "##### jira-workflow" not in content
+
+
+@requires_symlink
+def test_unregistrable_skill_is_still_inlined(tmp_path):
+    """A skill Claude Code cannot register must keep its body inlined, otherwise
+    dropping it would make the skill invisible instead of merely duplicated."""
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    # description present, name missing -> not registrable
+    _write(
+        str(repo / ".cursor" / "skills" / "half-baked" / "SKILL.md"),
+        "---\ndescription: no name key here\n---\nHALF_BAKED_BODY\n",
+    )
+    # no frontmatter at all -> not registrable
+    _write(
+        str(repo / ".cursor" / "skills" / "bare" / "SKILL.md"),
+        "BARE_BODY\n",
+    )
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "##### half-baked" in content
+    assert "HALF_BAKED_BODY" in content
+    assert "##### bare" in content
+    assert "BARE_BODY" in content
+    # Frontmatter is still stripped from what does get inlined.
+    assert "description: no name key here" not in content
+
+
+@requires_symlink
+def test_mixed_skills_index_and_inline_coexist(tmp_path):
+    """Registrable and unregistrable skills in the same project are handled
+    independently: one indexed, the other inlined."""
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _write(str(repo / ".cursor" / "skills" / "jira-workflow" / "SKILL.md"), _VALID_SKILL)
+    _write(str(repo / ".cursor" / "skills" / "bare" / "SKILL.md"), "BARE_BODY\n")
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "`myproj--jira-workflow`" in content
+    assert "SECRET_BODY_MARKER" not in content
+    assert "##### bare" in content
+    assert "BARE_BODY" in content
+    # Both counted as skills, so the empty marker must not fire.
+    assert "_No rules or skills found for this project._" not in content
+
+
+@requires_symlink
+def test_duplicate_skill_name_across_subdirs_indexed_once(tmp_path):
+    """The same skill name in `skills/` and `skills-cursor/` yields ONE index
+    entry — the reflection creates a single symlink, first source wins."""
+    root = str(tmp_path)
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _write(str(repo / ".cursor" / "skills" / "dup" / "SKILL.md"),
+           "---\nname: dup\ndescription: first\n---\nbody\n")
+    _write(str(repo / ".cursor" / "skills-cursor" / "dup" / "SKILL.md"),
+           "---\nname: dup\ndescription: second\n---\nbody\n")
+
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "myproj"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert content.count("`myproj--dup`") == 1, (
+        "duplicate skill name produced more than one index entry"
+    )
+
+
+@requires_symlink
+def test_layer_registrable_skill_is_indexed_not_inlined(tmp_path):
+    """Same rule for mesh-layer client skills: reflected into
+    mesh/skills/_clients/<client>/ then .claude/skills/<client>--<skill>, so the
+    body is not inlined. This is the tiber-style case."""
+    root = str(tmp_path)
+    layer = tmp_path / "client_layer"
+    layer.mkdir()
+    _write(str(layer / "skills" / "jira-workflow" / "SKILL.md"), _VALID_SKILL)
+    _write(str(layer / "rules" / "layer-rule.md"), "layer rule body\n")
+
+    _write(
+        os.path.join(root, "WORKSPACE.md"),
+        "mesh_layers:\n"
+        "  - name: client_layer\n"
+        f"    path: {layer}\n"
+        "    client: tiber\n",
+    )
+
+    repo = tmp_path / "client_repo"
+    repo.mkdir()
+    projects = tmp_path / "projects"
+    projects.mkdir()
+    os.symlink(str(repo), str(projects / "tiber"))
+
+    regenerate_claude_context(root)
+    content = open(
+        os.path.join(root, ".claude", "projects-context.md"), encoding="utf-8"
+    ).read()
+
+    assert "`tiber--jira-workflow`" in content
+    assert "SECRET_BODY_MARKER" not in content
+    # Rules are unaffected — they are still inlined in full.
+    assert "layer rule body" in content
+
+
+def test_is_natively_registrable_scans_frontmatter_only(tmp_path):
+    """Body prose containing `name:`/`description:` must not fake a frontmatter."""
+    from _lib.context import _is_natively_registrable
+
+    assert _is_natively_registrable(
+        "---\nname: x\ndescription: y\n---\nbody\n"
+    )
+    # Order-independent and tolerant of extra keys.
+    assert _is_natively_registrable(
+        "---\nallowed-tools: Read\ndescription: y\nname: x\n---\nbody\n"
+    )
+    # No frontmatter at all — the keys only appear in the body.
+    assert not _is_natively_registrable("name: x\ndescription: y\n")
+    assert not _is_natively_registrable(
+        "---\nfoo: bar\n---\nname: x\ndescription: y\n"
+    )
+    # Missing one of the two required keys.
+    assert not _is_natively_registrable("---\nname: x\n---\nbody\n")
+    assert not _is_natively_registrable("---\ndescription: y\n---\nbody\n")
+    assert not _is_natively_registrable("")

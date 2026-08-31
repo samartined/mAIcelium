@@ -173,16 +173,24 @@ mesh/                          ← Single source of truth
 
 .cursor/rules/       → symlinks to mesh/rules/*.md + _domains/*/*.md (prefixed domain--)
 .cursor/skills-cursor/ → symlinks to mesh/skills/_common/*/ and _domains/*/
+.claude/skills/      → symlinks to flattened mesh/skills/ (Claude Code's native skill dir)
 .agents/skills/      → symlink to flattened mesh/skills/
 .agents/workflows/   → symlink to mesh/commands/
 .claude/             → reads CLAUDE.md as entry point, projects-context.md for project rules
 ```
+
+`.claude/skills/` is workspace-local by design. Never hand-link a skill into
+`~/.claude/skills/`: that is the global personal scope, so the skill would load
+in every unrelated project on the machine, and the link would have to be
+absolute — breaking the relative-symlink invariant every other reflection keeps.
+Run `bin/py.sh bin/sync_symlinks.py` instead; it manages all three dotfolders.
 
 ## What NOT to do
 
 - ❌ Never edit files directly in `.cursor/`, `.claude/`, or `.agents/`.
 - ❌ Never edit stale tier-1 reflections under `mesh/{skills,rules}/{_common,_domains,_clients}/…` — edit the matching layer path.
 - ❌ Never create new rules/skills in the dotfolders.
+- ❌ Never hand-link skills into `~/.claude/skills/` — use the sync, which reflects into the workspace-local `.claude/skills/`.
 - ❌ Never move or rename files in dotfolders (they're symlinks).
 - ❌ Never delete symlinks manually — use `bin/sync_symlinks.py` to rebuild.
 - ❌ Never modify `WORKSPACE.md` or `.claude/projects-context.md` by hand — they're auto-generated.
