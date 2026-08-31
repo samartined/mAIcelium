@@ -4,6 +4,98 @@ Quick-reference for all scripts, agent commands, rules, skills, and configuratio
 
 ---
 
+## The `mai` CLI
+
+`mai` is the unified shell front-end that dispatches to the same `bin/` and
+`mesh/commands/scripts/` scripts you would otherwise run with `python3 bin/…`.
+
+### Installation
+
+```bash
+# Recommended — editable install; puts mai on PATH as a console-script entry point
+pip install -e .
+
+# Zero-install alternative — run the committed shims from the checkout directly
+./mai          # POSIX (already chmod +x)
+mai.cmd        # Windows
+```
+
+**Editable-only limitation:** a non-editable wheel (`pip install .` without `-e`) copies
+`maicelium_cli.py` to site-packages and severs its link to the `bin/` directory next to it.
+A detached install requires `MAICELIUM_ROOT` to be set explicitly, or `--root` to be passed.
+For normal workspace use, always use `pip install -e .`.
+
+### Usage
+
+```
+mai [--root <path>] [--version | -V] [--help | -h]
+mai <verb> [args...]
+```
+
+Global flags must appear **before** the verb. Everything after the verb is forwarded
+verbatim to the target script — `mai sync --check-only`, `mai sync --help`, and
+`mai set-flag my-api key val` all reach the real script unmodified.
+
+### Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--root <path>` | Override workspace root (validated: must be an existing directory) |
+| `--version`, `-V` | Print version and exit 0 |
+| `--help`, `-h` | Print help listing all verbs and exit 0 |
+
+### Verb table
+
+| Canonical verb | Aliases | Target script | Summary |
+|----------------|---------|---------------|---------|
+| `init` | — | `bin/init.py` | Scaffold a new mAIcelium workspace |
+| `add` | `add-project`, `add_project` | `bin/add_project.py` | Add a project symlink (exact-name bin/ writer, not fuzzy) |
+| `remove` | `rm`, `remove-project`, `remove_project` | `bin/remove_project.py` | Remove a project symlink |
+| `sync` | `sync-symlinks`, `sync_symlinks` | `bin/sync_symlinks.py` | Sync workspace symlinks (check/fix drift) |
+| `separate-git` | `git-separate`, `separate_git` | `bin/separate_git.py` | Separate a project's git history |
+| `add-mcp` | `add-mcp-source`, `add_mcp_source` | `bin/add_mcp_source.py` | Mount an external MCP definitions directory |
+| `remove-mcp` | `remove-mcp-source`, `remove_mcp_source` | `bin/remove_mcp_source.py` | Unmount the current MCP source |
+| `add-layer` | `add-mesh-layer`, `add_mesh_layer` | `bin/add_mesh_layer.py` | Add a mesh layer |
+| `remove-layer` | `remove-mesh-layer`, `remove_mesh_layer` | `bin/remove_mesh_layer.py` | Remove a mesh layer |
+| `set-flag` | `set-project-flag`, `set_project_flag` | `bin/set_project_flag.py` | Set a project flag |
+| `list` | `ls`, `list-projects`, `list_projects` | `mesh/commands/scripts/list_projects.py` | List all linked projects |
+| `health` | `project-health`, `project_health` | `mesh/commands/scripts/project_health.py` | Run health checks across all linked projects |
+
+**Note on `add` / `remove`:** these target the deterministic `bin/` writers, not the
+`mesh/commands/scripts/` fuzzy-matching variants used by IDE slash commands.
+The shell CLI is always exact; fuzzy matching stays a slash-command affordance.
+
+### Workspace root resolution
+
+`mai` resolves the workspace root in this order (first match wins):
+
+1. `--root <path>` on the command line (validated: must be an existing directory; exits 2 if not).
+2. `MAICELIUM_ROOT` environment variable, if set and non-empty (passed through verbatim — not existence-validated, unlike `--root`).
+3. Upward walk from the current working directory, looking for a directory that contains both `bin/_bootstrap.py` and `mesh/`. The nearest matching ancestor wins (first-match-wins is deterministic on nested workspaces).
+4. The directory of `maicelium_cli.py` itself — works for editable installs where the module lives next to `bin/`.
+
+The resolved root is exported to every child script as `MAICELIUM_ROOT`, so all downstream resolvers agree.
+
+### Exit-code policy
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success (also: `mai`, `mai --help`, `mai --version`) |
+| `1` | Child script reported an error (e.g. `remove` with no args prints Usage and exits 1) |
+| `2` | Router-level error (unknown verb, unknown global flag, bad/missing `--root`) **or** child exit 2 passed through verbatim |
+| `130` | Interrupted (Ctrl-C / SIGINT) |
+
+**Important — exit 2 is overloaded.** The router uses 2 for its own usage errors, but child
+scripts can also legitimately return 2 (e.g. `sync` returns 2 on certain error conditions and 3
+on others; `init` returns 2 when symlink privilege is unavailable). Do not use `exit 2` as a
+reliable signal that the invocation was malformed — inspect stderr for the router's own error
+messages if you need to distinguish the cases.
+
+**`mai health`** exits 0 when the workspace is healthy and non-zero (2) when a project symlink
+is broken. Broken-symlink details are always printed in the report text regardless of exit code.
+
+---
+
 ## Scripts
 
 All scripts live in `bin/` and are executed from the workspace root.

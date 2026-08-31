@@ -58,11 +58,17 @@ Each IDE runs independently but reads the same rules and skills from `mesh/`.
 ## How rules and skills reach agents
 
 1. `bin/sync_symlinks.py` (runs on every `SessionStart`) regenerates symlinks from
-   `mesh/rules/` and `mesh/skills/` into each IDE's dotfolder.
+   `mesh/rules/` and `mesh/skills/` into each IDE's dotfolder — including
+   `.claude/skills/`, which is Claude Code's native skill directory. All three
+   IDEs therefore see the same flat skill namespace.
 2. Rules with `alwaysApply: true` are injected automatically into every agent context.
-3. Skills are on-demand playbooks — agents read the relevant `SKILL.md` before a task.
+3. Skills are on-demand playbooks — the agent loads the relevant `SKILL.md` when the
+   task calls for it. A skill needs `name` + `description` frontmatter to be
+   registered; without it, it will not be discoverable in Claude Code.
 4. `.claude/projects-context.md` is a pre-inlined version of all active project rules,
-   generated for Claude Code.
+   generated for Claude Code. Project and layer skills appear there as an index only —
+   their bodies are not inlined, because `.claude/skills/` already makes them
+   loadable on demand.
 
 ## Available slash commands
 

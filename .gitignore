@@ -31,6 +31,8 @@
 .cursor/
 .agents/
 .mcp.json
+# Claude Code native skill reflections (.claude/ itself IS tracked)
+/.claude/skills/
 
 # Dynamic workspace state
 WORKSPACE.md
@@ -49,6 +51,17 @@ __pycache__/
 
 # Test artifacts
 pytest-report.xml
+pytest-install-report.xml
+
+# Python build / packaging artifacts (editable install + wheel build)
+build/
+dist/
+*.egg-info/
+*.egg-info
+maicelium.egg-info/
+
+# Local working scratch (spec dumps, not part of the repo)
+.spec_tmp/
 
 # Image backups (pre-rename originals)
 docs/assets/backup/
