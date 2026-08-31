@@ -369,3 +369,109 @@ def test_sync_workspace_md_warning_on_empty_section_marker(tmp_path, monkeypatch
 
     assert rc == 3
     assert "parser returned empty" in captured.err
+
+
+# ── Test 11: mesh skills reflect into .claude/skills/ (Claude Code native) ──
+
+
+@requires_symlink
+def test_sync_reflects_mesh_skills_into_claude_skills(tmp_path, monkeypatch):
+    """Every mesh skill bucket must land in .claude/skills/ with the same flat
+    naming used for Cursor and Antigravity, via RELATIVE symlinks.
+
+    Without this, mesh skills are invisible to Claude Code's native skill
+    discovery, which scans .claude/skills/<name>/SKILL.md.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+
+    # Native (flat) skill, requires SKILL.md to be picked up
+    native = ws / "mesh" / "skills" / "native-skill"
+    native.mkdir(parents=True)
+    _write(str(native / "SKILL.md"), "native\n")
+    # _common
+    common = ws / "mesh" / "skills" / "_common" / "common-skill"
+    common.mkdir(parents=True)
+    _write(str(common / "SKILL.md"), "common\n")
+    # _domains, nested form -> <domain>--<skill>
+    nested = ws / "mesh" / "skills" / "_domains" / "devops" / "terraform"
+    nested.mkdir(parents=True)
+    _write(str(nested / "SKILL.md"), "tf\n")
+    # _clients -> <client>--<skill>
+    client = ws / "mesh" / "skills" / "_clients" / "tiber" / "jira-workflow"
+    client.mkdir(parents=True)
+    _write(str(client / "SKILL.md"), "jira\n")
+
+    _patch_root(monkeypatch, ws)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = sync_symlinks.main([])
+    assert rc == 0
+
+    claude_skills = ws / ".claude" / "skills"
+    expected = [
+        "native-skill",
+        "common-skill",
+        "devops--terraform",
+        "tiber--jira-workflow",
+    ]
+    for name in expected:
+        link = claude_skills / name
+        assert link.is_symlink(), f".claude/skills/{name} is not a symlink"
+        assert (link / "SKILL.md").is_file(), f".claude/skills/{name} does not resolve"
+        assert not os.path.isabs(os.readlink(str(link))), (
+            f".claude/skills/{name} must be a relative symlink "
+            f"(sync_symlinks invariant), got {os.readlink(str(link))}"
+        )
+
+    # Parity: the same set must exist in the other two dotfolders.
+    for name in expected:
+        assert (ws / ".cursor" / "skills-cursor" / name).is_symlink()
+        assert (ws / ".agents" / "skills" / name).is_symlink()
+
+
+@requires_symlink
+def test_sync_cleans_broken_symlinks_in_claude_skills(tmp_path, monkeypatch):
+    """A dangling link under .claude/skills/ (skill removed from a layer) must
+    be pruned, exactly as in .cursor/skills-cursor/ and .agents/skills/."""
+    ws = _bootstrap_workspace(tmp_path)
+    claude_skills = ws / ".claude" / "skills"
+    claude_skills.mkdir(parents=True)
+    os.symlink(str(ws / "mesh" / "skills" / "_common" / "gone"),
+               str(claude_skills / "gone"))
+    assert os.path.islink(str(claude_skills / "gone"))
+
+    _patch_root(monkeypatch, ws)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = sync_symlinks.main([])
+
+    assert rc == 0
+    assert not os.path.lexists(str(claude_skills / "gone")), (
+        "broken symlink under .claude/skills/ was not cleaned"
+    )
+
+
+@requires_symlink
+def test_sync_claude_skills_never_touches_home(tmp_path, monkeypatch):
+    """The reflection must stay workspace-local: nothing is written to
+    ~/.claude/skills/, which would leak workspace skills into every project."""
+    ws = _bootstrap_workspace(tmp_path)
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+
+    common = ws / "mesh" / "skills" / "_common" / "some-skill"
+    common.mkdir(parents=True)
+    _write(str(common / "SKILL.md"), "body\n")
+
+    _patch_root(monkeypatch, ws)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = sync_symlinks.main([])
+
+    assert rc == 0
+    assert (ws / ".claude" / "skills" / "some-skill").is_symlink()
+    assert not (fake_home / ".claude" / "skills").exists(), (
+        "sync must not create ~/.claude/skills/ — the reflection is workspace-local"
+    )

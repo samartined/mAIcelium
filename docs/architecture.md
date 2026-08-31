@@ -95,13 +95,26 @@ When a project is plugged in, its rules and skills are also symlinked with a pre
 
 ### Claude Code
 
-Claude Code reads `CLAUDE.md` at the workspace root, which tells it:
+Claude Code consumes the mesh through two complementary channels.
+
+**Skills — native discovery via symlinks.** Claude Code scans `.claude/skills/` for skill directories, exactly as Cursor scans `.cursor/skills-cursor/`. mAIcelium reflects the same flat namespace there:
+
+```
+.claude/skills/code-review          → ../../mesh/skills/_common/code-review
+.claude/skills/devops--terraform    → ../../mesh/skills/_domains/devops/terraform-workflow
+.claude/skills/tiber--jira-workflow → ../../mesh/skills/_clients/tiber/jira-workflow
+.claude/skills/my-api--testing      → /home/user/dev/my-api/.cursor/skills/testing/
+```
+
+This is what makes a mesh skill *discoverable by description* in Claude Code — the agent gets the skill listed without having to browse `mesh/` by hand. The reflection is deliberately **workspace-local**: never `~/.claude/skills/`, which is the global personal scope and would leak workspace skills into every unrelated project on the machine, with absolute links that break the "all symlinks are relative" invariant.
+
+**Rules — inlined into a generated context file.** Claude Code reads `CLAUDE.md` at the workspace root, which tells it:
 
 1. Where the rules are: `./mesh/rules/`
-2. Where the skills are: `./mesh/skills/`
+2. Where the skills are: `./mesh/skills/` (canonical source; `.claude/skills/` is its reflection)
 3. Where to find project-specific context: `.claude/projects-context.md`
 
-The `projects-context.md` file is **auto-generated** by the scripts. It lists every active project's rules and skills so Claude Code knows to read them before working on that project.
+The `projects-context.md` file is **auto-generated** by the scripts. It inlines every active project's rules in full, and lists its skills as an index rather than inlining their bodies — the skills are already loadable on demand through `.claude/skills/`, so inlining them too is the duplication that caused KI-001. A skill whose `SKILL.md` lacks the frontmatter Claude Code needs (`name` + `description`) cannot register natively, so those keep being inlined in full instead of silently disappearing.
 
 ### Antigravity
 
@@ -139,7 +152,7 @@ sequenceDiagram
     User->>Script: add_project.py my-api ~/dev/my-api
     Script->>FS: Create symlink projects/my-api → ~/dev/my-api
     Script->>FS: Symlink project rules to .cursor/rules/my-api--*
-    Script->>FS: Symlink project skills to .cursor/skills-cursor/my-api--*
+    Script->>FS: Symlink project skills to .cursor/skills-cursor/my-api--* and .claude/skills/my-api--*
     Script->>WS: Add entry with name, path, timestamp
     Script->>Claude: Regenerate .claude/projects-context.md
     Script->>FS: Regenerate mAIcelium.code-workspace
@@ -160,7 +173,7 @@ sequenceDiagram
 
     User->>Script: remove_project.py my-api
     Script->>FS: Remove .cursor/rules/my-api--* symlinks
-    Script->>FS: Remove .cursor/skills-cursor/my-api--* symlinks
+    Script->>FS: Remove .cursor/skills-cursor/my-api--* and .claude/skills/my-api--* symlinks
     Script->>FS: Remove projects/my-api symlink only
     Note over FS: Original repo at ~/dev/my-api is untouched
     Script->>WS: Remove entry from project list
@@ -179,15 +192,32 @@ sequenceDiagram
 
 It performs a full cleanup and recreation cycle:
 
-1. Cleans broken symlinks in `.cursor/rules/` and `.cursor/skills-cursor/`
+1. Cleans broken symlinks in `.cursor/rules/`, `.cursor/skills-cursor/`, `.claude/skills/` and `.agents/skills/`
 2. Recreates global, domain, and client rule symlinks for Cursor and `.agents/`
-3. Recreates skill symlinks for Cursor (per-category) and `.agents/skills/` (flattened)
-4. Re-imports rules and skills from all currently plugged-in projects
+3. Recreates skill symlinks for Cursor (per-category), `.claude/skills/` and `.agents/skills/` (both flattened)
+4. Re-imports rules and skills from all currently plugged-in projects (project skills land in `.cursor/skills-cursor/` and `.claude/skills/`)
 5. Maps commands to `.agents/workflows/` and project data to `.agents/projects/`
 6. Mounts `mesh/mcp/` as a symlink to the directory registered under `mcp_source:` in `WORKSPACE.md` (or unmounts it when no source is registered), then generates MCP configs from `mesh/mcp/*.json` for all three IDEs
 7. Regenerates `.claude/projects-context.md`
 8. Regenerates `mAIcelium.code-workspace`
 9. Removes legacy `.antigravity/` if present
+
+## The `mai` CLI (command router)
+
+`maicelium_cli.py` (repo root) is a thin router exposed as the `mai` console
+script (`pip install -e .`) plus committed `mai` / `mai.cmd` shims for zero-install
+use. It maps friendly verbs to the real scripts and dispatches via **subprocess**
+(`sys.executable <script>`), never importing them — so each script keeps its own
+argument parsing, encoding handling and exit code, which `mai` passes through
+verbatim. Everything after the verb is forwarded untouched; only `--root`,
+`--version` and `--help` are consumed before the verb.
+
+The workspace root is resolved in order: `--root` → `MAICELIUM_ROOT` → upward
+search for a directory containing `bin/_bootstrap.py` + `mesh/` (nearest ancestor)
+→ the `maicelium_cli.py` directory. The resolved root is exported as
+`MAICELIUM_ROOT` to the child so every downstream resolver agrees. If no workspace
+can be located, `mai` exits 2 with an actionable message. See `docs/reference.md`
+for the full verb table.
 
 ## Rules and skills taxonomy
 

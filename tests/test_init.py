@@ -79,6 +79,7 @@ def test_init_creates_directory_tree(tmp_path):
         ".cursor/rules",
         ".cursor/skills-cursor",
         ".claude/commands",
+        ".claude/skills",
         ".agents",
         ".agents/rules",
         ".agents/skills",
@@ -382,6 +383,7 @@ def test_init_directory_tree_without_symlink_privilege(tmp_path, monkeypatch):
         ".cursor/rules",
         ".cursor/skills-cursor",
         ".claude/commands",
+        ".claude/skills",
         ".agents",
         "projects",
         "repos",
@@ -411,3 +413,57 @@ def test_init_directory_tree_without_symlink_privilege(tmp_path, monkeypatch):
                 assert full.startswith(root_str) or not full.startswith(home_str), (
                     f"unexpected write outside root: {full}"
                 )
+
+
+# ── .claude/skills/ scaffolding ─────────────────────────────────────────────
+
+
+@requires_symlink
+def test_init_creates_relative_claude_skill_links(tmp_path):
+    """init must populate .claude/skills/ from the _common and _domains buckets
+    with RELATIVE links, matching what _create_cursor_symlinks does."""
+    root = tmp_path
+    init._create_directory_tree(str(root))
+
+    populated = root / "mesh" / "skills" / "_common" / "code-review"
+    (populated / "SKILL.md").write_text(
+        "---\nname: code-review\ndescription: d\n---\nbody\n", encoding="utf-8"
+    )
+
+    init._create_claude_symlinks(str(root))
+
+    claude_skills = root / ".claude" / "skills"
+    link = claude_skills / "code-review"
+    assert link.is_symlink()
+    assert not os.path.isabs(os.readlink(str(link)))
+    assert (link / "SKILL.md").is_file(), "link must resolve into mesh/"
+
+    # Parity with the Cursor helper: same buckets, same names.
+    init._create_cursor_symlinks(str(root))
+    cursor_names = sorted(os.listdir(str(root / ".cursor" / "skills-cursor")))
+    claude_names = sorted(os.listdir(str(claude_skills)))
+    assert claude_names == cursor_names, (
+        "init must reflect the same skill set into .claude/skills/ and "
+        f".cursor/skills-cursor/ ({claude_names} vs {cursor_names})"
+    )
+
+
+@requires_symlink
+def test_init_claude_skills_never_writes_to_home(tmp_path, monkeypatch):
+    """init must not touch ~/.claude/skills/ — the reflection is workspace-local."""
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+
+    root = tmp_path / "ws"
+    root.mkdir()
+    init._create_directory_tree(str(root))
+    populated = root / "mesh" / "skills" / "_common" / "planning"
+    (populated / "SKILL.md").write_text(
+        "---\nname: planning\ndescription: d\n---\nbody\n", encoding="utf-8"
+    )
+    init._create_claude_symlinks(str(root))
+
+    assert (root / ".claude" / "skills" / "planning").is_symlink()
+    assert not (fake_home / ".claude" / "skills").exists()

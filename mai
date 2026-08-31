@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""POSIX shim for the mai CLI.
+
+Delegates entirely to maicelium_cli:main -- NO verb-dispatch logic here.
+This is a thin shim only; the single dispatch implementation lives in
+maicelium_cli.py (single-source invariant, pinned by SH-1).
+"""
+import os
+import sys
+
+# Resolve the real maicelium_cli.py next to this shim
+_SHIM_DIR = os.path.dirname(os.path.abspath(__file__))
+_CLI_MODULE = os.path.join(_SHIM_DIR, "maicelium_cli.py")
+
+# exec the module so __file__ resolves correctly inside maicelium_cli
+with open(_CLI_MODULE, encoding="utf-8") as _f:
+    _src = _f.read()
+
+exec(compile(_src, _CLI_MODULE, "exec"), {"__name__": "__main__", "__file__": _CLI_MODULE})

@@ -10,7 +10,8 @@ existing directories, the command errors and asks for --path/--name.
 
 - Creates projects/<name> as a symlink to <path>.
 - Imports project rules into .cursor/rules/<name>--<rulename> (unless --code-only).
-- Imports project skills into .cursor/skills-cursor/<name>--<skillname> (unless --code-only).
+- Imports project skills into .cursor/skills-cursor/<name>--<skillname> and
+  .claude/skills/<name>--<skillname> (unless --code-only).
 - Appends an entry under `projects:` in WORKSPACE.md.
 - Regenerates .claude/projects-context.md and mAIcelium.code-workspace.
 
@@ -123,9 +124,19 @@ def _import_rules(root, name, repo_path, conventions):
 
 
 def _import_skills(root, name, repo_path, conventions):
-    """Mirror skill directories from each configured skills subdir into .cursor/skills-cursor/."""
-    target_dir = os.path.join(root, ".cursor", "skills-cursor")
-    os.makedirs(target_dir, exist_ok=True)
+    """Mirror skill directories from each configured skills subdir into the dotfolders.
+
+    Targets .cursor/skills-cursor/ (Cursor) and .claude/skills/ (Claude Code's
+    native skill directory) under the same `<name>--<skill>` flat name, so a
+    freshly plugged-in project is discoverable in both without waiting for the
+    next sync. remove_project.py prunes both via MIRROR_DIRS.
+    """
+    target_dirs = (
+        os.path.join(root, ".cursor", "skills-cursor"),
+        os.path.join(root, ".claude", "skills"),
+    )
+    for target_dir in target_dirs:
+        os.makedirs(target_dir, exist_ok=True)
 
     for skills_subdir in conventions["project_skills_subdirs"]:
         skills_dir = os.path.join(
@@ -141,11 +152,15 @@ def _import_skills(root, name, repo_path, conventions):
             src = os.path.join(skills_dir, entry)
             if not os.path.isdir(src):
                 continue
-            target = os.path.join(target_dir, f"{name}--{entry}")
-            if os.path.islink(target):
-                continue
-            create_link(src, target, target_is_directory=True)
-            print(f"    + {name}--{entry}")
+            linked = False
+            for target_dir in target_dirs:
+                target = os.path.join(target_dir, f"{name}--{entry}")
+                if os.path.islink(target):
+                    continue
+                create_link(src, target, target_is_directory=True)
+                linked = True
+            if linked:
+                print(f"    + {name}--{entry}")
         print(f"  Project skills imported ({skills_subdir}/)")
 
 
@@ -240,6 +255,7 @@ def main(argv=None):
 
     os.makedirs(os.path.join(root, ".cursor", "rules"), exist_ok=True)
     os.makedirs(os.path.join(root, ".cursor", "skills-cursor"), exist_ok=True)
+    os.makedirs(os.path.join(root, ".claude", "skills"), exist_ok=True)
     os.makedirs(os.path.join(root, ".agents", "rules"), exist_ok=True)
     os.makedirs(os.path.join(root, ".agents", "skills"), exist_ok=True)
 
