@@ -64,7 +64,6 @@ wrapper, or encoding tricks can still slip past or, in principle, mis-fire.
   * git push --force to main/master
   * Low-level disk ops (mkfs, dd)
   * chmod 777
-  * Terraform without tfswitch preflight
 
 DOCUMENTED GAPS (not blocked — known best-effort limit)
 -------------------------------------------------------
@@ -413,20 +412,6 @@ def _evaluate(cmd):
             "Blocked: chmod 777 sets world-writable permissions. "
             "Use more restrictive permissions."
         )
-
-    # Terraform preflight enforcement
-    if re.search(r"(^|[;&|\s])(terraform|tf)(\s|$)", norm):
-        if re.search(
-            r"(terraform|tf)\s+"
-            r"(init|plan|apply|destroy|validate|import|state|"
-            r"workspace\s+select)\b",
-            norm,
-        ):
-            if not re.search(r"tfswitch\b", norm):
-                _block(
-                    "Blocked: Terraform command requires tfswitch preflight "
-                    "in the same command. Run 'tfswitch' before Terraform."
-                )
 
 
 def main():
