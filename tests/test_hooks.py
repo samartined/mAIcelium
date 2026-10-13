@@ -101,17 +101,9 @@ def test_guard_bash_blocks_chmod_777():
     assert _is_block(result)
 
 
-def test_guard_bash_blocks_terraform_without_tfswitch():
+def test_guard_bash_does_not_police_terraform_versions():
     result = _run_hook(
         GUARD_BASH, {"tool_input": {"command": "terraform apply"}}
-    )
-    assert _is_block(result)
-
-
-def test_guard_bash_allows_terraform_with_tfswitch():
-    result = _run_hook(
-        GUARD_BASH,
-        {"tool_input": {"command": "tfswitch && terraform apply"}},
     )
     assert result.returncode == 0
     assert result.stdout.strip() == ""
