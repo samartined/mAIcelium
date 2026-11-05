@@ -136,6 +136,18 @@ with `mai add <name> <path>`, write to the scratchpad, use the package manager,
 or run `mai sync`. In `claude -p` or `dontAsk` mode an ask behaves as a deny.
 Full model: `docs/security-model.md`.
 
+## Changing mAIcelium itself (branch flow)
+
+When the work is on the mAIcelium repo itself (not on a linked project), follow
+`CONTRIBUTING.md`:
+- branch from `dev` as `<type>/<slug>` and open the PR against `dev`; stacked
+  work goes through an integration branch that also targets `dev`;
+- `main` only receives the release PR `dev` → `main`. The `Branch flow` CI
+  check fails any other PR into `main`;
+- PRs into `dev` use `Refs #n`, and the release PR carries the `Closes #n`
+  lines;
+- after a release, fast-forward `dev` to `main`.
+
 ## Separated git mode
 
 `bin/separate_git.py` moves `.git` out of the workspace root into a sibling directory
