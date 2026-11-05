@@ -1905,3 +1905,117 @@ def test_guard_bash_cp_from_a_guard_file_is_also_denied(tmp_path):
     """The rule is "names a guard file and uses a write verb": copying FROM a
     guard is denied too. Read it with cat/grep instead."""
     assert _is_block(_bash("cp bin/hooks/guard_bash.py review-copy.py", tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# The hook commands exactly as .claude/settings.json registers them
+# ---------------------------------------------------------------------------
+# Claude Code runs command hooks through bash (Git Bash on native Windows) with
+# CLAUDE_PROJECT_DIR set. Run the checked-in commands the same way, from an
+# unrelated working directory, to prove the launcher (bin/py.sh) and the
+# ${CLAUDE_PROJECT_DIR} paths work on every CI platform.
+
+
+def _hook_bash():
+    import shutil
+
+    if sys.platform == "win32":
+        git = shutil.which("git")
+        if git:
+            git_root = os.path.dirname(os.path.dirname(git))
+            for candidate in (
+                os.path.join(git_root, "bin", "bash.exe"),
+                os.path.join(git_root, "usr", "bin", "bash.exe"),
+            ):
+                if os.path.isfile(candidate):
+                    return candidate
+    found = shutil.which("bash")
+    assert found, "bash (Git Bash on Windows) is required to run the hook commands"
+    return found
+
+
+def _settings_hook_command(matcher_word):
+    with open(os.path.join(REPO_ROOT, ".claude", "settings.json"), encoding="utf-8") as f:
+        data = json.load(f)
+    for entry in data["hooks"]["PreToolUse"]:
+        if matcher_word in entry["matcher"].split("|"):
+            return entry["hooks"][0]["command"]
+    raise AssertionError(f"no PreToolUse hook for {matcher_word}")
+
+
+@pytest.mark.parametrize(
+    "matcher,payload",
+    [
+        ("Write", {"tool_name": "Write", "tool_input": {"file_path": os.path.join(REPO_ROOT, ".env")}}),
+        ("Bash", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+    ],
+)
+def test_settings_hook_commands_run_from_any_cwd(tmp_path, matcher, payload):
+    command = _settings_hook_command(matcher)
+    assert "${CLAUDE_PROJECT_DIR}" in command
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = REPO_ROOT
+    env.pop("MAICELIUM_ROOT", None)
+    payload = dict(payload, cwd=str(tmp_path))
+    result = subprocess.run(
+        [_hook_bash(), "-c", command],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert _is_block(result), (result.stdout, result.stderr)
+
+
+# ---------------------------------------------------------------------------
+# bin/hook_metrics.py — baseline and follow-up measure for decision 4
+# ---------------------------------------------------------------------------
+
+
+def _jsonl(path, entries):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
+
+
+def test_hook_metrics_counts_denials_and_heredocs(tmp_path):
+    sys.path.insert(0, os.path.join(REPO_ROOT, "bin"))
+    import hook_metrics
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    def tool_use(cmd, ts):
+        return {"cwd": str(ws), "timestamp": ts, "type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}]}}
+
+    def denial(tool, reason, ts):
+        return {"cwd": str(ws), "timestamp": ts, "type": "user", "message": {"content": [
+            {"type": "tool_result", "is_error": True,
+             "content": f"PreToolUse:{tool} hook error: {reason}"}]}}
+
+    _jsonl(tmp_path / "projects" / "-ws" / "a.jsonl", [
+        tool_use("cat > x.md <<'EOF'\nhi\nEOF", "2026-10-02T10:00:00Z"),
+        tool_use("python3 - <<PY\nprint(1)\nPY", "2026-10-03T10:00:00Z"),
+        tool_use("grep x <<< 'herestring only'", "2026-10-03T11:00:00Z"),
+        denial("Write", "Blocked: file_path '/x' is outside the workspace and ...", "2026-10-04T10:00:00Z"),
+        denial("Edit", "Protected file: .env.", "2026-11-01T10:00:00Z"),
+        denial("Bash", "Blocked: chmod 777 ...", "2026-11-02T10:00:00Z"),
+    ])
+    # A session launched elsewhere is ignored unless --all.
+    elsewhere = tool_use("cat <<EOF\nx\nEOF", "2026-10-05T10:00:00Z")
+    elsewhere["cwd"] = str(tmp_path / "other")
+    _jsonl(tmp_path / "projects" / "-other" / "b.jsonl", [elsewhere])
+
+    months = hook_metrics.scan(str(tmp_path / "projects"), workspace=str(ws))
+    assert months["2026-10"]["heredocs"] == 2
+    assert months["2026-10"]["write_denied"] == 1
+    assert months["2026-10"]["write_denied_outside"] == 1
+    assert months["2026-11"]["write_denied"] == 1
+    assert months["2026-11"]["bash_denied"] == 1
+
+    everything = hook_metrics.scan(str(tmp_path / "projects"), workspace=None)
+    assert everything["2026-10"]["heredocs"] == 3
+    assert hook_metrics.scan(str(tmp_path / "projects"), workspace=str(ws), since="2026-11")["2026-11"]["bash_denied"] == 1
