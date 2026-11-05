@@ -209,9 +209,16 @@ def test_init_writes_python_hooks_in_settings(tmp_path):
 
     settings_file = tmp_path / ".claude" / "settings.json"
     content = settings_file.read_text()
-    assert "bin/py.sh bin/sync_symlinks.py" in content
-    assert "bin/py.sh bin/hooks/guard_bash.py" in content
-    assert "bin/py.sh bin/hooks/guard_write.py" in content
+    # Hooks are referenced through ${CLAUDE_PROJECT_DIR} so they work from any
+    # working directory (#43).
+    pd = '"${CLAUDE_PROJECT_DIR}"'
+    hooks = json.loads(content)["hooks"]
+    commands = " ".join(
+        h["command"] for entries in hooks.values() for e in entries for h in e["hooks"]
+    )
+    assert f"{pd}/bin/py.sh {pd}/bin/sync_symlinks.py" in commands
+    assert f"{pd}/bin/py.sh {pd}/bin/hooks/guard_bash.py" in commands
+    assert f"{pd}/bin/py.sh {pd}/bin/hooks/guard_write.py" in commands
 
     # The write guard must see every file-writing tool, NotebookEdit included
     # (it sends notebook_path instead of file_path).
