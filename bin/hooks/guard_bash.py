@@ -92,6 +92,7 @@ DOCUMENTED GAPS (not blocked — known best-effort limit)
 import json
 import os
 import re
+import shlex
 import sys
 from datetime import datetime, timezone
 
@@ -348,6 +349,220 @@ def _unquote_words(code):
     return _QUOTED.sub(repl, code)
 
 
+# ---------------------------------------------------------------------------
+# Where does the command write? Redirections and tee, judged by _policy
+# ---------------------------------------------------------------------------
+# The rule of gold: judge the destination file, not the tool that writes it. A
+# redirection target or a tee argument goes through the same _policy.decide as a
+# Write. What changes is who produced the bytes:
+#   * agent content -- a heredoc (<<, <<-), a herestring (<<<), echo or printf:
+#     the same decision as Write (``cat <<EOF > .env`` is a deny);
+#   * program output -- anything else (``./tool.py > .env``,
+#     ``sops -d x | tee .env``): an ask on a protected name, because the secret
+#     never passed through the agent but the destination is sensitive.
+# A target outside every write root is a deny either way. What a script does
+# inside (open(".env", "w") in Python) is invisible here, by design.
+
+_OPERATORS = (
+    "&>>", "&&", "||", "|&", ">>", ">|", ">&", "<<<", "<<", "<&", "&>",
+    ">", "<", "|", ";", "&", "(", ")",
+)
+_SEPARATORS = frozenset({"&&", "||", ";", "&", "(", ")"})
+_PIPES = frozenset({"|", "|&"})
+_REDIRECT_OUT = frozenset({">", ">>", ">|", "&>", "&>>"})
+_AGENT_PRODUCERS = frozenset({"echo", "printf"})
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_UNRESOLVABLE = set("$`*?[{")
+
+
+def _split_punct(tok):
+    """shlex groups adjacent punctuation (``)>``); split it into operators."""
+    out, i = [], 0
+    while i < len(tok):
+        for op in _OPERATORS:
+            if tok.startswith(op, i):
+                out.append(op)
+                i += len(op)
+                break
+        else:
+            out.append(tok[i])
+            i += 1
+    return out
+
+
+def _tokens(line):
+    lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    out = []
+    for tok in lex:
+        if tok and all(c in "();<>|&" for c in tok):
+            out.extend(_split_punct(tok))
+        else:
+            out.append(tok)
+    return out
+
+
+def _pipelines(code):
+    """Yield each pipeline as a list of stages (lists of tokens). Lines that
+    shlex cannot parse (unbalanced quotes) are skipped: this layer is a
+    speed-bump, and the pattern rules above still saw them."""
+    for line in code.split("\n"):
+        try:
+            toks = _tokens(line)
+        except ValueError:
+            continue
+        pipeline, stage = [], []
+        for t in toks:
+            if t in _SEPARATORS:
+                if stage:
+                    pipeline.append(stage)
+                if pipeline:
+                    yield pipeline
+                pipeline, stage = [], []
+            elif t in _PIPES:
+                pipeline.append(stage)
+                stage = []
+            else:
+                stage.append(t)
+        if stage:
+            pipeline.append(stage)
+        if pipeline:
+            yield pipeline
+
+
+def _strip_wrappers(words):
+    """Drop leading assignments and the wrappers guard_bash already knows
+    (sudo/doas with flag options, time, nice [-n N], env [VAR=val ...])."""
+    i = 0
+    while i < len(words):
+        w = words[i]
+        base = os.path.basename(w)
+        if _ASSIGNMENT.match(w):
+            i += 1
+        elif base in ("sudo", "doas", "env"):
+            i += 1
+            while i < len(words) and (words[i].startswith("-") or _ASSIGNMENT.match(words[i])):
+                i += 1
+        elif base == "time":
+            i += 1
+        elif base == "nice":
+            i += 1
+            if i + 1 < len(words) and words[i] == "-n":
+                i += 2
+        else:
+            break
+    return words[i:]
+
+
+class _Stage:
+    __slots__ = ("cmd", "args", "targets", "agent")
+
+    def __init__(self, tokens):
+        words, targets, agent = [], [], False
+        i = 0
+        while i < len(tokens):
+            t = tokens[i]
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+            if t in _REDIRECT_OUT:
+                if words and words[-1] in ("1", "2"):
+                    words.pop()  # the fd number of 2> / 1>>
+                if nxt is not None:
+                    targets.append(nxt)
+                i += 2
+                continue
+            if t == ">&":
+                if words and words[-1] in ("1", "2"):
+                    words.pop()
+                if nxt is not None and not (nxt.isdigit() or nxt == "-"):
+                    targets.append(nxt)  # csh-style ">& file"
+                i += 2
+                continue
+            if t in ("<<", "<<<"):
+                agent = True
+                i += 2
+                continue
+            if t in ("<", "<&"):
+                i += 2
+                continue
+            words.append(t)
+            i += 1
+        words = _strip_wrappers(words)
+        self.cmd = os.path.basename(words[0]) if words else ""
+        self.args = words[1:]
+        self.targets = targets
+        self.agent = agent or self.cmd in _AGENT_PRODUCERS
+
+
+def _stages(code):
+    for pipeline in _pipelines(code):
+        yield [_Stage(st) for st in pipeline]
+
+
+def _resolve(tok, cwd):
+    """Absolute path for a shell word, or None when it cannot be known
+    statically (variables other than $HOME, globs, command substitution)."""
+    if not tok or tok == "-" or tok.startswith("/dev/"):
+        return None
+    home = os.path.expanduser("~")
+    if tok == "~" or tok.startswith("~/"):
+        tok = home + tok[1:]
+    for var in ("${HOME}", "$HOME"):
+        if tok == var or tok.startswith(var + "/"):
+            tok = home + tok[len(var):]
+            break
+    if any(c in _UNRESOLVABLE for c in tok):
+        return None
+    if not os.path.isabs(tok):
+        tok = os.path.join(cwd, tok)
+    return os.path.abspath(tok)
+
+
+def _payload_cwd(payload):
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and cwd and "\x00" not in cwd and os.path.isabs(cwd):
+        return cwd
+    return os.getcwd()
+
+
+def _write_targets(code, cwd):
+    """Yield (token, path, agent_content) for every redirection and tee target."""
+    for stages in _stages(code):
+        previous_agent = False
+        for st in stages:
+            for tok in st.targets:
+                yield tok, _resolve(tok, cwd), st.agent
+            if st.cmd == "tee":
+                for tok in st.args:
+                    if not tok.startswith("-"):
+                        yield tok, _resolve(tok, cwd), previous_agent
+            previous_agent = st.agent
+
+
+def _target_decision(policy, tok, path, agent, payload, ws_root):
+    d = policy.decide("Write", {"file_path": path}, payload, ws_root)
+    if d.kind == policy.ALLOW:
+        return d
+    if d.scope == policy.PERIMETER:
+        return policy.deny(f"Blocked: shell output to '{tok}'. {d.reason}", policy.PERIMETER)
+    if agent:
+        return d  # same decision and message as a Write of that content
+    return policy.ask(
+        f"Program output redirected to a protected file ('{tok}'). {d.reason} "
+        f"The content does not pass through the agent, so this is a confirmation, "
+        f"not a block."
+    )
+
+
+def structural_decisions(code, payload, ws_root, policy):
+    """Decisions for where *code* (heredoc bodies already removed) writes."""
+    cwd = _payload_cwd(payload)
+    out = []
+    for tok, path, agent in _write_targets(code, cwd):
+        if path is not None:
+            out.append(_target_decision(policy, tok, path, agent, payload, ws_root))
+    return out
+
+
 def _command_is_dangerous(cmd):
     """Return True if any segment of *cmd* is a blockable rm -rf invocation.
 
@@ -442,7 +657,7 @@ def _block(reason):
     sys.exit(0)
 
 
-def _evaluate(cmd):
+def _evaluate(cmd, payload=None, ws_root=None, policy=None):
     """Run every block check against *cmd*.
 
     Calls ``_block`` (which exits 0 with a deny decision) on the first match,
@@ -451,6 +666,7 @@ def _evaluate(cmd):
     """
     # Heredoc bodies are data: drop them before any pattern runs.
     cmd, _ = split_heredocs(cmd)
+    code = cmd
     # Normalise: collapse whitespace, lowercase for pattern matching.
     # Append a trailing space so patterns anchored on a following whitespace
     # (e.g. "/ " or "~ ") still match when the command ends at the target.
@@ -511,6 +727,12 @@ def _evaluate(cmd):
             "Use more restrictive permissions."
         )
 
+    if policy is None:
+        return None
+    return policy.strictest(
+        structural_decisions(code, payload or {}, ws_root, policy)
+    )
+
 
 def _read_command():
     """Return the command string, or None after denying malformed input."""
@@ -532,7 +754,7 @@ def _read_command():
     if not isinstance(cmd, str):
         _deny(f"{_HOOK}: command is not a string; refusing.")
         return None
-    return cmd
+    return cmd, data
 
 
 def main():
@@ -540,9 +762,17 @@ def main():
     # derives from BaseException and passes through untouched; any other
     # exception means the checks could not run, so the command is denied.
     try:
-        cmd = _read_command()
-        if cmd:
-            _evaluate(cmd)
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import _policy
+
+        read = _read_command()
+        if read and read[0]:
+            cmd, data = read
+            decision = _evaluate(cmd, data, _get_root(), _policy)
+            if decision is not None:
+                _policy.emit(decision)
     except Exception as e:  # noqa: BLE001 - intentional broad fail-closed
         reason = f"{_HOOK} crashed: {type(e).__name__}: {e}"
         _log_failure(reason)
