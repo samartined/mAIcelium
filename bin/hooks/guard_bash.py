@@ -14,13 +14,18 @@ It is INHERENTLY BYPASSABLE because:
     ``cd /etc && rm -rf foo`` is a known gap, documented in the tests).
   - A malicious user could construct an infinite number of equivalent encodings.
 
-The hook FAILS OPEN by design (logged to .claude/hook-failures.log):
-  - If stdin is malformed, the hook exits 0 without blocking.
-  - If an unexpected exception occurs, the hook exits 0 without blocking.
+The hook FAILS CLOSED (logged to .claude/hook-failures.log):
+  - If stdin is malformed, the hook denies the command.
+  - If an unexpected exception occurs, the hook denies the command.
+  Being a speed-bump is about what it can *detect*; when it cannot run its
+  checks at all it refuses rather than waving everything through.
   Real security boundaries are:
     1. Workspace write-scope enforcement via guard_write.py
     2. Human review of agent-proposed commands
     3. Principle of least privilege on the OS side
+
+Decisions are printed as ``hookSpecificOutput.permissionDecision`` (deny);
+an allowed command prints nothing.
 
 COVERED (common literal destructive cases — best-effort, NOT guaranteed
 false-positive-free or complete)
@@ -236,7 +241,7 @@ _RM_SAFE_OPERANDS = re.compile(
 # safe ``rm -rf <allowlisted>`` in one segment from waiving the block on a
 # dangerous ``rm -rf /`` in another (Finding 2).  This is a deliberately
 # shallow split (it does not understand quotes/subshells) which is consistent
-# with the best-effort, fail-open nature of the hook: at worst it over-splits,
+# with the best-effort nature of the hook: at worst it over-splits,
 # which can only make the guard MORE conservative, never less.
 _SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\||\n")
 
@@ -321,6 +326,9 @@ def _command_is_dangerous(cmd):
     return False
 
 
+_HOOK = "guard_bash"
+
+
 def _get_root():
     """Resolve workspace root. Allow override via MAICELIUM_ROOT for tests."""
     env_root = os.environ.get("MAICELIUM_ROOT")
@@ -340,22 +348,37 @@ def _log_failure(reason):
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         ts = datetime.now(timezone.utc).isoformat()
         with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"{ts} guard_bash {reason}\n")
+            f.write(f"{ts} {_HOOK} {reason}\n")
     except OSError:
         pass
 
 
+def _deny(reason):
+    """Print a deny decision (current hook output contract)."""
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
+
+
 def _block(reason):
-    print(json.dumps({"decision": "block", "reason": reason}))
-    sys.exit(0)  # fail-open by design (see module docstring)
+    _deny(reason)
+    sys.exit(0)
 
 
 def _evaluate(cmd):
     """Run every block check against *cmd*.
 
-    Calls ``_block`` (which exits 0 with a block decision) on the first match,
+    Calls ``_block`` (which exits 0 with a deny decision) on the first match,
     otherwise returns normally.  Isolated from stdin handling so the caller can
-    wrap it in a fail-open guard (see ``main``).
+    wrap it in a fail-closed guard (see ``main``).
     """
     # Normalise: collapse whitespace, lowercase for pattern matching.
     # Append a trailing space so patterns anchored on a following whitespace
@@ -414,37 +437,42 @@ def _evaluate(cmd):
         )
 
 
-def main():
+def _read_command():
+    """Return the command string, or None after denying malformed input."""
     try:
-        data = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError) as e:
+        data = json.loads(sys.stdin.read())
+    except ValueError as e:
         _log_failure(f"stdin-parse-error: {e}")
-        sys.exit(0)  # fail-open by design (see module docstring)
-
+        _deny(f"{_HOOK}: invalid hook input (not JSON); refusing.")
+        return None
     if not isinstance(data, dict):
         _log_failure("stdin-not-object")
-        sys.exit(0)  # fail-open by design (see module docstring)
-
-    tool_input = data.get("tool_input") or {}
+        _deny(f"{_HOOK}: invalid hook input (not an object); refusing.")
+        return None
+    tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
-        sys.exit(0)  # fail-open by design (see module docstring)
-
+        _deny(f"{_HOOK}: hook input has no tool_input object; refusing.")
+        return None
     cmd = tool_input.get("command", "")
-    if not isinstance(cmd, str) or not cmd:
-        sys.exit(0)  # fail-open by design (see module docstring)
+    if not isinstance(cmd, str):
+        _deny(f"{_HOOK}: command is not a string; refusing.")
+        return None
+    return cmd
 
-    # Fail-open guard (Finding 3): any UNEXPECTED error in the matching logic
-    # must exit 0 without blocking, matching the documented contract.  A
-    # legitimate block raises SystemExit (from _block); SystemExit derives from
-    # BaseException, not Exception, so it propagates through untouched and the
-    # block decision is preserved.
+
+def main():
+    # Fail closed: a legitimate block raises SystemExit (from _block), which
+    # derives from BaseException and passes through untouched; any other
+    # exception means the checks could not run, so the command is denied.
     try:
-        _evaluate(cmd)
-    except Exception as e:  # noqa: BLE001 — intentional broad fail-open
-        _log_failure(f"evaluate-error: {type(e).__name__}: {e}")
-        sys.exit(0)  # fail-open by design (see module docstring)
-
-    sys.exit(0)  # fail-open by design (see module docstring)
+        cmd = _read_command()
+        if cmd:
+            _evaluate(cmd)
+    except Exception as e:  # noqa: BLE001 - intentional broad fail-closed
+        reason = f"{_HOOK} crashed: {type(e).__name__}: {e}"
+        _log_failure(reason)
+        _deny(f"Blocked: {reason}. Refusing as a safety measure.")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
