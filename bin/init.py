@@ -28,8 +28,6 @@ _SETTINGS_JSON = """\
       "Bash(cat:*)",
       "Bash(find:*)",
       "Bash(realpath:*)",
-      "Bash(ln:*)",
-      "Bash(rm:*)",
       "Bash(mkdir:*)",
       "Bash(python3:bin/*)",
       "Bash(python3:bin/hooks/*)",
