@@ -52,7 +52,7 @@ _SETTINGS_JSON = """\
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Shell",
         "hooks": [
           {
             "type": "command",
