@@ -92,6 +92,7 @@ DOCUMENTED GAPS (not blocked — known best-effort limit)
 import json
 import os
 import re
+import shlex
 import sys
 from datetime import datetime, timezone
 
@@ -279,6 +280,386 @@ _LEADING_WRAPPERS = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Command vs. data: heredoc bodies and quoted literals
+# ---------------------------------------------------------------------------
+# A heredoc body or a quoted phrase is data the command receives, not a command
+# the shell runs. Matching patterns against it made a Terraform plan or a script
+# that merely MENTIONS ``chmod 777`` or a destructive SQL statement look
+# dangerous, and since heredocs were the usual way around guard_write the two
+# guards multiplied.
+
+_QUOTED = re.compile(r"""'[^']*'|"(?:\\.|[^"\\])*\"""")
+
+# A heredoc operator: << or <<- followed by an optionally quoted delimiter.
+# The lookarounds keep the herestring operator <<< out.
+_HEREDOC_OP = re.compile(
+    r"""(?<!<)<<(?!<)(-?)\s*(?:'([^']*)'|"([^"]*)"|\\?([A-Za-z_][\w.-]*))"""
+)
+
+
+def _blank_quotes(line):
+    """Replace quoted strings with same-length filler so operators inside
+    quotes are not mistaken for real ones (positions are preserved)."""
+    return _QUOTED.sub(lambda m: "_" * len(m.group(0)), line)
+
+
+def split_heredocs(cmd):
+    """Return (code, heredoc_count): *cmd* without heredoc bodies.
+
+    The line holding the ``<<DELIM`` operator stays, so callers still see that
+    the command reads a heredoc; the body lines up to the closing delimiter are
+    dropped. Operators inside quotes are ignored, so ``echo "<<X"`` does not
+    swallow the following lines. An unterminated body runs to the end, as in
+    the shell.
+    """
+    out, pending, count = [], [], 0
+    for line in cmd.split("\n"):
+        if pending:
+            strip_tabs, delim = pending[0]
+            candidate = line.lstrip("\t") if strip_tabs else line
+            if candidate == delim:
+                pending.pop(0)
+            continue
+        out.append(line)
+        for m in _HEREDOC_OP.finditer(_blank_quotes(line)):
+            # Re-read the operator from the original line: blanking only
+            # touched quoted text, so a quoted delimiter ('EOF') is restored.
+            g = _HEREDOC_OP.match(line, m.start()) or m
+            if g.group(2) is not None:
+                delim = g.group(2)
+            elif g.group(3) is not None:
+                delim = g.group(3)
+            else:
+                delim = g.group(4)
+            pending.append((g.group(1) == "-", delim))
+            count += 1
+    return "\n".join(out), count
+
+
+def _unquote_words(code):
+    """Quoted single words become bare words (``"main"`` -> ``main``); quoted
+    phrases (anything with whitespace) are blanked: they are messages, prompts
+    or source code passed as an argument, not commands."""
+
+    def repl(m):
+        inner = m.group(0)[1:-1]
+        return inner if inner and not any(c.isspace() for c in inner) else '""'
+
+    return _QUOTED.sub(repl, code)
+
+
+# ---------------------------------------------------------------------------
+# Where does the command write? Redirections and tee, judged by _policy
+# ---------------------------------------------------------------------------
+# The rule of gold: judge the destination file, not the tool that writes it. A
+# redirection target or a tee argument goes through the same _policy.decide as a
+# Write. What changes is who produced the bytes:
+#   * agent content -- a heredoc (<<, <<-), a herestring (<<<), echo or printf:
+#     the same decision as Write (``cat <<EOF > .env`` is a deny);
+#   * program output -- anything else (``./tool.py > .env``,
+#     ``sops -d x | tee .env``): an ask on a protected name, because the secret
+#     never passed through the agent but the destination is sensitive.
+# A target outside every write root is a deny either way. What a script does
+# inside (open(".env", "w") in Python) is invisible here, by design.
+
+_OPERATORS = (
+    "&>>", "&&", "||", "|&", ">>", ">|", ">&", "<<<", "<<", "<&", "&>",
+    ">", "<", "|", ";", "&", "(", ")",
+)
+_SEPARATORS = frozenset({"&&", "||", ";", "&", "(", ")"})
+_PIPES = frozenset({"|", "|&"})
+_REDIRECT_OUT = frozenset({">", ">>", ">|", "&>", "&>>"})
+_AGENT_PRODUCERS = frozenset({"echo", "printf"})
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_UNRESOLVABLE = set("$`*?[{")
+
+
+def _split_punct(tok):
+    """shlex groups adjacent punctuation (``)>``); split it into operators."""
+    out, i = [], 0
+    while i < len(tok):
+        for op in _OPERATORS:
+            if tok.startswith(op, i):
+                out.append(op)
+                i += len(op)
+                break
+        else:
+            out.append(tok[i])
+            i += 1
+    return out
+
+
+def _tokens(line):
+    lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    out = []
+    for tok in lex:
+        if tok and all(c in "();<>|&" for c in tok):
+            out.extend(_split_punct(tok))
+        else:
+            out.append(tok)
+    return out
+
+
+def _pipelines(code):
+    """Yield each pipeline as a list of stages (lists of tokens). Lines that
+    shlex cannot parse (unbalanced quotes) are skipped: this layer is a
+    speed-bump, and the pattern rules above still saw them."""
+    for line in code.split("\n"):
+        try:
+            toks = _tokens(line)
+        except ValueError:
+            continue
+        pipeline, stage = [], []
+        for t in toks:
+            if t in _SEPARATORS:
+                if stage:
+                    pipeline.append(stage)
+                if pipeline:
+                    yield pipeline
+                pipeline, stage = [], []
+            elif t in _PIPES:
+                pipeline.append(stage)
+                stage = []
+            else:
+                stage.append(t)
+        if stage:
+            pipeline.append(stage)
+        if pipeline:
+            yield pipeline
+
+
+def _strip_wrappers(words):
+    """Drop leading assignments and the wrappers guard_bash already knows
+    (sudo/doas with flag options, time, nice [-n N], env [VAR=val ...])."""
+    i = 0
+    while i < len(words):
+        w = words[i]
+        base = os.path.basename(w)
+        if _ASSIGNMENT.match(w):
+            i += 1
+        elif base in ("sudo", "doas", "env"):
+            i += 1
+            while i < len(words) and (words[i].startswith("-") or _ASSIGNMENT.match(words[i])):
+                i += 1
+        elif base == "time":
+            i += 1
+        elif base == "nice":
+            i += 1
+            if i + 1 < len(words) and words[i] == "-n":
+                i += 2
+        else:
+            break
+    return words[i:]
+
+
+class _Stage:
+    __slots__ = ("cmd", "args", "targets", "agent")
+
+    def __init__(self, tokens):
+        words, targets, agent = [], [], False
+        i = 0
+        while i < len(tokens):
+            t = tokens[i]
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+            if t in _REDIRECT_OUT:
+                if words and words[-1] in ("1", "2"):
+                    words.pop()  # the fd number of 2> / 1>>
+                if nxt is not None:
+                    targets.append(nxt)
+                i += 2
+                continue
+            if t == ">&":
+                if words and words[-1] in ("1", "2"):
+                    words.pop()
+                if nxt is not None and not (nxt.isdigit() or nxt == "-"):
+                    targets.append(nxt)  # csh-style ">& file"
+                i += 2
+                continue
+            if t in ("<<", "<<<"):
+                agent = True
+                i += 2
+                continue
+            if t in ("<", "<&"):
+                i += 2
+                continue
+            words.append(t)
+            i += 1
+        words = _strip_wrappers(words)
+        self.cmd = os.path.basename(words[0]) if words else ""
+        self.args = words[1:]
+        self.targets = targets
+        self.agent = agent or self.cmd in _AGENT_PRODUCERS
+
+
+def _stages(code):
+    for pipeline in _pipelines(code):
+        yield [_Stage(st) for st in pipeline]
+
+
+def _resolve(tok, cwd):
+    """Absolute path for a shell word, or None when it cannot be known
+    statically (variables other than $HOME, globs, command substitution)."""
+    if not tok or tok == "-" or tok.startswith("/dev/"):
+        return None
+    home = os.path.expanduser("~")
+    if tok == "~" or tok.startswith("~/"):
+        tok = home + tok[1:]
+    for var in ("${HOME}", "$HOME"):
+        if tok == var or tok.startswith(var + "/"):
+            tok = home + tok[len(var):]
+            break
+    if any(c in _UNRESOLVABLE for c in tok):
+        return None
+    if not os.path.isabs(tok):
+        tok = os.path.join(cwd, tok)
+    return os.path.abspath(tok)
+
+
+def _payload_cwd(payload):
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and cwd and "\x00" not in cwd and os.path.isabs(cwd):
+        return cwd
+    return os.getcwd()
+
+
+def _write_targets(code, cwd):
+    """Yield (token, path, agent_content) for every redirection and tee target."""
+    for stages in _stages(code):
+        previous_agent = False
+        for st in stages:
+            for tok in st.targets:
+                yield tok, _resolve(tok, cwd), st.agent
+            if st.cmd == "tee":
+                for tok in st.args:
+                    if not tok.startswith("-"):
+                        yield tok, _resolve(tok, cwd), previous_agent
+            previous_agent = st.agent
+
+
+def _target_decision(policy, tok, path, agent, payload, ws_root):
+    d = policy.decide("Write", {"file_path": path}, payload, ws_root)
+    if d.kind == policy.ALLOW:
+        return d
+    if d.scope == policy.PERIMETER:
+        return policy.deny(f"Blocked: shell output to '{tok}'. {d.reason}", policy.PERIMETER)
+    if agent:
+        return d  # same decision and message as a Write of that content
+    return policy.ask(
+        f"Program output redirected to a protected file ('{tok}'). {d.reason} "
+        f"The content does not pass through the agent, so this is a confirmation, "
+        f"not a block."
+    )
+
+
+# Write verbs that must not touch the guard files (#44, Bash side). Reading them
+# (cat, grep, rg, git diff, pytest) stays allowed.
+_GUARD_WRITE_CMDS = frozenset({"cp", "mv", "rm", "chmod", "truncate", "install", "patch", "tee"})
+
+
+def _writes_operands(st):
+    """True if this stage's command writes to (some of) its operands."""
+    if st.cmd in _GUARD_WRITE_CMDS:
+        return True
+    if st.cmd == "sed":
+        return any(
+            a.startswith("--in-place")
+            or (a.startswith("-") and not a.startswith("--") and "i" in a[1:])
+            for a in st.args
+        )
+    if st.cmd == "git" and st.args:
+        sub = st.args[0]
+        return (sub == "checkout" and "--" in st.args) or sub == "restore"
+    return False
+
+
+def _guard_message(tok):
+    return (
+        f"Blocked: this command would modify the guard file '{tok}'. The guards "
+        f"and the workspace settings can only change through Write/Edit, where "
+        f"the user confirms each change. Ask the user if this change is intended."
+    )
+
+
+def _ln_destination(st, cwd):
+    """Where an ``ln`` invocation creates its link(s), as an absolute path."""
+    target_dir, operands, args, i = None, [], st.args, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            operands.extend(args[i + 1:])
+            break
+        if a == "--target-directory" or (a.startswith("-") and not a.startswith("--") and a.endswith("t")):
+            target_dir = args[i + 1] if i + 1 < len(args) else None
+            i += 2
+            continue
+        if a.startswith("--target-directory="):
+            target_dir = a.split("=", 1)[1]
+        elif a.startswith("-t") and len(a) > 2:
+            target_dir = a[2:]
+        elif not a.startswith("-"):
+            operands.append(a)
+        i += 1
+    if target_dir:
+        return _resolve(target_dir, cwd)
+    if len(operands) >= 2:
+        return _resolve(operands[-1], cwd)
+    if len(operands) == 1:
+        return os.path.abspath(cwd)
+    return None
+
+
+def _is_mount_folder_target(path, ws_root, policy):
+    """True if *path* is <ws>/projects/... or <ws>/mesh/... (either identity)."""
+    bases = []
+    for ws in {os.path.abspath(ws_root), os.path.realpath(ws_root)}:
+        bases += [os.path.join(ws, "projects"), os.path.join(ws, "mesh")]
+    idents = {os.path.abspath(path), os.path.realpath(path)}
+    return any(policy.is_under(i, b) for i in idents for b in bases)
+
+
+def _command_decisions(code, cwd, ws_root, policy):
+    """ln into the mount folders, and write verbs on the guard files."""
+    out = []
+    for stages in _stages(code):
+        for st in stages:
+            if st.cmd == "ln":
+                dest = _ln_destination(st, cwd)
+                if dest and _is_mount_folder_target(dest, ws_root, policy):
+                    out.append(
+                        policy.deny(
+                            "Blocked: `ln` into projects/ or mesh/. Those folders hold "
+                            "the mounts mAIcelium manages, and a hand-made link there "
+                            "becomes a write root. Mount repos with `mai add <name> "
+                            "<path>`, layers with `mai add-layer <name> <path>` and MCP "
+                            "sources with `mai add-mcp <path>`."
+                        )
+                    )
+            if _writes_operands(st):
+                for tok in st.args:
+                    if tok.startswith("-"):
+                        continue
+                    path = _resolve(tok, cwd)
+                    if path and policy.is_guard_target(path, ws_root):
+                        out.append(policy.deny(_guard_message(tok)))
+    return out
+
+
+def structural_decisions(code, payload, ws_root, policy):
+    """Decisions for where *code* (heredoc bodies already removed) writes."""
+    cwd = _payload_cwd(payload)
+    out = _command_decisions(code, cwd, ws_root, policy)
+    for tok, path, agent in _write_targets(code, cwd):
+        if path is None:
+            continue
+        if policy.is_guard_target(path, ws_root):
+            out.append(policy.deny(_guard_message(tok)))
+        else:
+            out.append(_target_decision(policy, tok, path, agent, payload, ws_root))
+    return out
+
+
 def _command_is_dangerous(cmd):
     """Return True if any segment of *cmd* is a blockable rm -rf invocation.
 
@@ -373,17 +754,24 @@ def _block(reason):
     sys.exit(0)
 
 
-def _evaluate(cmd):
+def _evaluate(cmd, payload=None, ws_root=None, policy=None):
     """Run every block check against *cmd*.
 
     Calls ``_block`` (which exits 0 with a deny decision) on the first match,
     otherwise returns normally.  Isolated from stdin handling so the caller can
     wrap it in a fail-closed guard (see ``main``).
     """
+    # Heredoc bodies are data: drop them before any pattern runs.
+    cmd, _ = split_heredocs(cmd)
+    code = cmd
     # Normalise: collapse whitespace, lowercase for pattern matching.
     # Append a trailing space so patterns anchored on a following whitespace
     # (e.g. "/ " or "~ ") still match when the command ends at the target.
+    # ``norm`` keeps quoted text, because SQL is normally passed quoted to a
+    # client (psql -c "..."); ``bare`` blanks quoted phrases for the rules that
+    # only make sense on real command words (chmod, force push, mkfs/dd).
     norm = " ".join(cmd.lower().split()) + " "
+    bare = " ".join(_unquote_words(cmd).lower().split()) + " "
 
     # -----------------------------------------------------------------------
     # Catastrophic deletion guard (rm -rf on dangerous targets)
@@ -414,8 +802,8 @@ def _evaluate(cmd):
         )
 
     # Force push to main/master
-    if re.search(r"git\s+push\s+.*(-f|--force)", norm) and re.search(
-        r"\b(main|master)\b", norm
+    if re.search(r"git\s+push\s+.*(-f|--force)", bare) and re.search(
+        r"\b(main|master)\b", bare
     ):
         _block(
             "Blocked: force push to main/master. "
@@ -423,18 +811,24 @@ def _evaluate(cmd):
         )
 
     # Dangerous disk ops
-    if re.search(r"(mkfs\.|>\s*/dev/sd|dd\s+if=.*/dev/)", norm):
+    if re.search(r"(mkfs\.|>\s*/dev/sd|dd\s+if=.*/dev/)", bare):
         _block(
             "Blocked: low-level disk operation (mkfs/dd). "
             "This could destroy disk data."
         )
 
     # chmod 777
-    if re.search(r"chmod\s+777", norm):
+    if re.search(r"chmod\s+777", bare):
         _block(
             "Blocked: chmod 777 sets world-writable permissions. "
             "Use more restrictive permissions."
         )
+
+    if policy is None:
+        return None
+    return policy.strictest(
+        structural_decisions(code, payload or {}, ws_root, policy)
+    )
 
 
 def _read_command():
@@ -457,7 +851,7 @@ def _read_command():
     if not isinstance(cmd, str):
         _deny(f"{_HOOK}: command is not a string; refusing.")
         return None
-    return cmd
+    return cmd, data
 
 
 def main():
@@ -465,9 +859,17 @@ def main():
     # derives from BaseException and passes through untouched; any other
     # exception means the checks could not run, so the command is denied.
     try:
-        cmd = _read_command()
-        if cmd:
-            _evaluate(cmd)
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import _policy
+
+        read = _read_command()
+        if read and read[0]:
+            cmd, data = read
+            decision = _evaluate(cmd, data, _get_root(), _policy)
+            if decision is not None:
+                _policy.emit(decision)
     except Exception as e:  # noqa: BLE001 - intentional broad fail-closed
         reason = f"{_HOOK} crashed: {type(e).__name__}: {e}"
         _log_failure(reason)

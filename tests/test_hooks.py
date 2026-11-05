@@ -1657,3 +1657,251 @@ def test_guard_write_outside_message_explains_how_to_mount(tmp_path):
 )
 def test_guard_write_deny_messages_carry_a_hint(tmp_path, rel, hint):
     assert hint in _reason(_write(tmp_path.joinpath(*rel), tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — commands, not data: heredoc bodies and quoted phrases
+# ---------------------------------------------------------------------------
+
+_SQL_DROP = "DROP " + "TABLE users;"  # split so the literal is not one token
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > plan.sql <<'EOF'\n" + _SQL_DROP + "\nEOF",
+        "cat > notes.md <<EOF\nnever run chmod 777 on prod\nEOF",
+        "cat <<-EOF > runbook.md\n\tgit push --force origin main is forbidden\n\tEOF",
+        "python3 - <<'PY'\nimport os\nprint('chmod 777 is world-writable')\nPY",
+        "terraform show plan.tfplan > plan.txt <<EOF\nmkfs.ext4 /dev/sdb\nEOF",
+        "python3 -c \"print('chmod 777 is world-writable')\"",
+        "git commit -m \"docs: explain why chmod 777 is refused\"",
+        "git commit -m \"note: git push --force to main is blocked\"",
+    ],
+)
+def test_guard_bash_ignores_data_in_heredocs_and_quoted_phrases(command):
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # A quoted operator does not open a heredoc that hides the next line.
+        'echo "<<X"\nrm -rf /',
+        "echo '<<X'\nchmod 777 secret.sh",
+        # Quoted single words are still words.
+        'git push --force origin "main"',
+        'chmod "777" secret.sh',
+        # Commands after the heredoc terminator are still checked.
+        "cat > a.txt <<EOF\nhello\nEOF\nrm -rf /etc",
+        # SQL handed to a client as a quoted argument is still caught.
+        'psql -c "' + _SQL_DROP + '"',
+    ],
+)
+def test_guard_bash_still_blocks_real_commands_around_data(command):
+    assert _is_block(_run_hook(GUARD_BASH, {"tool_input": {"command": command}})), command
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — redirection and tee targets go through _policy.decide
+# ---------------------------------------------------------------------------
+
+
+def _bash(command, ws, cwd=None, env=None, payload=None):
+    run_env = {"MAICELIUM_ROOT": str(ws)}
+    if env:
+        run_env.update(env)
+    data = {
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "cwd": str(cwd or ws),
+    }
+    if payload:
+        data.update(payload)
+    return _run_hook(GUARD_BASH, data, env=run_env)
+
+
+def _p(path):
+    """A path as a shell word (forward slashes, also on Windows)."""
+    return str(path).replace("\\", "/")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > .env <<'EOF'\nK=v\nEOF",
+        "cat <<EOF > .env.local\nK=v\nEOF",
+        'echo "K=v" > .env',
+        "printf 'K=v\\n' >> .env",
+        "cat <<< 'K=v' > .env",
+        "echo K=v | tee .env",
+        "echo x > .git/config",
+        "echo '{}' > package-lock.json",
+    ],
+)
+def test_guard_bash_agent_content_to_protected_name_denied(tmp_path, command):
+    """Heredoc, herestring, echo and printf content gets Write's decision."""
+    assert _is_block(_bash(command, tmp_path)), command
+
+
+def test_guard_bash_agent_content_deny_matches_write_message(tmp_path):
+    bash = _bash("cat <<EOF > .env\nK=v\nEOF", tmp_path)
+    write = _write(tmp_path / ".env", tmp_path)
+    assert _reason(bash) == _reason(write)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "./tool.py > .env",
+        "sops -d secrets.enc.yaml > .env",
+        "sops -d x | tee .env",
+        "echo K=v | sort | tee .env",  # tee's producer is sort, a program
+        "gen-config 2> /dev/null > .env.production",
+    ],
+)
+def test_guard_bash_program_output_to_protected_name_asks(tmp_path, command):
+    assert _decision(_bash(command, tmp_path)) == "ask", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python rotate.py",
+        "sops -e -i secrets.yaml",
+        "./tool.py > out.json 2>&1",
+        "make build > build.log 2>/dev/null",
+        "ls >&2",
+        "echo hi > /dev/null",
+        "cat <<EOF > notes.md\nhello\nEOF",
+        "cat <<'EOF' | tee -a docs/plan.md\nstep 1\nEOF",
+        "echo x > \"$TARGET\"",  # unresolvable: left to the other layers
+    ],
+)
+def test_guard_bash_inside_roots_allowed(tmp_path, command):
+    """Decision 4: heredoc to a file inside the roots is allowed."""
+    assert _decision(_bash(command, tmp_path)) is None, command
+
+
+def test_guard_bash_tee_outside_roots_denied(tmp_path):
+    ws, home = tmp_path / "ws", tmp_path / "home"
+    ws.mkdir()
+    home.mkdir()
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    for command in ("echo x | tee ~/fuera.txt", "date | tee $HOME/fuera.txt"):
+        result = _bash(command, ws, env=env)
+        assert _is_block(result), command
+        assert "mai add" in _reason(result)
+
+
+def test_guard_bash_redirect_outside_roots_denied_for_programs_too(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert _is_block(_bash(f"./tool.py > {_p(tmp_path / 'elsewhere' / 'x.txt')}", ws))
+
+
+@requires_symlink
+def test_guard_bash_echo_into_mounted_project_allowed(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    for target in (ws / "projects" / "demo" / "a.txt", repo / "b.txt"):
+        assert _decision(_bash(f"echo x > {_p(target)}", ws, env=env)) is None, target
+
+
+def test_guard_bash_relative_targets_use_payload_cwd(tmp_path):
+    ws = tmp_path / "ws"
+    (ws / "sub").mkdir(parents=True)
+    assert _is_block(_bash("echo K=v > ../.env", ws, cwd=ws / "sub"))
+    assert _decision(_bash("echo x > ../ok.txt", ws, cwd=ws / "sub")) is None
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — ln into the mount folders, write verbs on guard files (#44)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ln -s ~ projects/home",
+        "ln -s /opt/repo projects/",
+        "ln -sfn ../elsewhere mesh/layers/evil",
+        "ln -s /x -t projects",
+        "ln -s /x --target-directory=mesh/layers",
+        "sudo ln -s ~ mesh/mcp",
+        "rm -rf projects && ln -s ~ projects",
+    ],
+)
+def test_guard_bash_denies_ln_into_mount_folders(tmp_path, command):
+    (tmp_path / "projects").mkdir()
+    (tmp_path / "mesh" / "layers").mkdir(parents=True)
+    result = _bash(command, tmp_path)
+    assert _is_block(result), command
+    assert "mai add" in _reason(result)
+
+
+def test_guard_bash_denies_ln_from_inside_mount_folder(tmp_path):
+    """`cd projects && ln -s ~ home`: with the payload cwd in projects/, a
+    single-operand ln creates the link right there."""
+    (tmp_path / "projects").mkdir()
+    assert _is_block(_bash("ln -s ~", tmp_path, cwd=tmp_path / "projects"))
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["ln -s ../shared/config.yaml config.yaml", "ln -sf build/app bin/app", "ln a b"],
+)
+def test_guard_bash_allows_ordinary_ln(tmp_path, command):
+    assert _decision(_bash(command, tmp_path)) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sed -i 's/deny/allow/' bin/hooks/guard_bash.py",
+        "sed -Ei 's/x/y/' bin/hooks/_policy.py",
+        "sed --in-place 's/x/y/' bin/py.sh",
+        "cp /tmp/x.py bin/hooks/guard_write.py",
+        "mv bin/hooks/guard_bash.py /tmp/",
+        "rm bin/hooks/guard_write.py",
+        "chmod -x bin/py.sh",
+        "truncate -s 0 bin/hooks/guard_bash.py",
+        "install -m 755 x bin/py.cmd",
+        "patch bin/hooks/_policy.py < fix.diff",
+        "git checkout -- bin/hooks/guard_bash.py",
+        "git checkout HEAD~3 -- bin/hooks/_policy.py",
+        "git restore bin/hooks/guard_write.py",
+        "echo '' > bin/hooks/guard_write.py",
+        "./gen.sh >> bin/py.sh",
+        "echo x | tee bin/hooks/guard_bash.py",
+        "echo '{}' > .claude/settings.json",
+        "cp other.json .claude/settings.local.json",
+    ],
+)
+def test_guard_bash_denies_write_verbs_on_guard_files(tmp_path, command):
+    result = _bash(command, tmp_path)
+    assert _is_block(result), command
+    assert "guard file" in _reason(result)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat bin/hooks/guard_bash.py",
+        "grep -n deny bin/hooks/_policy.py",
+        "rg ask bin/hooks/",
+        "git diff bin/hooks/guard_write.py",
+        "python -m pytest tests/test_hooks.py",
+        "sed -n '1,20p' bin/hooks/guard_bash.py",
+        "git checkout main",
+    ],
+)
+def test_guard_bash_allows_reading_guard_files(tmp_path, command):
+    assert not _is_block(_bash(command, tmp_path)), command
+
+
+def test_guard_bash_cp_from_a_guard_file_is_also_denied(tmp_path):
+    """The rule is "names a guard file and uses a write verb": copying FROM a
+    guard is denied too. Read it with cat/grep instead."""
+    assert _is_block(_bash("cp bin/hooks/guard_bash.py review-copy.py", tmp_path))

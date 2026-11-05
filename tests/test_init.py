@@ -244,6 +244,10 @@ def test_init_includes_python_permissions(tmp_path):
     allowed = data["permissions"]["allow"]
     assert "Bash(python3:bin/*)" in allowed
     assert "Bash(bin/py.sh:*)" in allowed
+    # ln and rm must not be prompt-free: they are the building blocks of every
+    # symlink-based way around the write guard (#43).
+    assert "Bash(ln:*)" not in allowed
+    assert "Bash(rm:*)" not in allowed
 
 
 # ── Test 10: init runs sync at the end ──────────────────────────────────────
