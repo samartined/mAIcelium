@@ -42,8 +42,9 @@ No guard can relax another. mAIcelium's hooks are registered only in the
 workspace's own `.claude/settings.json`. They apply to sessions launched in
 mAIcelium and are **not** meant to be installed globally.
 
-The hook commands use `"${CLAUDE_PROJECT_DIR}"/…` paths, so they work from any
-working directory. On Windows, Claude Code runs command hooks with Git Bash, so
+The hook commands use `"${CLAUDE_PROJECT_DIR:-.}"/…` paths, so they work from
+any working directory, and fall back to the working directory when a runner does
+not set `CLAUDE_PROJECT_DIR`. On Windows, Claude Code runs command hooks with Git Bash, so
 `bin/py.sh` is the launcher there too. `bin/py.cmd` is for running the scripts
 by hand from `cmd`.
 
@@ -224,6 +225,29 @@ mAIcelium's guards and an orchestration's guards never share a session. The
 orchestrations' heredoc ban stays where it is: those runs are unattended and
 write infrastructure code. In mAIcelium, heredocs inside the roots are allowed
 and measured.
+
+## Other agent environments
+
+mAIcelium is meant to work with several agent environments. Its guards are
+written as Claude Code hooks, and today neither of the other two environments
+has a guard of its own from mAIcelium.
+
+**Cursor** runs Claude Code hooks by import. By default it loads the hooks of
+`.claude/settings.json` (Settings > Agents > Third-Party Imports) and maps
+`PreToolUse` to its own `preToolUse`. So in a Cursor agent session opened on the
+workspace, the mAIcelium guards may run, but with Cursor's tool names and
+payloads. Whether they work there is still to be verified. The known risks and a
+manual test procedure are tracked in #49. Cursor's own limits also
+apply:
+- there is no hook before a file edit, only `preToolUse` and `afterFileEdit`;
+- `ask` is not enforced on `preToolUse`.
+
+**Antigravity** reads `.agents/` (rules, skills, `hooks.json`) but nothing from
+`.claude/`, so none of the mAIcelium guards run there.
+
+Native adapters for both environments are planned in #50. They would
+put a thin layer over `_policy.decide()`, generated into `.cursor/hooks.json`
+and `.agents/hooks.json` by `sync_symlinks.py`.
 
 ## Residual risks
 
