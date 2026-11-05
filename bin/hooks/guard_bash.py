@@ -553,12 +553,109 @@ def _target_decision(policy, tok, path, agent, payload, ws_root):
     )
 
 
+# Write verbs that must not touch the guard files (#44, Bash side). Reading them
+# (cat, grep, rg, git diff, pytest) stays allowed.
+_GUARD_WRITE_CMDS = frozenset({"cp", "mv", "rm", "chmod", "truncate", "install", "patch", "tee"})
+
+
+def _writes_operands(st):
+    """True if this stage's command writes to (some of) its operands."""
+    if st.cmd in _GUARD_WRITE_CMDS:
+        return True
+    if st.cmd == "sed":
+        return any(
+            a.startswith("--in-place")
+            or (a.startswith("-") and not a.startswith("--") and "i" in a[1:])
+            for a in st.args
+        )
+    if st.cmd == "git" and st.args:
+        sub = st.args[0]
+        return (sub == "checkout" and "--" in st.args) or sub == "restore"
+    return False
+
+
+def _guard_message(tok):
+    return (
+        f"Blocked: this command would modify the guard file '{tok}'. The guards "
+        f"and the workspace settings can only change through Write/Edit, where "
+        f"the user confirms each change. Ask the user if this change is intended."
+    )
+
+
+def _ln_destination(st, cwd):
+    """Where an ``ln`` invocation creates its link(s), as an absolute path."""
+    target_dir, operands, args, i = None, [], st.args, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            operands.extend(args[i + 1:])
+            break
+        if a == "--target-directory" or (a.startswith("-") and not a.startswith("--") and a.endswith("t")):
+            target_dir = args[i + 1] if i + 1 < len(args) else None
+            i += 2
+            continue
+        if a.startswith("--target-directory="):
+            target_dir = a.split("=", 1)[1]
+        elif a.startswith("-t") and len(a) > 2:
+            target_dir = a[2:]
+        elif not a.startswith("-"):
+            operands.append(a)
+        i += 1
+    if target_dir:
+        return _resolve(target_dir, cwd)
+    if len(operands) >= 2:
+        return _resolve(operands[-1], cwd)
+    if len(operands) == 1:
+        return os.path.abspath(cwd)
+    return None
+
+
+def _is_mount_folder_target(path, ws_root, policy):
+    """True if *path* is <ws>/projects/... or <ws>/mesh/... (either identity)."""
+    bases = []
+    for ws in {os.path.abspath(ws_root), os.path.realpath(ws_root)}:
+        bases += [os.path.join(ws, "projects"), os.path.join(ws, "mesh")]
+    idents = {os.path.abspath(path), os.path.realpath(path)}
+    return any(policy.is_under(i, b) for i in idents for b in bases)
+
+
+def _command_decisions(code, cwd, ws_root, policy):
+    """ln into the mount folders, and write verbs on the guard files."""
+    out = []
+    for stages in _stages(code):
+        for st in stages:
+            if st.cmd == "ln":
+                dest = _ln_destination(st, cwd)
+                if dest and _is_mount_folder_target(dest, ws_root, policy):
+                    out.append(
+                        policy.deny(
+                            "Blocked: `ln` into projects/ or mesh/. Those folders hold "
+                            "the mounts mAIcelium manages, and a hand-made link there "
+                            "becomes a write root. Mount repos with `mai add <name> "
+                            "<path>`, layers with `mai add-layer <name> <path>` and MCP "
+                            "sources with `mai add-mcp <path>`."
+                        )
+                    )
+            if _writes_operands(st):
+                for tok in st.args:
+                    if tok.startswith("-"):
+                        continue
+                    path = _resolve(tok, cwd)
+                    if path and policy.is_guard_target(path, ws_root):
+                        out.append(policy.deny(_guard_message(tok)))
+    return out
+
+
 def structural_decisions(code, payload, ws_root, policy):
     """Decisions for where *code* (heredoc bodies already removed) writes."""
     cwd = _payload_cwd(payload)
-    out = []
+    out = _command_decisions(code, cwd, ws_root, policy)
     for tok, path, agent in _write_targets(code, cwd):
-        if path is not None:
+        if path is None:
+            continue
+        if policy.is_guard_target(path, ws_root):
+            out.append(policy.deny(_guard_message(tok)))
+        else:
             out.append(_target_decision(policy, tok, path, agent, payload, ws_root))
     return out
 

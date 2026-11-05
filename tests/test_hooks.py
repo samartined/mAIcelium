@@ -1814,3 +1814,94 @@ def test_guard_bash_relative_targets_use_payload_cwd(tmp_path):
     (ws / "sub").mkdir(parents=True)
     assert _is_block(_bash("echo K=v > ../.env", ws, cwd=ws / "sub"))
     assert _decision(_bash("echo x > ../ok.txt", ws, cwd=ws / "sub")) is None
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — ln into the mount folders, write verbs on guard files (#44)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ln -s ~ projects/home",
+        "ln -s /opt/repo projects/",
+        "ln -sfn ../elsewhere mesh/layers/evil",
+        "ln -s /x -t projects",
+        "ln -s /x --target-directory=mesh/layers",
+        "sudo ln -s ~ mesh/mcp",
+        "rm -rf projects && ln -s ~ projects",
+    ],
+)
+def test_guard_bash_denies_ln_into_mount_folders(tmp_path, command):
+    (tmp_path / "projects").mkdir()
+    (tmp_path / "mesh" / "layers").mkdir(parents=True)
+    result = _bash(command, tmp_path)
+    assert _is_block(result), command
+    assert "mai add" in _reason(result)
+
+
+def test_guard_bash_denies_ln_from_inside_mount_folder(tmp_path):
+    """`cd projects && ln -s ~ home`: with the payload cwd in projects/, a
+    single-operand ln creates the link right there."""
+    (tmp_path / "projects").mkdir()
+    assert _is_block(_bash("ln -s ~", tmp_path, cwd=tmp_path / "projects"))
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["ln -s ../shared/config.yaml config.yaml", "ln -sf build/app bin/app", "ln a b"],
+)
+def test_guard_bash_allows_ordinary_ln(tmp_path, command):
+    assert _decision(_bash(command, tmp_path)) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sed -i 's/deny/allow/' bin/hooks/guard_bash.py",
+        "sed -Ei 's/x/y/' bin/hooks/_policy.py",
+        "sed --in-place 's/x/y/' bin/py.sh",
+        "cp /tmp/x.py bin/hooks/guard_write.py",
+        "mv bin/hooks/guard_bash.py /tmp/",
+        "rm bin/hooks/guard_write.py",
+        "chmod -x bin/py.sh",
+        "truncate -s 0 bin/hooks/guard_bash.py",
+        "install -m 755 x bin/py.cmd",
+        "patch bin/hooks/_policy.py < fix.diff",
+        "git checkout -- bin/hooks/guard_bash.py",
+        "git checkout HEAD~3 -- bin/hooks/_policy.py",
+        "git restore bin/hooks/guard_write.py",
+        "echo '' > bin/hooks/guard_write.py",
+        "./gen.sh >> bin/py.sh",
+        "echo x | tee bin/hooks/guard_bash.py",
+        "echo '{}' > .claude/settings.json",
+        "cp other.json .claude/settings.local.json",
+    ],
+)
+def test_guard_bash_denies_write_verbs_on_guard_files(tmp_path, command):
+    result = _bash(command, tmp_path)
+    assert _is_block(result), command
+    assert "guard file" in _reason(result)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat bin/hooks/guard_bash.py",
+        "grep -n deny bin/hooks/_policy.py",
+        "rg ask bin/hooks/",
+        "git diff bin/hooks/guard_write.py",
+        "python -m pytest tests/test_hooks.py",
+        "sed -n '1,20p' bin/hooks/guard_bash.py",
+        "git checkout main",
+    ],
+)
+def test_guard_bash_allows_reading_guard_files(tmp_path, command):
+    assert not _is_block(_bash(command, tmp_path)), command
+
+
+def test_guard_bash_cp_from_a_guard_file_is_also_denied(tmp_path):
+    """The rule is "names a guard file and uses a write verb": copying FROM a
+    guard is denied too. Read it with cat/grep instead."""
+    assert _is_block(_bash("cp bin/hooks/guard_bash.py review-copy.py", tmp_path))
