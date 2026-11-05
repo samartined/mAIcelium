@@ -257,6 +257,25 @@ Accepted or mitigated, but not closed:
 - **The machine-wide hooks of the personal mesh layer have no CI.** They live
   outside this repo (see #43).
 
+## Measuring
+
+`bin/hook_metrics.py` reads the local Claude Code transcripts and prints, per
+month:
+- guard denials: `write_denied`, how many of those were perimeter denials
+  (`write_denied_outside`), and `bash_denied`;
+- the number of Bash commands that use a heredoc.
+
+By default it counts only sessions launched in this workspace; `--all` counts
+every session.
+
+Run it before and some weeks after a change to the policy to see whether
+denials dropped and whether `Write`/`Edit` replaced heredocs as the way to write
+files:
+
+```bash
+bin/py.sh bin/hook_metrics.py --since 2026-10
+```
+
 ## Testing hooks
 
 `tests/test_hooks.py` runs each hook as a subprocess with a JSON payload on
