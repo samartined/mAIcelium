@@ -1629,3 +1629,31 @@ def test_guard_write_guard_rule_is_workspace_only(tmp_path):
 def test_guard_write_settings_not_a_substring_match(tmp_path):
     for rel in (("claude", "settings.json"), ("settings.json",), (".claude", "x", "settings.json")):
         assert _decision(_write(tmp_path.joinpath(*rel), tmp_path)) is None, rel
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — every deny says what to do instead
+# ---------------------------------------------------------------------------
+
+
+def test_guard_write_outside_message_explains_how_to_mount(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    reason = _reason(_write(tmp_path / "not-mounted" / "x.md", ws))
+    assert "outside the workspace" in reason
+    assert "mai add <name> <path>" in reason
+    assert "scratchpad" in reason
+
+
+@pytest.mark.parametrize(
+    "rel,hint",
+    [
+        ((".env",), ".env.example"),
+        ((".git", "config"), "git commit -F"),
+        (("package-lock.json",), "package manager"),
+        (("WORKSPACE.md",), "mai sync"),
+        ((".cursor", "rules", "x.mdc"), "mesh/"),
+    ],
+)
+def test_guard_write_deny_messages_carry_a_hint(tmp_path, rel, hint):
+    assert hint in _reason(_write(tmp_path.joinpath(*rel), tmp_path))
