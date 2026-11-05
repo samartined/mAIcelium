@@ -28,6 +28,7 @@ import collections
 import fnmatch
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 
 ALLOW = "allow"
@@ -274,16 +275,100 @@ def mount_roots(ws_root):
     return _dedupe(roots)
 
 
+def _claude_projects_dir():
+    return os.path.realpath(os.path.join(_home(), ".claude", "projects"))
+
+
+def scratchpad_root(payload):
+    """The session scratchpad, exactly as the hook payload names it.
+
+    Claude Code sends ``scratchpad_dir`` when the session has one; subagents
+    receive their parent's. It must be an absolute, existing, real directory
+    (not a symlink). Without the field there is no scratchpad root: the guard
+    does not guess it from /tmp/claude-<uid>/, which also holds harness state.
+    """
+    sp = payload.get("scratchpad_dir")
+    if not isinstance(sp, str) or not sp or "\x00" in sp or not os.path.isabs(sp):
+        return None
+    if os.path.islink(sp) or not os.path.isdir(sp):
+        return None
+    real = os.path.realpath(sp)
+    if os.path.dirname(real) == real or is_under(_home(), real):
+        return None  # a disk root or a folder containing $HOME is no scratchpad
+    return real
+
+
+def memory_root(payload):
+    """``dirname(transcript_path)/memory``: this project's auto-memory.
+
+    Only when ``transcript_path`` is a non-empty absolute path whose memory
+    folder lies under ``~/.claude/projects/``."""
+    tp = payload.get("transcript_path")
+    if not isinstance(tp, str) or not tp or "\x00" in tp or not os.path.isabs(tp):
+        return None
+    mem = os.path.realpath(os.path.join(os.path.dirname(tp), "memory"))
+    projects = _claude_projects_dir()
+    if mem == projects or not is_under(mem, projects):
+        return None
+    return mem
+
+
+def _looks_like_project_memory(real):
+    """True for ``~/.claude/projects/<slug>/memory/...``."""
+    projects = _claude_projects_dir()
+    if not is_under(real, projects):
+        return False
+    rel = _rel_parts(real, projects)
+    return len(rel) >= 3 and rel[1] == "memory"
+
+
+def tmp_roots():
+    """Plain temp directories. ``MAICELIUM_TMP_ROOTS`` (os.pathsep-separated)
+    replaces the defaults; the tests use it to keep their own tmp_path, which
+    lives under the system temp dir, out of the perimeter."""
+    override = os.environ.get("MAICELIUM_TMP_ROOTS")
+    if override is not None:
+        candidates = [p for p in override.split(os.pathsep) if p]
+    else:
+        candidates = [tempfile.gettempdir()]
+        if os.name != "nt":
+            candidates += ["/tmp", "/private/tmp"]
+    return _dedupe([os.path.realpath(p) for p in candidates if os.path.isabs(p)])
+
+
+def in_plain_tmp(real):
+    """Inside a plain temp dir, but not under any ``claude-*`` folder there:
+    ``/tmp/claude-<uid>/`` holds task output and other harness state, and only
+    the session's own scratchpad is writable inside it."""
+    inside = False
+    for t in tmp_roots():
+        if real == t or not is_under(real, t):
+            continue
+        rel = _rel_parts(real, t)
+        if rel and rel[0].startswith("claude-"):
+            return False
+        inside = True
+    return inside
+
+
 def compute_roots(ws_root, payload):
     """Real paths under which writes are allowed.
 
     - the workspace itself;
     - every mounted repo (``mount_roots``, after ``acceptable_mount``);
-    - Claude Code's plan directory ``~/.claude/plans``.
+    - Claude Code's plan directory ``~/.claude/plans``;
+    - this project's auto-memory (``memory_root``);
+    - the session scratchpad (``scratchpad_root``).
+
+    Plain temp directories are checked separately (``in_plain_tmp``) because
+    they carry an exclusion.
     """
     roots = [os.path.realpath(ws_root)]
     roots.extend(mount_roots(ws_root))
     roots.append(os.path.realpath(os.path.join(_home(), ".claude", "plans")))
+    for extra in (memory_root(payload), scratchpad_root(payload)):
+        if extra:
+            roots.append(extra)
     return _dedupe(roots)
 
 
@@ -418,8 +503,20 @@ def decide(tool_name, tool_input, payload, ws_root):
     lexical = os.path.abspath(path)
     real = os.path.realpath(path)
 
-    roots = compute_roots(ws_root, payload if isinstance(payload, dict) else {})
-    if not any(is_under(real, r) for r in roots):
+    payload = payload if isinstance(payload, dict) else {}
+    roots = compute_roots(ws_root, payload)
+    if not (any(is_under(real, r) for r in roots) or in_plain_tmp(real)):
+        if memory_root(payload) is None and _looks_like_project_memory(real):
+            # No transcript_path to tell which project's memory this is.
+            return strictest(
+                [
+                    ask(
+                        "Project memory write without transcript_path in the "
+                        "hook input: confirm this is the current project's memory."
+                    )
+                ]
+                + check_names(lexical, real, ws_root)
+            )
         return deny(
             f"Blocked: file_path '{path}' is outside the workspace "
             f"(resolves to '{real}'). Refusing write as a safety measure."

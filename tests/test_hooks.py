@@ -11,9 +11,17 @@ GUARD_WRITE = os.path.join(REPO_ROOT, "bin", "hooks", "guard_write.py")
 from _marks import requires_symlink  # noqa: E402
 
 
+# pytest's tmp_path lives under the system temp dir, which guard_write now
+# treats as a write root. Point the temp roots at a path nothing lives under so
+# "outside the perimeter" tests stay meaningful; tests of the temp-root rule
+# pass their own MAICELIUM_TMP_ROOTS.
+NO_TMP_ROOT = os.path.join(REPO_ROOT, "__no_tmp_root__")
+
+
 def _run_hook(hook_path, payload, env=None, cwd=None):
     """Invoke a hook with a JSON payload on stdin and capture the result."""
     run_env = os.environ.copy()
+    run_env["MAICELIUM_TMP_ROOTS"] = NO_TMP_ROOT
     if env:
         run_env.update(env)
     return subprocess.run(
@@ -1000,15 +1008,14 @@ def test_guard_bash_redos_linear_full_path_and_flagged_sudo():
 # ---------------------------------------------------------------------------
 
 
-def _write(path, ws, tool_name="Write", env=None, key="file_path"):
+def _write(path, ws, tool_name="Write", env=None, key="file_path", payload=None):
     run_env = {"MAICELIUM_ROOT": str(ws)}
     if env:
         run_env.update(env)
-    return _run_hook(
-        GUARD_WRITE,
-        {"tool_name": tool_name, "tool_input": {key: str(path)}},
-        env=run_env,
-    )
+    data = {"tool_name": tool_name, "tool_input": {key: str(path)}}
+    if payload:
+        data.update(payload)
+    return _run_hook(GUARD_WRITE, data, env=run_env)
 
 
 def _symlink_dir(target, link):
@@ -1044,7 +1051,7 @@ def test_guard_write_fails_closed_on_invalid_input(tmp_path, stdin):
         capture_output=True,
         text=True,
         timeout=10,
-        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path)},
+        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path), "MAICELIUM_TMP_ROOTS": NO_TMP_ROOT},
     )
     assert result.returncode == 0
     assert _is_block(result)
@@ -1082,7 +1089,7 @@ def test_guard_write_fails_closed_on_unexpected_exception(tmp_path):
         capture_output=True,
         text=True,
         timeout=10,
-        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path)},
+        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path), "MAICELIUM_TMP_ROOTS": NO_TMP_ROOT},
     )
     assert result.returncode == 0
     assert _is_block(result)
@@ -1449,3 +1456,121 @@ def test_guard_write_duplicate_links_to_one_repo(tmp_path):
     _symlink_dir(repo, ws / "projects" / "demo-again")
     _symlink_dir(repo, ws / "mesh" / "layers" / "demo")
     assert _decision(_write(repo / "x.md", ws, env=env)) is None
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — harness roots: scratchpad, project memory, plain temp (#42)
+# ---------------------------------------------------------------------------
+
+
+def _harness(tmp_path):
+    """ws, fake $HOME and a fake system temp dir holding a Claude session dir."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    home = tmp_path / "home"
+    (home / ".claude" / "projects" / "-ws").mkdir(parents=True)
+    systmp = tmp_path / "systmp"
+    session = systmp / "claude-501" / "-ws" / "sess-1"
+    (session / "scratchpad").mkdir(parents=True)
+    (session / "tasks").mkdir()
+    env = {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "MAICELIUM_TMP_ROOTS": str(systmp),
+    }
+    transcript = home / ".claude" / "projects" / "-ws" / "sess-1.jsonl"
+    payload = {
+        "session_id": "sess-1",
+        "transcript_path": str(transcript),
+        "scratchpad_dir": str(session / "scratchpad"),
+    }
+    return ws, home, systmp, session, env, payload
+
+
+def test_guard_write_allows_payload_scratchpad(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    target = session / "scratchpad" / "notes" / "plan.md"
+    assert _decision(_write(target, ws, env=env, payload=payload)) is None
+
+
+def test_guard_write_allows_scratchpad_for_subagent(tmp_path):
+    """Subagents receive their parent's scratchpad_dir (verified on 2.1.318)."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    sub = dict(payload, agent_id="a1057729b724c3fa2", agent_type="general-purpose")
+    target = session / "scratchpad" / "sub.txt"
+    assert _decision(_write(target, ws, env=env, payload=sub)) is None
+
+
+def test_guard_write_denies_scratchpad_without_payload_field(tmp_path):
+    """No scratchpad_dir, no scratchpad root: the guard does not guess it."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    no_sp = {k: v for k, v in payload.items() if k != "scratchpad_dir"}
+    target = session / "scratchpad" / "x.md"
+    result = _write(target, ws, env=env, payload=no_sp)
+    assert _is_block(result)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ("claude-501", "-ws", "sess-1", "tasks", "x.output"),
+        ("claude-501", "-ws", "other-session", "scratchpad", "x.md"),
+        ("claude-501", "cache-break-state-sess-1.json"),
+    ],
+)
+def test_guard_write_denies_harness_state_in_tmp(tmp_path, rel):
+    """Everything under <tmp>/claude-*/ except this session's scratchpad."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    assert _is_block(_write(systmp.joinpath(*rel), ws, env=env, payload=payload))
+
+
+def test_guard_write_allows_plain_tmp(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    for target in (systmp / "planout.txt", systmp / "work" / "out.json"):
+        assert _decision(_write(target, ws, env=env, payload=payload)) is None
+
+
+def test_guard_write_tmp_still_applies_name_rules(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    assert _is_block(_write(systmp / ".env", ws, env=env, payload=payload))
+
+
+def test_guard_write_allows_project_memory_with_transcript(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    target = home / ".claude" / "projects" / "-ws" / "memory" / "notes.md"
+    assert _decision(_write(target, ws, env=env, payload=payload)) is None
+
+
+def test_guard_write_other_project_memory_is_denied(tmp_path):
+    """The memory root is this project's only, not every project's."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    target = home / ".claude" / "projects" / "-other" / "memory" / "notes.md"
+    assert _is_block(_write(target, ws, env=env, payload=payload))
+
+
+@pytest.mark.parametrize("transcript", [None, ""])
+def test_guard_write_asks_for_memory_without_transcript(tmp_path, transcript):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    p = {k: v for k, v in payload.items() if k != "transcript_path"}
+    if transcript is not None:
+        p["transcript_path"] = transcript
+    target = home / ".claude" / "projects" / "-ws" / "memory" / "notes.md"
+    assert _decision(_write(target, ws, env=env, payload=p)) == "ask"
+
+
+def test_guard_write_rest_of_claude_dir_stays_denied(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    for target in (
+        home / ".claude" / "settings.json",
+        home / ".claude" / "projects" / "-ws" / "sess-1.jsonl",
+        home / ".claude" / "skills" / "x" / "SKILL.md",
+    ):
+        assert _is_block(_write(target, ws, env=env, payload=payload)), target
+
+
+def test_guard_write_forged_transcript_outside_claude_projects(tmp_path):
+    """A transcript_path outside ~/.claude/projects/ yields no memory root."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    p = dict(payload, transcript_path=str(elsewhere / "t.jsonl"))
+    assert _is_block(_write(elsewhere / "memory" / "x.md", ws, env=env, payload=p))
