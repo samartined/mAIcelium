@@ -1018,9 +1018,12 @@ def _symlink_dir(target, link):
 # --- #39: fail closed ---
 
 
-def test_guard_write_fails_closed_on_nul_in_path(tmp_path):
-    """A NUL byte used to crash the hook with exit 1 (non-blocking)."""
-    result = _write(str(tmp_path / "a") + "\x00b", tmp_path)
+@pytest.mark.parametrize("bad", ["\x00b", "\ud800b"])
+def test_guard_write_denies_unrepresentable_path(tmp_path, bad):
+    """A NUL byte or a lone surrogate used to crash the hook with exit 1
+    (non-blocking) on POSIX; on Windows ntpath.realpath swallows the error and
+    the path looked like a normal in-workspace file. Both are denied up front."""
+    result = _write(str(tmp_path / "a") + bad, tmp_path)
     assert result.returncode == 0
     assert _is_block(result)
 

@@ -377,6 +377,15 @@ def decide(tool_name, tool_input, payload, ws_root):
     path = target_path(tool_name, tool_input)
     if not isinstance(path, str) or not path:
         return deny("Blocked: hook input has no file path to check.")
+    # Reject unrepresentable paths up front instead of relying on realpath to
+    # raise: on Windows ntpath.realpath swallows the NUL ValueError and returns
+    # the path unchanged.
+    if "\x00" in path:
+        return deny("Blocked: file path contains a NUL byte.")
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return deny("Blocked: file path is not valid Unicode (lone surrogate).")
     if not os.path.isabs(path):
         return deny(f"Blocked: file path '{path}' is not absolute.")
 
