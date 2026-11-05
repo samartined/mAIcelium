@@ -1,0 +1,30 @@
+name: Branch flow
+
+# The branch flow is feature -> dev -> main (see CONTRIBUTING.md):
+# - every change lands in `dev` first, through a PR from a `<type>/<slug>`
+#   branch (or from an integration branch that collected stacked PRs);
+# - `main` only receives the release PR from `dev`.
+# This check fails any PR into `main` whose head is not `dev`. Make it a
+# required status check on `main` to enforce it.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  branch-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: PRs into main must come from dev
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          if [ "$BASE" = "main" ] && [ "$HEAD" != "dev" ]; then
+            echo "::error::PRs into main must come from dev (this one comes from '$HEAD')."
+            echo "Retarget this PR to dev. Changes reach main only through the release PR dev -> main."
+            exit 1
+          fi
+          echo "OK: '$HEAD' -> '$BASE' follows the feature -> dev -> main flow."
