@@ -66,7 +66,10 @@ def main():
             _policy.log_failure(_policy.workspace_root(__file__), _HOOK, reason)
         except Exception:  # noqa: BLE001
             pass
-        _deny_raw(f"Blocked: {reason}. Refusing as a safety measure.")
+        _deny_raw(
+            f"Blocked: {reason}. Refusing as a safety measure. The details are in "
+            f".claude/hook-failures.log; report it to the user."
+        )
     sys.exit(0)
 
 

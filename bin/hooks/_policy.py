@@ -407,8 +407,9 @@ def _generic_rules(path):
     ):
         out.append(
             deny(
-                f"Protected file: {base}. Environment files may contain secrets "
-                f"(templates ending in .example/.sample/.template are allowed)."
+                f"Protected file: {base}. Environment files may contain secrets, "
+                f"which must not pass through the agent. Write a template instead "
+                f"(.env.example, .sample or .template), or ask the user to edit it."
             )
         )
     if base in LOCKFILES:
@@ -516,7 +517,7 @@ def check_names(lexical, real, ws_root):
 
 def decide(tool_name, tool_input, payload, ws_root):
     if not isinstance(tool_input, dict):
-        return deny("Blocked: hook input has no tool_input object.")
+        return deny("Blocked: hook input has no tool_input object. This is a guard input error; retry the tool call.")
     path = target_path(tool_name, tool_input)
     if not isinstance(path, str) or not path:
         return deny("Blocked: hook input has no file path to check.")
@@ -550,8 +551,10 @@ def decide(tool_name, tool_input, payload, ws_root):
                 + check_names(lexical, real, ws_root)
             )
         return deny(
-            f"Blocked: file_path '{path}' is outside the workspace "
-            f"(resolves to '{real}'). Refusing write as a safety measure."
+            f"Blocked: file_path '{path}' is outside the workspace and its "
+            f"mounted repos (resolves to '{real}'). To work on that repo, mount "
+            f"it with `mai add <name> <path>` (or `mai add-layer <name> <path>`); "
+            f"for scratch output, write to the session scratchpad."
         )
 
     return strictest(check_names(lexical, real, ws_root))
