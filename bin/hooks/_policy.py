@@ -11,7 +11,9 @@ Single pipeline, no special branches::
    ``notebook_path`` for NotebookEdit). Missing or relative -> deny.
 2. Build two identities: ``lexical`` (``abspath``) and ``real`` (``realpath``,
    which also resolves the existing ancestors of a not-yet-created file).
-3. ``real`` must fall under one of the write roots, otherwise deny.
+3. ``real`` must fall under one of the write roots (``compute_roots``),
+   otherwise deny. Mount targets are filtered by ``acceptable_mount`` so a
+   symlink such as ``mesh/layers/evil -> ~`` never turns $HOME into a root.
 4. Every name rule is evaluated on BOTH identities, component by component and
    case-insensitively, so a symlink with an innocent name cannot alias a
    protected file and ``.CLAUDE/settings.json`` is the same as
@@ -195,30 +197,75 @@ def _dedupe(paths):
     return out
 
 
+def _home():
+    return os.path.realpath(os.path.expanduser("~"))
+
+
+def acceptable_mount(real, ws_root):
+    """False for targets that must never become a write root, whatever a
+    symlink under the workspace says: a disk/drive root, $HOME or anything
+    containing it, the workspace or anything containing it, and anything under
+    a hidden folder of $HOME (which covers ~/.claude, ~/.ssh, ~/.aws, ...)."""
+    if os.path.dirname(real) == real:
+        return False
+    home = _home()
+    if is_under(home, real):
+        return False
+    if is_under(os.path.realpath(ws_root), real):
+        return False
+    if is_under(real, home):
+        rel = _rel_parts(real, home)
+        if rel and rel[0].startswith("."):
+            return False
+    return True
+
+
+def _mount_children(ws_root, *rel_dirs):
+    """Real paths of the direct children of <ws>/<rel_dirs>, filtered.
+
+    Every directory on the way (e.g. ``mesh`` and ``mesh/layers``) must be a
+    real directory: if one of them is a symlink, nobody can tell what it
+    mounts, so it contributes no roots."""
+    current = ws_root
+    for name in rel_dirs:
+        current = os.path.join(current, name)
+        if os.path.islink(current) or not os.path.isdir(current):
+            return []
+    out = []
+    try:
+        names = sorted(os.listdir(current))
+    except OSError:
+        return []
+    for name in names:
+        real = os.path.realpath(os.path.join(current, name))
+        if os.path.isdir(real) and acceptable_mount(real, ws_root):
+            out.append(real)
+    return out
+
+
+def layer_roots(ws_root):
+    """Real paths of the layers mounted under <ws>/mesh/layers/."""
+    return _mount_children(ws_root, "mesh", "layers")
+
+
 def compute_roots(ws_root, payload):
     """Real paths under which writes are allowed.
 
     - the workspace itself;
+    - every layer mounted under ``mesh/layers/`` (after ``acceptable_mount``);
     - Claude Code's plan directory ``~/.claude/plans``.
     """
-    roots = [
-        os.path.realpath(ws_root),
-        os.path.realpath(os.path.expanduser(os.path.join("~", ".claude", "plans"))),
-    ]
+    roots = [os.path.realpath(ws_root)]
+    roots.extend(layer_roots(ws_root))
+    roots.append(os.path.realpath(os.path.join(_home(), ".claude", "plans")))
     return _dedupe(roots)
 
 
-def _layer_roots(ws_root):
-    """Real paths that a layer reflection may legitimately resolve into."""
-    layers = os.path.join(ws_root, "mesh", "layers")
-    roots = [os.path.realpath(layers)]
-    try:
-        names = os.listdir(layers)
-    except OSError:
-        names = []
-    for name in names:
-        roots.append(os.path.realpath(os.path.join(layers, name)))
-    return _dedupe(roots)
+def _reflection_targets(ws_root):
+    """Real paths a layer reflection may legitimately resolve into."""
+    return _dedupe(
+        [os.path.realpath(os.path.join(ws_root, "mesh", "layers"))] + layer_roots(ws_root)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +342,7 @@ def _stale_reflection(lexical, real, ws_root):
     rel = _rel_parts(lexical, ws_lex)
     if not any(tuple(rel[: len(p)]) == p and len(rel) > len(p) for p in _REFLECTION_PREFIXES):
         return []
-    if any(is_under(real, r) for r in _layer_roots(ws_root)):
+    if any(is_under(real, r) for r in _reflection_targets(ws_root)):
         return []
     return [
         deny(
