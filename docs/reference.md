@@ -107,8 +107,9 @@ All scripts live in `bin/` and are executed from the workspace root.
 | `remove_project.py` | Unplug a project — removes symlinks, original repo untouched | `python3 bin/remove_project.py <name>` |
 | `sync_symlinks.py` | Rebuild all symlinks — cleans broken ones, recreates from `mesh/`, mounted layers, and active projects | `python3 bin/sync_symlinks.py` |
 | `separate_git.py` | Move `.git` outside workspace to avoid IDE conflicts with linked projects | `python3 bin/separate_git.py` |
-| `hooks/guard_bash.py` | Best-effort PreToolUse guard that blocks common literal destructive shell commands (defense-in-depth, not a security barrier; bypassable via shell expansion; fails open by design) | — |
-| `hooks/guard_write.py` | Security hook that protects sensitive and auto-generated files from being modified | — |
+| `hooks/guard_bash.py` | Best-effort PreToolUse guard for destructive shell commands; checks redirection and `tee` targets with the write policy (defense-in-depth, not a security barrier; fails closed). See [security-model.md](security-model.md) | — |
+| `hooks/guard_write.py` | PreToolUse write-scope boundary for Write, Edit, MultiEdit and NotebookEdit: write roots plus name rules (fails closed). See [security-model.md](security-model.md) | — |
+| `hooks/_policy.py` | Shared, stdlib-only write policy used by both hooks (`decide()`) | — |
 | `_lib.py` | Shared functions (imported by other scripts, not run directly) | — |
 
 ### `add_project.py` details

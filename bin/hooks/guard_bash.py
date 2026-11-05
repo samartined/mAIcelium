@@ -24,8 +24,21 @@ The hook FAILS CLOSED (logged to .claude/hook-failures.log):
     2. Human review of agent-proposed commands
     3. Principle of least privilege on the OS side
 
-Decisions are printed as ``hookSpecificOutput.permissionDecision`` (deny);
-an allowed command prints nothing.
+Decisions are printed as ``hookSpecificOutput.permissionDecision`` (deny or
+ask); an allowed command prints nothing.
+
+THREE LAYERS (see docs/security-model.md)
+-----------------------------------------
+  1. Patterns on commands, not data: heredoc bodies are dropped and quoted
+     phrases are blanked before the pattern rules below run.
+  2. Destinations through the write policy: every redirection and tee target
+     goes through ``_policy.decide`` (the same pipeline as guard_write).
+     Agent content (heredoc, herestring, echo, printf) gets Write's decision;
+     program output to a protected name is an ask; outside the write roots is
+     a deny.
+  3. Mounts and guard files: ``ln`` into <ws>/projects/ or <ws>/mesh/ and
+     write verbs on bin/hooks/*.py, bin/py.sh, bin/py.cmd or the workspace's
+     .claude/settings*.json are denied.
 
 COVERED (common literal destructive cases — best-effort, NOT guaranteed
 false-positive-free or complete)
