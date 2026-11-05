@@ -28,6 +28,7 @@ import collections
 import fnmatch
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 
 ALLOW = "allow"
@@ -47,6 +48,9 @@ LOCKFILES = frozenset(
         "pipfile.lock",
     }
 )
+
+# Key and credential material: writes need a human confirmation.
+KEY_MATERIAL_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".kubeconfig")
 
 # `.env.*` names that are templates, not secrets.
 ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template")
@@ -248,16 +252,126 @@ def layer_roots(ws_root):
     return _mount_children(ws_root, "mesh", "layers")
 
 
+def _mount_single(ws_root, *rel_parts):
+    """Real path of the single mount at <ws>/<rel_parts> (e.g. mesh/mcp), or
+    None. Every parent directory must be a real directory."""
+    current = ws_root
+    for name in rel_parts[:-1]:
+        current = os.path.join(current, name)
+        if os.path.islink(current) or not os.path.isdir(current):
+            return None
+    mount = os.path.join(current, rel_parts[-1])
+    if not os.path.isdir(mount):
+        return None
+    real = os.path.realpath(mount)
+    return real if acceptable_mount(real, ws_root) else None
+
+
+def mount_roots(ws_root):
+    """Real paths of every repo the workspace mounts: projects/<name>,
+    mesh/layers/<name> and mesh/mcp. Duplicates and overlaps are fine."""
+    roots = _mount_children(ws_root, "projects")
+    roots.extend(layer_roots(ws_root))
+    mcp = _mount_single(ws_root, "mesh", "mcp")
+    if mcp:
+        roots.append(mcp)
+    return _dedupe(roots)
+
+
+def _claude_projects_dir():
+    return os.path.realpath(os.path.join(_home(), ".claude", "projects"))
+
+
+def scratchpad_root(payload):
+    """The session scratchpad, exactly as the hook payload names it.
+
+    Claude Code sends ``scratchpad_dir`` when the session has one; subagents
+    receive their parent's. It must be an absolute, existing, real directory
+    (not a symlink). Without the field there is no scratchpad root: the guard
+    does not guess it from /tmp/claude-<uid>/, which also holds harness state.
+    """
+    sp = payload.get("scratchpad_dir")
+    if not isinstance(sp, str) or not sp or "\x00" in sp or not os.path.isabs(sp):
+        return None
+    if os.path.islink(sp) or not os.path.isdir(sp):
+        return None
+    real = os.path.realpath(sp)
+    if os.path.dirname(real) == real or is_under(_home(), real):
+        return None  # a disk root or a folder containing $HOME is no scratchpad
+    return real
+
+
+def memory_root(payload):
+    """``dirname(transcript_path)/memory``: this project's auto-memory.
+
+    Only when ``transcript_path`` is a non-empty absolute path whose memory
+    folder lies under ``~/.claude/projects/``."""
+    tp = payload.get("transcript_path")
+    if not isinstance(tp, str) or not tp or "\x00" in tp or not os.path.isabs(tp):
+        return None
+    mem = os.path.realpath(os.path.join(os.path.dirname(tp), "memory"))
+    projects = _claude_projects_dir()
+    if mem == projects or not is_under(mem, projects):
+        return None
+    return mem
+
+
+def _looks_like_project_memory(real):
+    """True for ``~/.claude/projects/<slug>/memory/...``."""
+    projects = _claude_projects_dir()
+    if not is_under(real, projects):
+        return False
+    rel = _rel_parts(real, projects)
+    return len(rel) >= 3 and rel[1] == "memory"
+
+
+def tmp_roots():
+    """Plain temp directories. ``MAICELIUM_TMP_ROOTS`` (os.pathsep-separated)
+    replaces the defaults; the tests use it to keep their own tmp_path, which
+    lives under the system temp dir, out of the perimeter."""
+    override = os.environ.get("MAICELIUM_TMP_ROOTS")
+    if override is not None:
+        candidates = [p for p in override.split(os.pathsep) if p]
+    else:
+        candidates = [tempfile.gettempdir()]
+        if os.name != "nt":
+            candidates += ["/tmp", "/private/tmp"]
+    return _dedupe([os.path.realpath(p) for p in candidates if os.path.isabs(p)])
+
+
+def in_plain_tmp(real):
+    """Inside a plain temp dir, but not under any ``claude-*`` folder there:
+    ``/tmp/claude-<uid>/`` holds task output and other harness state, and only
+    the session's own scratchpad is writable inside it."""
+    inside = False
+    for t in tmp_roots():
+        if real == t or not is_under(real, t):
+            continue
+        rel = _rel_parts(real, t)
+        if rel and rel[0].startswith("claude-"):
+            return False
+        inside = True
+    return inside
+
+
 def compute_roots(ws_root, payload):
     """Real paths under which writes are allowed.
 
     - the workspace itself;
-    - every layer mounted under ``mesh/layers/`` (after ``acceptable_mount``);
-    - Claude Code's plan directory ``~/.claude/plans``.
+    - every mounted repo (``mount_roots``, after ``acceptable_mount``);
+    - Claude Code's plan directory ``~/.claude/plans``;
+    - this project's auto-memory (``memory_root``);
+    - the session scratchpad (``scratchpad_root``).
+
+    Plain temp directories are checked separately (``in_plain_tmp``) because
+    they carry an exclusion.
     """
     roots = [os.path.realpath(ws_root)]
-    roots.extend(layer_roots(ws_root))
+    roots.extend(mount_roots(ws_root))
     roots.append(os.path.realpath(os.path.join(_home(), ".claude", "plans")))
+    for extra in (memory_root(payload), scratchpad_root(payload)):
+        if extra:
+            roots.append(extra)
     return _dedupe(roots)
 
 
@@ -293,13 +407,36 @@ def _generic_rules(path):
     ):
         out.append(
             deny(
-                f"Protected file: {base}. Environment files may contain secrets "
-                f"(templates ending in .example/.sample/.template are allowed)."
+                f"Protected file: {base}. Environment files may contain secrets, "
+                f"which must not pass through the agent. Write a template instead "
+                f"(.env.example, .sample or .template), or ask the user to edit it."
             )
         )
     if base in LOCKFILES:
         out.append(
             deny(f"Protected file: {base} is a lockfile. Use the package manager to update it.")
+        )
+    if len(parts) >= 2 and parts[-2] == ".claude" and fnmatch.fnmatchcase(base, "settings*.json"):
+        out.append(
+            ask(
+                f"Sensitive file: .claude/{base} holds an agent's permissions and "
+                f"hooks. Confirm only if you asked for this change."
+            )
+        )
+    if base == ".sops.yaml":
+        out.append(
+            ask(
+                "Sensitive file: .sops.yaml decides which keys can decrypt the "
+                "secrets. Confirm only if you asked for this change."
+            )
+        )
+    if base == "kubeconfig" or base.endswith(KEY_MATERIAL_SUFFIXES):
+        out.append(
+            ask(
+                f"Sensitive file: {base} looks like key or cluster credential "
+                f"material; overwriting it can be destructive. Confirm only if "
+                f"you asked for this change."
+            )
         )
     return out
 
@@ -325,14 +462,21 @@ def _workspace_rules(rel):
                     f"sync_symlinks.py. Write to mesh/ (or the owning layer) instead."
                 )
             )
-    if len(rel) == 2 and rel[0] == ".claude" and fnmatch.fnmatchcase(rel[1], "settings*.json"):
+    if _is_guard_file(rel):
         out.append(
             ask(
-                f"Sensitive file: {shown} holds the agent's own permissions and "
-                f"hooks. Confirm only if you asked for this change."
+                f"Guard file: {shown} enforces these write and Bash rules. "
+                f"Confirm only if you asked for this change."
             )
         )
     return out
+
+
+def _is_guard_file(rel):
+    """bin/hooks/**/*.py, bin/py.sh and bin/py.cmd of the workspace (#44)."""
+    if rel[:2] == ["bin", "hooks"] and len(rel) > 2 and rel[-1].endswith(".py"):
+        return True
+    return rel in (["bin", "py.sh"], ["bin", "py.cmd"])
 
 
 def _stale_reflection(lexical, real, ws_root):
@@ -373,7 +517,7 @@ def check_names(lexical, real, ws_root):
 
 def decide(tool_name, tool_input, payload, ws_root):
     if not isinstance(tool_input, dict):
-        return deny("Blocked: hook input has no tool_input object.")
+        return deny("Blocked: hook input has no tool_input object. This is a guard input error; retry the tool call.")
     path = target_path(tool_name, tool_input)
     if not isinstance(path, str) or not path:
         return deny("Blocked: hook input has no file path to check.")
@@ -392,11 +536,25 @@ def decide(tool_name, tool_input, payload, ws_root):
     lexical = os.path.abspath(path)
     real = os.path.realpath(path)
 
-    roots = compute_roots(ws_root, payload if isinstance(payload, dict) else {})
-    if not any(is_under(real, r) for r in roots):
+    payload = payload if isinstance(payload, dict) else {}
+    roots = compute_roots(ws_root, payload)
+    if not (any(is_under(real, r) for r in roots) or in_plain_tmp(real)):
+        if memory_root(payload) is None and _looks_like_project_memory(real):
+            # No transcript_path to tell which project's memory this is.
+            return strictest(
+                [
+                    ask(
+                        "Project memory write without transcript_path in the "
+                        "hook input: confirm this is the current project's memory."
+                    )
+                ]
+                + check_names(lexical, real, ws_root)
+            )
         return deny(
-            f"Blocked: file_path '{path}' is outside the workspace "
-            f"(resolves to '{real}'). Refusing write as a safety measure."
+            f"Blocked: file_path '{path}' is outside the workspace and its "
+            f"mounted repos (resolves to '{real}'). To work on that repo, mount "
+            f"it with `mai add <name> <path>` (or `mai add-layer <name> <path>`); "
+            f"for scratch output, write to the session scratchpad."
         )
 
     return strictest(check_names(lexical, real, ws_root))
