@@ -1015,6 +1015,14 @@ def _symlink_dir(target, link):
     os.symlink(str(target), str(link), target_is_directory=True)
 
 
+def _unlink_dir_symlink(link):
+    """Remove a directory symlink (os.rmdir on Windows, os.unlink elsewhere)."""
+    if sys.platform == "win32":
+        os.rmdir(str(link))
+    else:
+        os.unlink(str(link))
+
+
 # --- #39: fail closed ---
 
 
@@ -1289,3 +1297,155 @@ def test_guard_write_ignores_layers_when_mesh_layers_is_a_symlink(tmp_path):
     (elsewhere / "repo").mkdir(parents=True)
     _symlink_dir(elsewhere, ws / "mesh" / "layers")
     assert _is_block(_write(elsewhere / "repo" / "a.md", ws, env=env))
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — write roots: projects/<name> and mesh/mcp mounts (#38)
+# ---------------------------------------------------------------------------
+
+
+def _mounted_ws(tmp_path):
+    """ws with projects/demo -> <tmp>/repos/demo and mesh/mcp -> <tmp>/mcp."""
+    ws = tmp_path / "ws"
+    home = tmp_path / "home"
+    home.mkdir()
+    (ws / "projects").mkdir(parents=True)
+    (ws / "mesh" / "layers").mkdir(parents=True)
+    repo = tmp_path / "repos" / "demo"
+    (repo / "src").mkdir(parents=True)
+    mcp = tmp_path / "mcp-defs"
+    mcp.mkdir()
+    _symlink_dir(repo, ws / "projects" / "demo")
+    _symlink_dir(mcp, ws / "mesh" / "mcp")
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    return ws, repo, mcp, home, env
+
+
+@requires_symlink
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ("projects", "demo", "README.md"),
+        ("projects", "demo", "new", "dir", "file.tf"),
+        ("projects", "demo", ".cursor", "rules", "x.mdc"),
+        ("mesh", "mcp", "x.json"),
+    ],
+)
+def test_guard_write_allows_inside_mounts(tmp_path, rel):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(ws.joinpath(*rel), ws, env=env)) is None
+
+
+@requires_symlink
+def test_guard_write_allows_mounted_repo_by_real_path(tmp_path):
+    """Agents mostly use the repo's real path, not projects/<name>/."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(repo / "src" / "main.py", ws, env=env)) is None
+    assert _decision(_write(mcp / "server.json", ws, env=env)) is None
+
+
+@requires_symlink
+@pytest.mark.parametrize(
+    "rel,expected",
+    [
+        ((".env",), "deny"),
+        ((".git", "config"), "deny"),
+        (("package-lock.json",), "deny"),
+        (("sub", "yarn.lock"), "deny"),
+        ((".env.prod.example",), None),
+    ],
+)
+def test_guard_write_name_rules_inside_mounts(tmp_path, rel, expected):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    for base in (ws / "projects" / "demo", repo):
+        assert _decision(_write(base.joinpath(*rel), ws, env=env)) == expected, base
+
+
+@requires_symlink
+def test_guard_write_mounted_repo_commit_message_hint(tmp_path):
+    """Writing a temp commit message inside .git is denied, and the message
+    says how to do it instead."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    result = _write(repo / ".git" / "COMMIT_MSG_TMP.txt", ws, env=env)
+    assert _is_block(result)
+    assert "git commit -F" in _reason(result)
+    assert "scratchpad" in _reason(result)
+
+
+@requires_symlink
+def test_guard_write_denies_unmounted_sibling(tmp_path):
+    """A sibling of a mounted repo is not mounted itself."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    sibling = tmp_path / "repos" / "other"
+    sibling.mkdir()
+    assert _is_block(_write(sibling / "x.md", ws, env=env))
+
+
+@requires_symlink
+def test_guard_write_denies_symlink_escaping_a_mounted_repo(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    outside = tmp_path / "secrets"
+    outside.mkdir()
+    _symlink_dir(outside, repo / "escape")
+    assert _is_block(_write(ws / "projects" / "demo" / "escape" / "x.txt", ws, env=env))
+
+
+@requires_symlink
+def test_guard_write_projects_symlink_mounts_nothing(tmp_path):
+    """rm -rf projects; ln -s ~ projects must not turn ~/* into mounts."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    (home / "code").mkdir()
+    _unlink_dir_symlink(ws / "projects" / "demo")
+    (ws / "projects").rmdir()
+    _symlink_dir(home, ws / "projects")
+    assert _is_block(_write(home / "code" / "x.md", ws, env=env))
+    assert _is_block(_write(ws / "projects" / "code" / "x.md", ws, env=env))
+
+
+@requires_symlink
+@pytest.mark.parametrize("kind", ["disk-root", "home", "claude-dir", "ws-ancestor"])
+def test_guard_write_rejects_dangerous_project_mounts(tmp_path, kind):
+    """projects/home -> ~ (and friends) never becomes a write root."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    target = {
+        "disk-root": os.path.abspath(os.sep),
+        "home": str(home),
+        "claude-dir": str(home / ".claude"),
+        "ws-ancestor": str(tmp_path),
+    }[kind]
+    os.makedirs(target, exist_ok=True)
+    link = ws / "projects" / "evil"
+    _symlink_dir(target, link)
+    victim = os.path.join(target, "maicelium-guard-test-victim.txt")
+    assert _is_block(_write(victim, ws, env=env)), kind
+    assert _is_block(_write(link / "maicelium-guard-test-victim.txt", ws, env=env)), kind
+
+
+@requires_symlink
+def test_guard_write_projects_home_bashrc(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    _symlink_dir(home, ws / "projects" / "home")
+    assert _is_block(_write(ws / "projects" / "home" / ".bashrc", ws, env=env))
+
+
+@requires_symlink
+def test_guard_write_ignores_dangling_and_file_links_under_projects(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    gone = tmp_path / "gone"
+    os.symlink(str(gone), str(ws / "projects" / "dangling"), target_is_directory=True)
+    a_file = tmp_path / "loose.txt"
+    a_file.write_text("x\n")
+    os.symlink(str(a_file), str(ws / "projects" / "filelink"))
+    assert _is_block(_write(gone / "x.md", ws, env=env))
+    assert _is_block(_write(a_file, ws, env=env))
+    # The valid mount next to them still works.
+    assert _decision(_write(repo / "ok.md", ws, env=env)) is None
+
+
+@requires_symlink
+def test_guard_write_duplicate_links_to_one_repo(tmp_path):
+    """The same repo linked as a project and as a layer is fine."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    _symlink_dir(repo, ws / "projects" / "demo-again")
+    _symlink_dir(repo, ws / "mesh" / "layers" / "demo")
+    assert _decision(_write(repo / "x.md", ws, env=env)) is None
