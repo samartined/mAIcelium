@@ -1657,3 +1657,48 @@ def test_guard_write_outside_message_explains_how_to_mount(tmp_path):
 )
 def test_guard_write_deny_messages_carry_a_hint(tmp_path, rel, hint):
     assert hint in _reason(_write(tmp_path.joinpath(*rel), tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — commands, not data: heredoc bodies and quoted phrases
+# ---------------------------------------------------------------------------
+
+_SQL_DROP = "DROP " + "TABLE users;"  # split so the literal is not one token
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > plan.sql <<'EOF'\n" + _SQL_DROP + "\nEOF",
+        "cat > notes.md <<EOF\nnever run chmod 777 on prod\nEOF",
+        "cat <<-EOF > runbook.md\n\tgit push --force origin main is forbidden\n\tEOF",
+        "python3 - <<'PY'\nimport os\nprint('chmod 777 is world-writable')\nPY",
+        "terraform show plan.tfplan > plan.txt <<EOF\nmkfs.ext4 /dev/sdb\nEOF",
+        "python3 -c \"print('chmod 777 is world-writable')\"",
+        "git commit -m \"docs: explain why chmod 777 is refused\"",
+        "git commit -m \"note: git push --force to main is blocked\"",
+    ],
+)
+def test_guard_bash_ignores_data_in_heredocs_and_quoted_phrases(command):
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # A quoted operator does not open a heredoc that hides the next line.
+        'echo "<<X"\nrm -rf /',
+        "echo '<<X'\nchmod 777 secret.sh",
+        # Quoted single words are still words.
+        'git push --force origin "main"',
+        'chmod "777" secret.sh',
+        # Commands after the heredoc terminator are still checked.
+        "cat > a.txt <<EOF\nhello\nEOF\nrm -rf /etc",
+        # SQL handed to a client as a quoted argument is still caught.
+        'psql -c "' + _SQL_DROP + '"',
+    ],
+)
+def test_guard_bash_still_blocks_real_commands_around_data(command):
+    assert _is_block(_run_hook(GUARD_BASH, {"tool_input": {"command": command}})), command
