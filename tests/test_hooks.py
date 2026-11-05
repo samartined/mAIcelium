@@ -1952,7 +1952,7 @@ def _settings_hook_command(matcher_word):
 )
 def test_settings_hook_commands_run_from_any_cwd(tmp_path, matcher, payload):
     command = _settings_hook_command(matcher)
-    assert "${CLAUDE_PROJECT_DIR}" in command
+    assert "${CLAUDE_PROJECT_DIR:-.}" in command
     env = os.environ.copy()
     env["CLAUDE_PROJECT_DIR"] = REPO_ROOT
     env.pop("MAICELIUM_ROOT", None)
@@ -2019,3 +2019,31 @@ def test_hook_metrics_counts_denials_and_heredocs(tmp_path):
     everything = hook_metrics.scan(str(tmp_path / "projects"), workspace=None)
     assert everything["2026-10"]["heredocs"] == 3
     assert hook_metrics.scan(str(tmp_path / "projects"), workspace=str(ws), since="2026-11")["2026-11"]["bash_denied"] == 1
+
+
+@pytest.mark.parametrize(
+    "matcher,payload",
+    [
+        ("Write", {"tool_name": "Write", "tool_input": {"file_path": os.path.join(REPO_ROOT, ".env")}}),
+        ("Bash", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+    ],
+)
+def test_settings_hook_commands_without_project_dir_use_cwd(matcher, payload):
+    """A runner that does not set CLAUDE_PROJECT_DIR but runs project hooks
+    from the project root (Cursor importing .claude/settings.json) must still
+    run the guards, not fail open on a broken path."""
+    command = _settings_hook_command(matcher)
+    env = os.environ.copy()
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    env.pop("MAICELIUM_ROOT", None)
+    result = subprocess.run(
+        [_hook_bash(), "-c", command],
+        input=json.dumps(dict(payload, cwd=REPO_ROOT)),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert _is_block(result), (result.stdout, result.stderr)
