@@ -213,6 +213,22 @@ def test_init_writes_python_hooks_in_settings(tmp_path):
     assert "bin/py.sh bin/hooks/guard_bash.py" in content
     assert "bin/py.sh bin/hooks/guard_write.py" in content
 
+    # The write guard must see every file-writing tool, NotebookEdit included
+    # (it sends notebook_path instead of file_path).
+    data = json.loads(content)
+    matchers = [h["matcher"] for h in data["hooks"]["PreToolUse"]]
+    write_matcher = next(m for m in matchers if "Write" in m)
+    assert set(write_matcher.split("|")) == {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+
+
+def test_repo_settings_match_init_template():
+    """The checked-in .claude/settings.json and init's template must not drift."""
+    repo_settings = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude", "settings.json"
+    )
+    with open(repo_settings, encoding="utf-8") as f:
+        assert json.load(f) == json.loads(init._SETTINGS_JSON)
+
 
 # ── Test 9: settings.json contains Python permissions ───────────────────────
 
