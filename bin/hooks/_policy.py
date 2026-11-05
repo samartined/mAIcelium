@@ -36,7 +36,11 @@ ASK = "ask"
 DENY = "deny"
 _RANK = {ALLOW: 0, ASK: 1, DENY: 2}
 
-Decision = collections.namedtuple("Decision", "kind reason")
+# ``scope`` says which part of the pipeline decided: "perimeter" (the target is
+# outside every write root, or the input is unusable) or "name" (a name rule).
+# guard_bash needs it to tell "never write there" from "sensitive file".
+Decision = collections.namedtuple("Decision", "kind reason scope", defaults=("name",))
+PERIMETER = "perimeter"
 ALLOWED = Decision(ALLOW, "")
 
 LOCKFILES = frozenset(
@@ -84,8 +88,8 @@ _WS_GENERATED_DIRS = (
 # ---------------------------------------------------------------------------
 
 
-def deny(reason):
-    return Decision(DENY, reason)
+def deny(reason, scope="name"):
+    return Decision(DENY, reason, scope)
 
 
 def ask(reason):
@@ -517,21 +521,21 @@ def check_names(lexical, real, ws_root):
 
 def decide(tool_name, tool_input, payload, ws_root):
     if not isinstance(tool_input, dict):
-        return deny("Blocked: hook input has no tool_input object. This is a guard input error; retry the tool call.")
+        return deny("Blocked: hook input has no tool_input object. This is a guard input error; retry the tool call.", PERIMETER)
     path = target_path(tool_name, tool_input)
     if not isinstance(path, str) or not path:
-        return deny("Blocked: hook input has no file path to check.")
+        return deny("Blocked: hook input has no file path to check.", PERIMETER)
     # Reject unrepresentable paths up front instead of relying on realpath to
     # raise: on Windows ntpath.realpath swallows the NUL ValueError and returns
     # the path unchanged.
     if "\x00" in path:
-        return deny("Blocked: file path contains a NUL byte.")
+        return deny("Blocked: file path contains a NUL byte.", PERIMETER)
     try:
         path.encode("utf-8")
     except UnicodeEncodeError:
-        return deny("Blocked: file path is not valid Unicode (lone surrogate).")
+        return deny("Blocked: file path is not valid Unicode (lone surrogate).", PERIMETER)
     if not os.path.isabs(path):
-        return deny(f"Blocked: file path '{path}' is not absolute.")
+        return deny(f"Blocked: file path '{path}' is not absolute.", PERIMETER)
 
     lexical = os.path.abspath(path)
     real = os.path.realpath(path)
@@ -554,7 +558,8 @@ def decide(tool_name, tool_input, payload, ws_root):
             f"Blocked: file_path '{path}' is outside the workspace and its "
             f"mounted repos (resolves to '{real}'). To work on that repo, mount "
             f"it with `mai add <name> <path>` (or `mai add-layer <name> <path>`); "
-            f"for scratch output, write to the session scratchpad."
+            f"for scratch output, write to the session scratchpad.",
+            PERIMETER,
         )
 
     return strictest(check_names(lexical, real, ws_root))

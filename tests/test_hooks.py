@@ -1702,3 +1702,115 @@ def test_guard_bash_ignores_data_in_heredocs_and_quoted_phrases(command):
 )
 def test_guard_bash_still_blocks_real_commands_around_data(command):
     assert _is_block(_run_hook(GUARD_BASH, {"tool_input": {"command": command}})), command
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — redirection and tee targets go through _policy.decide
+# ---------------------------------------------------------------------------
+
+
+def _bash(command, ws, cwd=None, env=None, payload=None):
+    run_env = {"MAICELIUM_ROOT": str(ws)}
+    if env:
+        run_env.update(env)
+    data = {
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "cwd": str(cwd or ws),
+    }
+    if payload:
+        data.update(payload)
+    return _run_hook(GUARD_BASH, data, env=run_env)
+
+
+def _p(path):
+    """A path as a shell word (forward slashes, also on Windows)."""
+    return str(path).replace("\\", "/")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > .env <<'EOF'\nK=v\nEOF",
+        "cat <<EOF > .env.local\nK=v\nEOF",
+        'echo "K=v" > .env',
+        "printf 'K=v\\n' >> .env",
+        "cat <<< 'K=v' > .env",
+        "echo K=v | tee .env",
+        "echo x > .git/config",
+        "echo '{}' > package-lock.json",
+    ],
+)
+def test_guard_bash_agent_content_to_protected_name_denied(tmp_path, command):
+    """Heredoc, herestring, echo and printf content gets Write's decision."""
+    assert _is_block(_bash(command, tmp_path)), command
+
+
+def test_guard_bash_agent_content_deny_matches_write_message(tmp_path):
+    bash = _bash("cat <<EOF > .env\nK=v\nEOF", tmp_path)
+    write = _write(tmp_path / ".env", tmp_path)
+    assert _reason(bash) == _reason(write)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "./tool.py > .env",
+        "sops -d secrets.enc.yaml > .env",
+        "sops -d x | tee .env",
+        "echo K=v | sort | tee .env",  # tee's producer is sort, a program
+        "gen-config 2> /dev/null > .env.production",
+    ],
+)
+def test_guard_bash_program_output_to_protected_name_asks(tmp_path, command):
+    assert _decision(_bash(command, tmp_path)) == "ask", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python rotate.py",
+        "sops -e -i secrets.yaml",
+        "./tool.py > out.json 2>&1",
+        "make build > build.log 2>/dev/null",
+        "ls >&2",
+        "echo hi > /dev/null",
+        "cat <<EOF > notes.md\nhello\nEOF",
+        "cat <<'EOF' | tee -a docs/plan.md\nstep 1\nEOF",
+        "echo x > \"$TARGET\"",  # unresolvable: left to the other layers
+    ],
+)
+def test_guard_bash_inside_roots_allowed(tmp_path, command):
+    """Decision 4: heredoc to a file inside the roots is allowed."""
+    assert _decision(_bash(command, tmp_path)) is None, command
+
+
+def test_guard_bash_tee_outside_roots_denied(tmp_path):
+    ws, home = tmp_path / "ws", tmp_path / "home"
+    ws.mkdir()
+    home.mkdir()
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    for command in ("echo x | tee ~/fuera.txt", "date | tee $HOME/fuera.txt"):
+        result = _bash(command, ws, env=env)
+        assert _is_block(result), command
+        assert "mai add" in _reason(result)
+
+
+def test_guard_bash_redirect_outside_roots_denied_for_programs_too(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert _is_block(_bash(f"./tool.py > {_p(tmp_path / 'elsewhere' / 'x.txt')}", ws))
+
+
+@requires_symlink
+def test_guard_bash_echo_into_mounted_project_allowed(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    for target in (ws / "projects" / "demo" / "a.txt", repo / "b.txt"):
+        assert _decision(_bash(f"echo x > {_p(target)}", ws, env=env)) is None, target
+
+
+def test_guard_bash_relative_targets_use_payload_cwd(tmp_path):
+    ws = tmp_path / "ws"
+    (ws / "sub").mkdir(parents=True)
+    assert _is_block(_bash("echo K=v > ../.env", ws, cwd=ws / "sub"))
+    assert _decision(_bash("echo x > ../ok.txt", ws, cwd=ws / "sub")) is None
