@@ -210,8 +210,10 @@ def test_init_writes_python_hooks_in_settings(tmp_path):
     settings_file = tmp_path / ".claude" / "settings.json"
     content = settings_file.read_text()
     # Hooks are referenced through ${CLAUDE_PROJECT_DIR} so they work from any
-    # working directory (#43).
-    pd = '"${CLAUDE_PROJECT_DIR}"'
+    # working directory (#43), falling back to the cwd when a runner does not
+    # set the variable (Cursor runs imported Claude Code hooks from the
+    # project root).
+    pd = '"${CLAUDE_PROJECT_DIR:-.}"'
     hooks = json.loads(content)["hooks"]
     commands = " ".join(
         h["command"] for entries in hooks.values() for e in entries for h in e["hooks"]
