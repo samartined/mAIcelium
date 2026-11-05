@@ -279,6 +279,75 @@ _LEADING_WRAPPERS = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# Command vs. data: heredoc bodies and quoted literals
+# ---------------------------------------------------------------------------
+# A heredoc body or a quoted phrase is data the command receives, not a command
+# the shell runs. Matching patterns against it made a Terraform plan or a script
+# that merely MENTIONS ``chmod 777`` or a destructive SQL statement look
+# dangerous, and since heredocs were the usual way around guard_write the two
+# guards multiplied.
+
+_QUOTED = re.compile(r"""'[^']*'|"(?:\\.|[^"\\])*\"""")
+
+# A heredoc operator: << or <<- followed by an optionally quoted delimiter.
+# The lookarounds keep the herestring operator <<< out.
+_HEREDOC_OP = re.compile(
+    r"""(?<!<)<<(?!<)(-?)\s*(?:'([^']*)'|"([^"]*)"|\\?([A-Za-z_][\w.-]*))"""
+)
+
+
+def _blank_quotes(line):
+    """Replace quoted strings with same-length filler so operators inside
+    quotes are not mistaken for real ones (positions are preserved)."""
+    return _QUOTED.sub(lambda m: "_" * len(m.group(0)), line)
+
+
+def split_heredocs(cmd):
+    """Return (code, heredoc_count): *cmd* without heredoc bodies.
+
+    The line holding the ``<<DELIM`` operator stays, so callers still see that
+    the command reads a heredoc; the body lines up to the closing delimiter are
+    dropped. Operators inside quotes are ignored, so ``echo "<<X"`` does not
+    swallow the following lines. An unterminated body runs to the end, as in
+    the shell.
+    """
+    out, pending, count = [], [], 0
+    for line in cmd.split("\n"):
+        if pending:
+            strip_tabs, delim = pending[0]
+            candidate = line.lstrip("\t") if strip_tabs else line
+            if candidate == delim:
+                pending.pop(0)
+            continue
+        out.append(line)
+        for m in _HEREDOC_OP.finditer(_blank_quotes(line)):
+            # Re-read the operator from the original line: blanking only
+            # touched quoted text, so a quoted delimiter ('EOF') is restored.
+            g = _HEREDOC_OP.match(line, m.start()) or m
+            if g.group(2) is not None:
+                delim = g.group(2)
+            elif g.group(3) is not None:
+                delim = g.group(3)
+            else:
+                delim = g.group(4)
+            pending.append((g.group(1) == "-", delim))
+            count += 1
+    return "\n".join(out), count
+
+
+def _unquote_words(code):
+    """Quoted single words become bare words (``"main"`` -> ``main``); quoted
+    phrases (anything with whitespace) are blanked: they are messages, prompts
+    or source code passed as an argument, not commands."""
+
+    def repl(m):
+        inner = m.group(0)[1:-1]
+        return inner if inner and not any(c.isspace() for c in inner) else '""'
+
+    return _QUOTED.sub(repl, code)
+
+
 def _command_is_dangerous(cmd):
     """Return True if any segment of *cmd* is a blockable rm -rf invocation.
 
@@ -380,10 +449,16 @@ def _evaluate(cmd):
     otherwise returns normally.  Isolated from stdin handling so the caller can
     wrap it in a fail-closed guard (see ``main``).
     """
+    # Heredoc bodies are data: drop them before any pattern runs.
+    cmd, _ = split_heredocs(cmd)
     # Normalise: collapse whitespace, lowercase for pattern matching.
     # Append a trailing space so patterns anchored on a following whitespace
     # (e.g. "/ " or "~ ") still match when the command ends at the target.
+    # ``norm`` keeps quoted text, because SQL is normally passed quoted to a
+    # client (psql -c "..."); ``bare`` blanks quoted phrases for the rules that
+    # only make sense on real command words (chmod, force push, mkfs/dd).
     norm = " ".join(cmd.lower().split()) + " "
+    bare = " ".join(_unquote_words(cmd).lower().split()) + " "
 
     # -----------------------------------------------------------------------
     # Catastrophic deletion guard (rm -rf on dangerous targets)
@@ -414,8 +489,8 @@ def _evaluate(cmd):
         )
 
     # Force push to main/master
-    if re.search(r"git\s+push\s+.*(-f|--force)", norm) and re.search(
-        r"\b(main|master)\b", norm
+    if re.search(r"git\s+push\s+.*(-f|--force)", bare) and re.search(
+        r"\b(main|master)\b", bare
     ):
         _block(
             "Blocked: force push to main/master. "
@@ -423,14 +498,14 @@ def _evaluate(cmd):
         )
 
     # Dangerous disk ops
-    if re.search(r"(mkfs\.|>\s*/dev/sd|dd\s+if=.*/dev/)", norm):
+    if re.search(r"(mkfs\.|>\s*/dev/sd|dd\s+if=.*/dev/)", bare):
         _block(
             "Blocked: low-level disk operation (mkfs/dd). "
             "This could destroy disk data."
         )
 
     # chmod 777
-    if re.search(r"chmod\s+777", norm):
+    if re.search(r"chmod\s+777", bare):
         _block(
             "Blocked: chmod 777 sets world-writable permissions. "
             "Use more restrictive permissions."
