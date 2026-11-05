@@ -49,6 +49,9 @@ LOCKFILES = frozenset(
     }
 )
 
+# Key and credential material: writes need a human confirmation.
+KEY_MATERIAL_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".kubeconfig")
+
 # `.env.*` names that are templates, not secrets.
 ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template")
 
@@ -412,6 +415,28 @@ def _generic_rules(path):
         out.append(
             deny(f"Protected file: {base} is a lockfile. Use the package manager to update it.")
         )
+    if len(parts) >= 2 and parts[-2] == ".claude" and fnmatch.fnmatchcase(base, "settings*.json"):
+        out.append(
+            ask(
+                f"Sensitive file: .claude/{base} holds an agent's permissions and "
+                f"hooks. Confirm only if you asked for this change."
+            )
+        )
+    if base == ".sops.yaml":
+        out.append(
+            ask(
+                "Sensitive file: .sops.yaml decides which keys can decrypt the "
+                "secrets. Confirm only if you asked for this change."
+            )
+        )
+    if base == "kubeconfig" or base.endswith(KEY_MATERIAL_SUFFIXES):
+        out.append(
+            ask(
+                f"Sensitive file: {base} looks like key or cluster credential "
+                f"material; overwriting it can be destructive. Confirm only if "
+                f"you asked for this change."
+            )
+        )
     return out
 
 
@@ -436,14 +461,21 @@ def _workspace_rules(rel):
                     f"sync_symlinks.py. Write to mesh/ (or the owning layer) instead."
                 )
             )
-    if len(rel) == 2 and rel[0] == ".claude" and fnmatch.fnmatchcase(rel[1], "settings*.json"):
+    if _is_guard_file(rel):
         out.append(
             ask(
-                f"Sensitive file: {shown} holds the agent's own permissions and "
-                f"hooks. Confirm only if you asked for this change."
+                f"Guard file: {shown} enforces these write and Bash rules. "
+                f"Confirm only if you asked for this change."
             )
         )
     return out
+
+
+def _is_guard_file(rel):
+    """bin/hooks/**/*.py, bin/py.sh and bin/py.cmd of the workspace (#44)."""
+    if rel[:2] == ["bin", "hooks"] and len(rel) > 2 and rel[-1].endswith(".py"):
+        return True
+    return rel in (["bin", "py.sh"], ["bin", "py.cmd"])
 
 
 def _stale_reflection(lexical, real, ws_root):
