@@ -483,6 +483,23 @@ def _is_guard_file(rel):
     return rel in (["bin", "py.sh"], ["bin", "py.cmd"])
 
 
+def is_guard_target(path, ws_root):
+    """True if *path* (lexically or once resolved) is one of the workspace's
+    guard files: bin/hooks/**/*.py, bin/py.sh, bin/py.cmd or
+    .claude/settings*.json at the workspace root."""
+    ws_roots = _dedupe([os.path.abspath(ws_root), os.path.realpath(ws_root)])
+    for ident in _dedupe([os.path.abspath(path), os.path.realpath(path)]):
+        for wr in ws_roots:
+            if not is_under(ident, wr):
+                continue
+            rel = _rel_parts(ident, wr)
+            if _is_guard_file(rel):
+                return True
+            if len(rel) == 2 and rel[0] == ".claude" and fnmatch.fnmatchcase(rel[1], "settings*.json"):
+                return True
+    return False
+
+
 def _stale_reflection(lexical, real, ws_root):
     ws_lex = os.path.abspath(ws_root)
     if not is_under(lexical, ws_lex):
