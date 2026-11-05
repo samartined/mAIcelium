@@ -2019,3 +2019,69 @@ def test_hook_metrics_counts_denials_and_heredocs(tmp_path):
     everything = hook_metrics.scan(str(tmp_path / "projects"), workspace=None)
     assert everything["2026-10"]["heredocs"] == 3
     assert hook_metrics.scan(str(tmp_path / "projects"), workspace=str(ws), since="2026-11")["2026-11"]["bash_denied"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Cursor runs these hooks by importing .claude/settings.json
+# ---------------------------------------------------------------------------
+# Payloads below follow cursor.com/docs/agent/hooks (preToolUse common fields +
+# tool_name/tool_input/tool_use_id/cwd). Cursor's Write tool_input field names
+# are not documented, so both shapes are covered.
+
+
+def _cursor_payload(tool_name, tool_input, ws):
+    return {
+        "hook_event_name": "preToolUse",
+        "conversation_id": "c-1",
+        "generation_id": "g-1",
+        "model": "some-model",
+        "cursor_version": "2.0.0",
+        "workspace_roots": [str(ws)],
+        "user_email": None,
+        "transcript_path": None,
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "tool_use_id": "t-1",
+        "cwd": str(ws),
+    }
+
+
+def test_settings_bash_matcher_covers_cursor_shell():
+    with open(os.path.join(REPO_ROOT, ".claude", "settings.json"), encoding="utf-8") as f:
+        matchers = [e["matcher"] for e in json.load(f)["hooks"]["PreToolUse"]]
+    bash = next(m for m in matchers if "Bash" in m.split("|"))
+    assert "Shell" in bash.split("|")
+
+
+@pytest.mark.parametrize(
+    "command,blocked",
+    [("rm -rf /", True), ("echo K=v > .env", True), ("ls -la", False)],
+)
+def test_guard_bash_handles_cursor_shell_payload(tmp_path, command, blocked):
+    payload = _cursor_payload("Shell", {"command": command}, tmp_path)
+    result = _run_hook(GUARD_BASH, payload, env={"MAICELIUM_ROOT": str(tmp_path)})
+    assert result.returncode == 0
+    assert _is_block(result) is blocked
+
+
+def test_guard_write_handles_cursor_write_with_file_path(tmp_path):
+    ok = _cursor_payload("Write", {"file_path": str(tmp_path / "a.md"), "contents": "x"}, tmp_path)
+    assert _decision(_run_hook(GUARD_WRITE, ok, env={"MAICELIUM_ROOT": str(tmp_path)})) is None
+    bad = _cursor_payload("Write", {"file_path": str(tmp_path / ".env"), "contents": "K=v"}, tmp_path)
+    assert _is_block(_run_hook(GUARD_WRITE, bad, env={"MAICELIUM_ROOT": str(tmp_path)}))
+
+
+def test_guard_write_logs_and_denies_payload_without_path(tmp_path):
+    """Unknown Write shape: deny with a pointer to the issue, and log the
+    payload's shape (keys only, never the contents) for diagnosis."""
+    secret = "TOP-SECRET-CONTENT"
+    payload = _cursor_payload("Write", {"path": str(tmp_path / "a.md"), "contents": secret}, tmp_path)
+    result = _run_hook(GUARD_WRITE, payload, env={"MAICELIUM_ROOT": str(tmp_path)})
+    assert _is_block(result)
+    assert "without a file path" in _reason(result)
+    assert "'contents', 'path'" in _reason(result)
+    log = (tmp_path / ".claude" / "hook-failures.log").read_text(encoding="utf-8")
+    assert "payload-without-path" in log
+    assert "tool_input_keys=['contents', 'path']" in log
+    assert "preToolUse" in log
+    assert secret not in log and secret not in result.stdout

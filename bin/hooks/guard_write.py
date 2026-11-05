@@ -51,7 +51,28 @@ def _run():
         _policy.emit(_policy.deny(f"{_HOOK}: invalid hook input (not an object); refusing."))
         return
 
-    decision = _policy.decide(data.get("tool_name"), data.get("tool_input"), data, ws_root)
+    tool_name, tool_input = data.get("tool_name"), data.get("tool_input")
+    if isinstance(tool_input, dict) and not _policy.target_path(tool_name, tool_input):
+        # A runner whose Write payload has no file_path/notebook_path (e.g. a
+        # different agent environment importing these hooks). Log the shape,
+        # never the values (they can hold file contents), then deny.
+        _policy.log_failure(
+            ws_root,
+            _HOOK,
+            f"payload-without-path tool_name={tool_name!r} "
+            f"tool_input_keys={sorted(tool_input)} "
+            f"event={data.get('hook_event_name')!r}",
+        )
+        _policy.emit(
+            _policy.deny(
+                f"Blocked: {_HOOK} got a payload without a file path "
+                f"(no file_path or notebook_path in tool_input; keys: "
+                f"{sorted(tool_input)}). See issue #49."
+            )
+        )
+        return
+
+    decision = _policy.decide(tool_name, tool_input, data, ws_root)
     _policy.emit(decision)
 
 
