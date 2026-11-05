@@ -1905,3 +1905,66 @@ def test_guard_bash_cp_from_a_guard_file_is_also_denied(tmp_path):
     """The rule is "names a guard file and uses a write verb": copying FROM a
     guard is denied too. Read it with cat/grep instead."""
     assert _is_block(_bash("cp bin/hooks/guard_bash.py review-copy.py", tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# The hook commands exactly as .claude/settings.json registers them
+# ---------------------------------------------------------------------------
+# Claude Code runs command hooks through bash (Git Bash on native Windows) with
+# CLAUDE_PROJECT_DIR set. Run the checked-in commands the same way, from an
+# unrelated working directory, to prove the launcher (bin/py.sh) and the
+# ${CLAUDE_PROJECT_DIR} paths work on every CI platform.
+
+
+def _hook_bash():
+    import shutil
+
+    if sys.platform == "win32":
+        git = shutil.which("git")
+        if git:
+            git_root = os.path.dirname(os.path.dirname(git))
+            for candidate in (
+                os.path.join(git_root, "bin", "bash.exe"),
+                os.path.join(git_root, "usr", "bin", "bash.exe"),
+            ):
+                if os.path.isfile(candidate):
+                    return candidate
+    found = shutil.which("bash")
+    assert found, "bash (Git Bash on Windows) is required to run the hook commands"
+    return found
+
+
+def _settings_hook_command(matcher_word):
+    with open(os.path.join(REPO_ROOT, ".claude", "settings.json"), encoding="utf-8") as f:
+        data = json.load(f)
+    for entry in data["hooks"]["PreToolUse"]:
+        if matcher_word in entry["matcher"].split("|"):
+            return entry["hooks"][0]["command"]
+    raise AssertionError(f"no PreToolUse hook for {matcher_word}")
+
+
+@pytest.mark.parametrize(
+    "matcher,payload",
+    [
+        ("Write", {"tool_name": "Write", "tool_input": {"file_path": os.path.join(REPO_ROOT, ".env")}}),
+        ("Bash", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+    ],
+)
+def test_settings_hook_commands_run_from_any_cwd(tmp_path, matcher, payload):
+    command = _settings_hook_command(matcher)
+    assert "${CLAUDE_PROJECT_DIR}" in command
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = REPO_ROOT
+    env.pop("MAICELIUM_ROOT", None)
+    payload = dict(payload, cwd=str(tmp_path))
+    result = subprocess.run(
+        [_hook_bash(), "-c", command],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert _is_block(result), (result.stdout, result.stderr)
