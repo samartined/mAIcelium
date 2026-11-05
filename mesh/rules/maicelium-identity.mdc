@@ -39,8 +39,9 @@ mAIcelium/
 │   ├── py.cmd            ← Cross-platform Python shim (Windows)
 │   ├── _lib/             ← Shared Python library package for all scripts
 │   └── hooks/
-│       ├── guard_bash.py   ← PreToolUse: blocks dangerous shell commands
-│       └── guard_write.py  ← PreToolUse: blocks writes to protected files
+│       ├── _policy.py      ← Shared write policy (write roots + name rules)
+│       ├── guard_bash.py   ← PreToolUse: dangerous commands + redirection targets
+│       └── guard_write.py  ← PreToolUse: write-scope boundary (roots + names)
 ├── WORKSPACE.md       ← Auto-generated: active projects + their inlined rules
 └── CLAUDE.md          ← Claude Code entry point
 ```
@@ -103,22 +104,37 @@ It blocks common literal destructive shell commands including:
 
 Safe cleanup targets (`node_modules`, `./build`, `/tmp/...`, etc.) are explicitly allowed.
 
-**Honesty contract:** `guard_bash.py` performs regex matching over the raw command string
-and is inherently bypassable (shell expansion, variable indirection, command substitution,
-sub-shells, eval, etc. are all invisible at this layer). The hook **fails open by design** —
-on any parse error it logs and exits without blocking. It is not a security boundary.
-Real boundaries: write-scope enforced by `guard_write.py` + human review.
+Heredoc bodies and quoted phrases are data, not commands: they are skipped
+before matching. Every redirection (`>`, `>>`, `tee`) target is checked with the
+same write policy as `Write`: heredoc/`echo`/`printf` content to a protected
+name is denied, program output to one asks, and anything outside the write roots
+is denied. `ln` into `projects/` or `mesh/` and write verbs (`sed -i`, `cp`, `mv`,
+`rm`, …) on the guard files are denied.
 
-**`guard_write.py`** blocks writes/edits to:
-- `.env` files (may contain secrets)
-- `.git/` internals
-- Auto-generated files: `WORKSPACE.md`, `mAIcelium.code-workspace`, `.claude/projects-context.md`
-- Agent settings: `.claude/settings.json`, `.claude/settings.local.json`
-- Auto-generated dotfolders: `.cursor/`, `.agents/`
-- Lockfiles: `package-lock.json`, `yarn.lock`, `poetry.lock`, etc.
+**Honesty contract:** `guard_bash.py` reads the command text only and is
+inherently bypassable (variable indirection, command substitution, a script that
+writes files itself). It is not a security boundary. It **fails closed**: if it
+cannot parse its input or crashes, it denies.
 
-If a tool call is blocked by a hook, the reason will be shown. The fix is always to
-target `mesh/` instead of the protected path, or use the appropriate `bin/` script.
+**`guard_write.py`** (Write, Edit, MultiEdit, NotebookEdit) allows a write only
+when the **resolved** path is under a write root:
+- the workspace, and every repo mounted under `projects/`, `mesh/layers/`, `mesh/mcp`
+  (never `$HOME`, a disk root, a hidden home folder or a folder containing the workspace);
+- `~/.claude/plans/`, this project's auto-memory, the session scratchpad
+  (`scratchpad_dir`), and plain temp dirs (not `/tmp/claude-*/` harness state).
+
+Inside the roots, on the path and on its symlink target, case-insensitively:
+- **deny:** `.env*` (templates like `.env.example` are fine), any `.git` component,
+  lockfiles; in the workspace, `WORKSPACE.md`, `mAIcelium.code-workspace`,
+  `.claude/projects-context.md`, `.claude/skills/`, `.cursor/`, `.agents/`, `.antigravity/`
+- **ask (the user confirms):** `.claude/settings*.json` of any project, `.sops.yaml`,
+  key material (`*.pem`, `*.key`, `*.p12`, `*.pfx`, kubeconfig), and the guard files
+  `bin/hooks/**/*.py`, `bin/py.sh`, `bin/py.cmd`
+
+If a tool call is blocked, the reason says what to do instead: mount the repo
+with `mai add <name> <path>`, write to the scratchpad, use the package manager,
+or run `mai sync`. In `claude -p` or `dontAsk` mode an ask behaves as a deny.
+Full model: `docs/security-model.md`.
 
 ## Separated git mode
 
