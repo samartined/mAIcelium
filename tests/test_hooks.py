@@ -11,9 +11,17 @@ GUARD_WRITE = os.path.join(REPO_ROOT, "bin", "hooks", "guard_write.py")
 from _marks import requires_symlink  # noqa: E402
 
 
+# pytest's tmp_path lives under the system temp dir, which guard_write now
+# treats as a write root. Point the temp roots at a path nothing lives under so
+# "outside the perimeter" tests stay meaningful; tests of the temp-root rule
+# pass their own MAICELIUM_TMP_ROOTS.
+NO_TMP_ROOT = os.path.join(REPO_ROOT, "__no_tmp_root__")
+
+
 def _run_hook(hook_path, payload, env=None, cwd=None):
     """Invoke a hook with a JSON payload on stdin and capture the result."""
     run_env = os.environ.copy()
+    run_env["MAICELIUM_TMP_ROOTS"] = NO_TMP_ROOT
     if env:
         run_env.update(env)
     return subprocess.run(
@@ -27,15 +35,27 @@ def _run_hook(hook_path, payload, env=None, cwd=None):
     )
 
 
+def _decision(result):
+    """Return the hook's permissionDecision ("deny"/"ask"), or None (allow).
+
+    A hook that exits non-zero is reported as "error" so tests can tell a
+    crash (which Claude Code treats as non-blocking) from a real decision.
+    """
+    if result.returncode != 0:
+        return "error"
+    if not result.stdout.strip():
+        return None
+    decoded = json.loads(result.stdout)
+    return decoded["hookSpecificOutput"]["permissionDecision"]
+
+
+def _reason(result):
+    return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+
+
 def _is_block(result):
-    """Return True if hook produced a block decision."""
-    if result.returncode != 0 or not result.stdout.strip():
-        return False
-    try:
-        decoded = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return False
-    return decoded.get("decision") == "block"
+    """Return True if the hook denied the tool call."""
+    return _decision(result) == "deny"
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +73,8 @@ def test_guard_bash_blocks_rm_rf_root():
     result = _run_hook(GUARD_BASH, {"tool_input": {"command": "rm -rf /"}})
     assert result.returncode == 0
     assert _is_block(result)
-    decoded = json.loads(result.stdout)
-    assert "root" in decoded["reason"].lower() or "home" in decoded["reason"].lower()
+    reason = _reason(result).lower()
+    assert "root" in reason or "home" in reason
 
 
 def test_guard_bash_blocks_rm_rf_home():
@@ -165,14 +185,15 @@ def test_guard_write_blocks_workspace_md(tmp_path):
     assert _is_block(result)
 
 
-def test_guard_write_blocks_settings_json(tmp_path):
+def test_guard_write_asks_for_settings_json(tmp_path):
+    """The agent's own settings are not silently writable: Edgar confirms."""
     target = tmp_path / ".claude" / "settings.json"
     result = _run_hook(
         GUARD_WRITE,
         {"tool_input": {"file_path": str(target)}},
         env={"MAICELIUM_ROOT": str(tmp_path)},
     )
-    assert _is_block(result)
+    assert _decision(result) == "ask"
 
 
 def test_guard_write_blocks_cursor_folder(tmp_path):
@@ -236,8 +257,7 @@ def test_guard_write_blocks_stale_layer_reflection(tmp_path):
         env={"MAICELIUM_ROOT": str(tmp_path)},
     )
     assert _is_block(result)
-    decoded = json.loads(result.stdout)
-    assert "layer" in decoded["reason"].lower()
+    assert "layer" in _reason(result).lower()
 
 
 @requires_symlink
@@ -568,23 +588,21 @@ def test_guard_bash_known_gap_find_delete():
     )
 
 
-# --- FAIL-OPEN test ---
+# --- FAIL-CLOSED test (#39) ---
 
 
-def test_guard_bash_fail_open_malformed_json():
-    """Malformed/non-JSON stdin must exit 0 (fail-open), not crash or block."""
-    import subprocess
+def test_guard_bash_fails_closed_on_malformed_json():
+    """Malformed/non-JSON stdin must deny (fail closed), never crash."""
     result = subprocess.run(
-        [__import__("sys").executable, GUARD_BASH],
+        [sys.executable, GUARD_BASH],
         input="THIS IS NOT JSON",
         capture_output=True,
         text=True,
         timeout=10,
-        env=__import__("os").environ.copy(),
+        env=os.environ.copy(),
     )
     assert result.returncode == 0
-    # Must NOT produce a block decision
-    assert not _is_block(result)
+    assert _is_block(result)
 
 
 # ---------------------------------------------------------------------------
@@ -665,16 +683,15 @@ def test_guard_bash_blocks_home_var(command):
     assert _is_block(result), f"Expected block for: {command}"
 
 
-# --- Finding 3: unexpected-exception fail-open (documented contract) ---
+# --- Finding 3 / #39: unexpected exception fails CLOSED ---
 
 
-def test_guard_bash_fail_open_on_unexpected_exception():
+def test_guard_bash_fails_closed_on_unexpected_exception():
     """If the matching logic raises an unexpected exception the hook must exit 0
-    WITHOUT blocking, matching the docstring contract. We inject the failure by
-    replacing _RM_RF_BLOCK with an object whose .search() raises, then run
-    main() in a subprocess on a payload that would otherwise be blocked.
+    WITH a deny decision (#39: a crash used to wave the command through). We
+    inject the failure by replacing _RM_RF_BLOCK with an object whose .search()
+    raises, then run main() in a subprocess on a harmless payload.
     """
-    import subprocess
     hooks_dir = os.path.join(REPO_ROOT, "bin", "hooks")
     shim = (
         "import sys\n"
@@ -688,14 +705,15 @@ def test_guard_bash_fail_open_on_unexpected_exception():
     ) % hooks_dir
     result = subprocess.run(
         [sys.executable, "-c", shim],
-        input=json.dumps({"tool_input": {"command": "rm -rf /"}}),
+        input=json.dumps({"tool_input": {"command": "rm -rf node_modules"}}),
         capture_output=True,
         text=True,
         timeout=10,
         env=os.environ.copy(),
     )
     assert result.returncode == 0
-    assert not _is_block(result)
+    assert _is_block(result)
+    assert "crashed" in _reason(result)
 
 
 def test_guard_bash_redos_linear_on_pathological_input():
@@ -982,3 +1000,1050 @@ def test_guard_bash_redos_linear_full_path_and_flagged_sudo():
         assert elapsed < 5.0, (
             f"guard too slow ({elapsed:.2f}s) on pathological input — possible ReDoS"
         )
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — shared policy core (_policy.decide)
+# #39 fail closed, #40 layer bypass, #41 lexical aliases, #43 small fixes
+# ---------------------------------------------------------------------------
+
+
+def _write(path, ws, tool_name="Write", env=None, key="file_path", payload=None):
+    run_env = {"MAICELIUM_ROOT": str(ws)}
+    if env:
+        run_env.update(env)
+    data = {"tool_name": tool_name, "tool_input": {key: str(path)}}
+    if payload:
+        data.update(payload)
+    return _run_hook(GUARD_WRITE, data, env=run_env)
+
+
+def _symlink_dir(target, link):
+    os.symlink(str(target), str(link), target_is_directory=True)
+
+
+def _unlink_dir_symlink(link):
+    """Remove a directory symlink (os.rmdir on Windows, os.unlink elsewhere)."""
+    if sys.platform == "win32":
+        os.rmdir(str(link))
+    else:
+        os.unlink(str(link))
+
+
+# --- #39: fail closed ---
+
+
+@pytest.mark.parametrize("bad", ["\x00b", "\ud800b"])
+def test_guard_write_denies_unrepresentable_path(tmp_path, bad):
+    """A NUL byte or a lone surrogate used to crash the hook with exit 1
+    (non-blocking) on POSIX; on Windows ntpath.realpath swallows the error and
+    the path looked like a normal in-workspace file. Both are denied up front."""
+    result = _write(str(tmp_path / "a") + bad, tmp_path)
+    assert result.returncode == 0
+    assert _is_block(result)
+
+
+@pytest.mark.parametrize("stdin", ["", "THIS IS NOT JSON", "[1, 2]"])
+def test_guard_write_fails_closed_on_invalid_input(tmp_path, stdin):
+    result = subprocess.run(
+        [sys.executable, GUARD_WRITE],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path), "MAICELIUM_TMP_ROOTS": NO_TMP_ROOT},
+    )
+    assert result.returncode == 0
+    assert _is_block(result)
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [{}, {"file_path": ""}, {"file_path": 42}, {"file_path": "relative/x.py"}],
+)
+def test_guard_write_denies_missing_or_relative_path(tmp_path, tool_input):
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_name": "Write", "tool_input": tool_input},
+        env={"MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert _is_block(result)
+
+
+def test_guard_write_fails_closed_on_unexpected_exception(tmp_path):
+    """Any exception inside the policy is a deny, never a pass."""
+    hooks_dir = os.path.join(REPO_ROOT, "bin", "hooks")
+    shim = (
+        "import sys\n"
+        "sys.path.insert(0, %r)\n"
+        "import _policy\n"
+        "def boom(*a, **k):\n"
+        "    raise RuntimeError('injected failure')\n"
+        "_policy.decide = boom\n"
+        "import guard_write\n"
+        "guard_write.main()\n"
+    ) % hooks_dir
+    result = subprocess.run(
+        [sys.executable, "-c", shim],
+        input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(tmp_path / "ok.md")}}),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path), "MAICELIUM_TMP_ROOTS": NO_TMP_ROOT},
+    )
+    assert result.returncode == 0
+    assert _is_block(result)
+    assert "crashed" in _reason(result)
+
+
+def test_guard_write_allow_prints_nothing(tmp_path):
+    """Allow must not emit permissionDecision "allow": that would skip
+    Claude Code's own permission prompts."""
+    result = _write(tmp_path / "notes" / "a.md", tmp_path)
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+
+
+# --- #41: rules apply to the lexical AND the real identity ---
+
+
+@requires_symlink
+def test_guard_write_alias_symlink_to_settings_asks(tmp_path):
+    """ln -s ../.claude/settings.json projects/notes.md, then Write notes.md."""
+    ws = tmp_path / "ws"
+    (ws / ".claude").mkdir(parents=True)
+    (ws / ".claude" / "settings.json").write_text("{}\n")
+    (ws / "projects").mkdir()
+    alias = ws / "projects" / "notes.md"
+    os.symlink(os.path.join("..", ".claude", "settings.json"), str(alias))
+    assert _decision(_write(alias, ws)) == "ask"
+
+
+@requires_symlink
+def test_guard_write_alias_symlink_to_env_denied(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / ".env").write_text("K=v\n")
+    alias = ws / "notes.txt"
+    os.symlink(str(ws / ".env"), str(alias))
+    assert _is_block(_write(alias, ws))
+
+
+@requires_symlink
+def test_guard_write_external_alias_to_workspace(tmp_path):
+    """/tmp/w -> <ws>: the real identity keeps every workspace rule."""
+    ws = tmp_path / "ws"
+    (ws / ".claude").mkdir(parents=True)
+    alias = tmp_path / "w"
+    _symlink_dir(ws, alias)
+    assert _decision(_write(alias / ".claude" / "settings.json", ws)) == "ask"
+    assert _is_block(_write(alias / "WORKSPACE.md", ws))
+    assert _is_block(_write(alias / ".cursor" / "rules" / "x.mdc", ws))
+    assert _decision(_write(alias / "src" / "main.py", ws)) is None
+
+
+@pytest.mark.parametrize(
+    "rel,expected",
+    [
+        ((".CLAUDE", "settings.json"), "ask"),
+        ((".Claude", "Settings.local.json"), "ask"),
+        (("workspace.md",), "deny"),
+        (("mAIcelium.CODE-WORKSPACE",), "deny"),
+        ((".Claude", "Projects-Context.md"), "deny"),
+        ((".ENV",), "deny"),
+        (("sub", ".Env.Local"), "deny"),
+        ((".Git", "config"), "deny"),
+        (("Package-Lock.json",), "deny"),
+        ((".CURSOR", "x"), "deny"),
+        ((".Claude", "Skills", "x", "SKILL.md"), "deny"),
+    ],
+)
+def test_guard_write_name_rules_ignore_case(tmp_path, rel, expected):
+    """#43: case variants hit the same rule (they are the same file on
+    macOS/Windows)."""
+    assert _decision(_write(tmp_path.joinpath(*rel), tmp_path)) == expected
+
+
+# --- #40: no layer-reflection bypass of the perimeter ---
+
+
+@requires_symlink
+def test_guard_write_malicious_layer_cannot_reach_home(tmp_path):
+    """mesh/layers/evil -> ~ plus a reflection through it must not open ~."""
+    ws = tmp_path / "ws"
+    home = tmp_path / "home"
+    home.mkdir()
+    (ws / "mesh" / "layers").mkdir(parents=True)
+    (ws / "mesh" / "skills" / "_common").mkdir(parents=True)
+    _symlink_dir(home, ws / "mesh" / "layers" / "evil")
+    _symlink_dir(ws / "mesh" / "layers" / "evil", ws / "mesh" / "skills" / "_common" / "x")
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    for target in (
+        ws / "mesh" / "skills" / "_common" / "x" / ".bashrc",
+        ws / "mesh" / "layers" / "evil" / ".bashrc",
+    ):
+        result = _write(target, ws, env=env)
+        assert _is_block(result), target
+        assert "outside" in _reason(result)
+
+
+# --- #43: small fixes ---
+
+
+@pytest.mark.parametrize("name", ["..notes.md", "a..b.md", "...md"])
+def test_guard_write_allows_leading_dots_in_name(tmp_path, name):
+    """Used to be refused by a startswith('..') check on the relative path."""
+    assert _decision(_write(tmp_path / name, tmp_path)) is None
+
+
+def test_guard_write_denies_git_pointer_file(tmp_path):
+    """A .git FILE (worktree / submodule pointer) is protected like the dir."""
+    result = _write(tmp_path / "sub" / ".git", tmp_path)
+    assert _is_block(result)
+    assert "git commit -F" in _reason(result)
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        (".env.example", None),
+        (".env.prod.example", None),
+        (".env.sample", None),
+        (".env.template", None),
+        (".env.production", "deny"),
+        (".env", "deny"),
+    ],
+)
+def test_guard_write_env_templates(tmp_path, name, expected):
+    assert _decision(_write(tmp_path / name, tmp_path)) == expected
+
+
+def test_guard_write_checks_notebook_edit(tmp_path):
+    """NotebookEdit sends notebook_path, not file_path: it is checked too."""
+    outside = tmp_path / "elsewhere" / "nb.ipynb"
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert _is_block(_write(outside, ws, tool_name="NotebookEdit", key="notebook_path"))
+    inside = ws / "nb.ipynb"
+    assert _decision(_write(inside, ws, tool_name="NotebookEdit", key="notebook_path")) is None
+
+
+def test_guard_write_checks_multiedit(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert _is_block(_write(tmp_path / "elsewhere.py", ws, tool_name="MultiEdit"))
+
+
+# --- Layer mounts are write roots (mesh/layers/<name> -> external repo) ---
+
+
+def _layer_ws(tmp_path):
+    """ws with mesh/skills/_common and mesh/layers, plus a fake $HOME."""
+    ws = tmp_path / "ws"
+    home = tmp_path / "home"
+    home.mkdir()
+    (ws / "mesh" / "layers").mkdir(parents=True)
+    (ws / "mesh" / "skills" / "_common").mkdir(parents=True)
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    return ws, home, env
+
+
+@requires_symlink
+def test_guard_write_allows_external_layer_and_its_reflections(tmp_path):
+    ws, home, env = _layer_ws(tmp_path)
+    layer = tmp_path / "repos" / "core-layer"
+    (layer / "skills" / "_common" / "foo").mkdir(parents=True)
+    _symlink_dir(layer, ws / "mesh" / "layers" / "core")
+    _symlink_dir(
+        ws / "mesh" / "layers" / "core" / "skills" / "_common" / "foo",
+        ws / "mesh" / "skills" / "_common" / "foo",
+    )
+    for target in (
+        ws / "mesh" / "skills" / "_common" / "foo" / "SKILL.md",  # reflection
+        ws / "mesh" / "skills" / "_common" / "foo" / "new.md",  # new file via it
+        ws / "mesh" / "layers" / "core" / "skills" / "_common" / "foo" / "SKILL.md",
+        layer / "README.md",  # the layer repo by its real path
+    ):
+        assert _decision(_write(target, ws, env=env)) is None, target
+    # Name rules still apply inside a layer.
+    assert _is_block(_write(layer / ".env", ws, env=env))
+    assert _is_block(_write(layer / ".git" / "config", ws, env=env))
+
+
+@requires_symlink
+@pytest.mark.parametrize("kind", ["home", "hidden-home", "claude-dir", "ws-ancestor"])
+def test_guard_write_rejects_dangerous_layer_targets(tmp_path, kind):
+    """A layer symlink to $HOME, a hidden home folder, ~/.claude or a folder
+    containing the workspace never becomes a write root."""
+    ws, home, env = _layer_ws(tmp_path)
+    target_dir = {
+        "home": home,
+        "hidden-home": home / ".aws",
+        "claude-dir": home / ".claude",
+        "ws-ancestor": tmp_path,
+    }[kind]
+    target_dir.mkdir(parents=True, exist_ok=True)
+    _symlink_dir(target_dir, ws / "mesh" / "layers" / "evil")
+    victim = ws / "mesh" / "layers" / "evil" / "victim.txt"
+    result = _write(victim, ws, env=env)
+    if kind == "ws-ancestor":
+        # The path itself is inside the workspace through the symlink, but its
+        # real location is <tmp>/victim.txt, which is not.
+        assert os.path.realpath(victim) == os.path.realpath(tmp_path / "victim.txt")
+    assert _is_block(result), kind
+    assert "outside" in _reason(result)
+
+
+@requires_symlink
+def test_guard_write_ignores_layers_when_mesh_layers_is_a_symlink(tmp_path):
+    """mesh/layers must be a real directory; if it is a symlink nothing under
+    it is trusted as a mount."""
+    ws, home, env = _layer_ws(tmp_path)
+    (ws / "mesh" / "layers").rmdir()
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "repo").mkdir(parents=True)
+    _symlink_dir(elsewhere, ws / "mesh" / "layers")
+    assert _is_block(_write(elsewhere / "repo" / "a.md", ws, env=env))
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — write roots: projects/<name> and mesh/mcp mounts (#38)
+# ---------------------------------------------------------------------------
+
+
+def _mounted_ws(tmp_path):
+    """ws with projects/demo -> <tmp>/repos/demo and mesh/mcp -> <tmp>/mcp."""
+    ws = tmp_path / "ws"
+    home = tmp_path / "home"
+    home.mkdir()
+    (ws / "projects").mkdir(parents=True)
+    (ws / "mesh" / "layers").mkdir(parents=True)
+    repo = tmp_path / "repos" / "demo"
+    (repo / "src").mkdir(parents=True)
+    mcp = tmp_path / "mcp-defs"
+    mcp.mkdir()
+    _symlink_dir(repo, ws / "projects" / "demo")
+    _symlink_dir(mcp, ws / "mesh" / "mcp")
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    return ws, repo, mcp, home, env
+
+
+@requires_symlink
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ("projects", "demo", "README.md"),
+        ("projects", "demo", "new", "dir", "file.tf"),
+        ("projects", "demo", ".cursor", "rules", "x.mdc"),
+        ("mesh", "mcp", "x.json"),
+    ],
+)
+def test_guard_write_allows_inside_mounts(tmp_path, rel):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(ws.joinpath(*rel), ws, env=env)) is None
+
+
+@requires_symlink
+def test_guard_write_allows_mounted_repo_by_real_path(tmp_path):
+    """Agents mostly use the repo's real path, not projects/<name>/."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(repo / "src" / "main.py", ws, env=env)) is None
+    assert _decision(_write(mcp / "server.json", ws, env=env)) is None
+
+
+@requires_symlink
+@pytest.mark.parametrize(
+    "rel,expected",
+    [
+        ((".env",), "deny"),
+        ((".git", "config"), "deny"),
+        (("package-lock.json",), "deny"),
+        (("sub", "yarn.lock"), "deny"),
+        ((".env.prod.example",), None),
+    ],
+)
+def test_guard_write_name_rules_inside_mounts(tmp_path, rel, expected):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    for base in (ws / "projects" / "demo", repo):
+        assert _decision(_write(base.joinpath(*rel), ws, env=env)) == expected, base
+
+
+@requires_symlink
+def test_guard_write_mounted_repo_commit_message_hint(tmp_path):
+    """Writing a temp commit message inside .git is denied, and the message
+    says how to do it instead."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    result = _write(repo / ".git" / "COMMIT_MSG_TMP.txt", ws, env=env)
+    assert _is_block(result)
+    assert "git commit -F" in _reason(result)
+    assert "scratchpad" in _reason(result)
+
+
+@requires_symlink
+def test_guard_write_denies_unmounted_sibling(tmp_path):
+    """A sibling of a mounted repo is not mounted itself."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    sibling = tmp_path / "repos" / "other"
+    sibling.mkdir()
+    assert _is_block(_write(sibling / "x.md", ws, env=env))
+
+
+@requires_symlink
+def test_guard_write_denies_symlink_escaping_a_mounted_repo(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    outside = tmp_path / "secrets"
+    outside.mkdir()
+    _symlink_dir(outside, repo / "escape")
+    assert _is_block(_write(ws / "projects" / "demo" / "escape" / "x.txt", ws, env=env))
+
+
+@requires_symlink
+def test_guard_write_projects_symlink_mounts_nothing(tmp_path):
+    """rm -rf projects; ln -s ~ projects must not turn ~/* into mounts."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    (home / "code").mkdir()
+    _unlink_dir_symlink(ws / "projects" / "demo")
+    (ws / "projects").rmdir()
+    _symlink_dir(home, ws / "projects")
+    assert _is_block(_write(home / "code" / "x.md", ws, env=env))
+    assert _is_block(_write(ws / "projects" / "code" / "x.md", ws, env=env))
+
+
+@requires_symlink
+@pytest.mark.parametrize("kind", ["disk-root", "home", "claude-dir", "ws-ancestor"])
+def test_guard_write_rejects_dangerous_project_mounts(tmp_path, kind):
+    """projects/home -> ~ (and friends) never becomes a write root."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    target = {
+        "disk-root": os.path.abspath(os.sep),
+        "home": str(home),
+        "claude-dir": str(home / ".claude"),
+        "ws-ancestor": str(tmp_path),
+    }[kind]
+    os.makedirs(target, exist_ok=True)
+    link = ws / "projects" / "evil"
+    _symlink_dir(target, link)
+    victim = os.path.join(target, "maicelium-guard-test-victim.txt")
+    assert _is_block(_write(victim, ws, env=env)), kind
+    assert _is_block(_write(link / "maicelium-guard-test-victim.txt", ws, env=env)), kind
+
+
+@requires_symlink
+def test_guard_write_projects_home_bashrc(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    _symlink_dir(home, ws / "projects" / "home")
+    assert _is_block(_write(ws / "projects" / "home" / ".bashrc", ws, env=env))
+
+
+@requires_symlink
+def test_guard_write_ignores_dangling_and_file_links_under_projects(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    gone = tmp_path / "gone"
+    os.symlink(str(gone), str(ws / "projects" / "dangling"), target_is_directory=True)
+    a_file = tmp_path / "loose.txt"
+    a_file.write_text("x\n")
+    os.symlink(str(a_file), str(ws / "projects" / "filelink"))
+    assert _is_block(_write(gone / "x.md", ws, env=env))
+    assert _is_block(_write(a_file, ws, env=env))
+    # The valid mount next to them still works.
+    assert _decision(_write(repo / "ok.md", ws, env=env)) is None
+
+
+@requires_symlink
+def test_guard_write_duplicate_links_to_one_repo(tmp_path):
+    """The same repo linked as a project and as a layer is fine."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    _symlink_dir(repo, ws / "projects" / "demo-again")
+    _symlink_dir(repo, ws / "mesh" / "layers" / "demo")
+    assert _decision(_write(repo / "x.md", ws, env=env)) is None
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — harness roots: scratchpad, project memory, plain temp (#42)
+# ---------------------------------------------------------------------------
+
+
+def _harness(tmp_path):
+    """ws, fake $HOME and a fake system temp dir holding a Claude session dir."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    home = tmp_path / "home"
+    (home / ".claude" / "projects" / "-ws").mkdir(parents=True)
+    systmp = tmp_path / "systmp"
+    session = systmp / "claude-501" / "-ws" / "sess-1"
+    (session / "scratchpad").mkdir(parents=True)
+    (session / "tasks").mkdir()
+    env = {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "MAICELIUM_TMP_ROOTS": str(systmp),
+    }
+    transcript = home / ".claude" / "projects" / "-ws" / "sess-1.jsonl"
+    payload = {
+        "session_id": "sess-1",
+        "transcript_path": str(transcript),
+        "scratchpad_dir": str(session / "scratchpad"),
+    }
+    return ws, home, systmp, session, env, payload
+
+
+def test_guard_write_allows_payload_scratchpad(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    target = session / "scratchpad" / "notes" / "plan.md"
+    assert _decision(_write(target, ws, env=env, payload=payload)) is None
+
+
+def test_guard_write_allows_scratchpad_for_subagent(tmp_path):
+    """Subagents receive their parent's scratchpad_dir (verified on 2.1.318)."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    sub = dict(payload, agent_id="a1057729b724c3fa2", agent_type="general-purpose")
+    target = session / "scratchpad" / "sub.txt"
+    assert _decision(_write(target, ws, env=env, payload=sub)) is None
+
+
+def test_guard_write_denies_scratchpad_without_payload_field(tmp_path):
+    """No scratchpad_dir, no scratchpad root: the guard does not guess it."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    no_sp = {k: v for k, v in payload.items() if k != "scratchpad_dir"}
+    target = session / "scratchpad" / "x.md"
+    result = _write(target, ws, env=env, payload=no_sp)
+    assert _is_block(result)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ("claude-501", "-ws", "sess-1", "tasks", "x.output"),
+        ("claude-501", "-ws", "other-session", "scratchpad", "x.md"),
+        ("claude-501", "cache-break-state-sess-1.json"),
+    ],
+)
+def test_guard_write_denies_harness_state_in_tmp(tmp_path, rel):
+    """Everything under <tmp>/claude-*/ except this session's scratchpad."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    assert _is_block(_write(systmp.joinpath(*rel), ws, env=env, payload=payload))
+
+
+def test_guard_write_allows_plain_tmp(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    for target in (systmp / "planout.txt", systmp / "work" / "out.json"):
+        assert _decision(_write(target, ws, env=env, payload=payload)) is None
+
+
+def test_guard_write_tmp_still_applies_name_rules(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    assert _is_block(_write(systmp / ".env", ws, env=env, payload=payload))
+
+
+def test_guard_write_allows_project_memory_with_transcript(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    target = home / ".claude" / "projects" / "-ws" / "memory" / "notes.md"
+    assert _decision(_write(target, ws, env=env, payload=payload)) is None
+
+
+def test_guard_write_other_project_memory_is_denied(tmp_path):
+    """The memory root is this project's only, not every project's."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    target = home / ".claude" / "projects" / "-other" / "memory" / "notes.md"
+    assert _is_block(_write(target, ws, env=env, payload=payload))
+
+
+@pytest.mark.parametrize("transcript", [None, ""])
+def test_guard_write_asks_for_memory_without_transcript(tmp_path, transcript):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    p = {k: v for k, v in payload.items() if k != "transcript_path"}
+    if transcript is not None:
+        p["transcript_path"] = transcript
+    target = home / ".claude" / "projects" / "-ws" / "memory" / "notes.md"
+    assert _decision(_write(target, ws, env=env, payload=p)) == "ask"
+
+
+def test_guard_write_rest_of_claude_dir_stays_denied(tmp_path):
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    for target in (
+        home / ".claude" / "settings.json",
+        home / ".claude" / "projects" / "-ws" / "sess-1.jsonl",
+        home / ".claude" / "skills" / "x" / "SKILL.md",
+    ):
+        assert _is_block(_write(target, ws, env=env, payload=payload)), target
+
+
+def test_guard_write_forged_transcript_outside_claude_projects(tmp_path):
+    """A transcript_path outside ~/.claude/projects/ yields no memory root."""
+    ws, home, systmp, session, env, payload = _harness(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    p = dict(payload, transcript_path=str(elsewhere / "t.jsonl"))
+    assert _is_block(_write(elsewhere / "memory" / "x.md", ws, env=env, payload=p))
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — ask for settings, key material and guard files (#44)
+# ---------------------------------------------------------------------------
+
+
+@requires_symlink
+@pytest.mark.parametrize(
+    "rel",
+    [
+        (".claude", "settings.json"),
+        (".claude", "settings.local.json"),
+        ("sub", ".Claude", "Settings.json"),
+        (".sops.yaml",),
+        ("certs", "server.pem"),
+        ("certs", "tls.key"),
+        ("store.p12",),
+        ("store.pfx",),
+        ("kubeconfig",),
+        ("prod.kubeconfig",),
+    ],
+)
+def test_guard_write_asks_inside_mounts(tmp_path, rel):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(repo.joinpath(*rel), ws, env=env)) == "ask"
+
+
+@pytest.mark.parametrize(
+    "rel,expected",
+    [
+        (("bin", "hooks", "guard_write.py"), "ask"),
+        (("bin", "hooks", "guard_bash.py"), "ask"),
+        (("bin", "hooks", "_policy.py"), "ask"),
+        (("bin", "py.sh"), "ask"),
+        (("bin", "py.cmd"), "ask"),
+        (("bin", "sync_symlinks.py"), None),
+        (("bin", "hooks", "README.md"), None),
+        ((".claude", "settings.local.json"), "ask"),
+    ],
+)
+def test_guard_write_guard_files_ask(tmp_path, rel, expected):
+    assert _decision(_write(tmp_path.joinpath(*rel), tmp_path)) == expected
+
+
+@requires_symlink
+def test_guard_write_guard_rule_is_workspace_only(tmp_path):
+    """A mounted repo's own bin/hooks/ is ordinary code."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(repo / "bin" / "hooks" / "x.py", ws, env=env)) is None
+
+
+def test_guard_write_settings_not_a_substring_match(tmp_path):
+    for rel in (("claude", "settings.json"), ("settings.json",), (".claude", "x", "settings.json")):
+        assert _decision(_write(tmp_path.joinpath(*rel), tmp_path)) is None, rel
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — every deny says what to do instead
+# ---------------------------------------------------------------------------
+
+
+def test_guard_write_outside_message_explains_how_to_mount(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    reason = _reason(_write(tmp_path / "not-mounted" / "x.md", ws))
+    assert "outside the workspace" in reason
+    assert "mai add <name> <path>" in reason
+    assert "scratchpad" in reason
+
+
+@pytest.mark.parametrize(
+    "rel,hint",
+    [
+        ((".env",), ".env.example"),
+        ((".git", "config"), "git commit -F"),
+        (("package-lock.json",), "package manager"),
+        (("WORKSPACE.md",), "mai sync"),
+        ((".cursor", "rules", "x.mdc"), "mesh/"),
+    ],
+)
+def test_guard_write_deny_messages_carry_a_hint(tmp_path, rel, hint):
+    assert hint in _reason(_write(tmp_path.joinpath(*rel), tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — commands, not data: heredoc bodies and quoted phrases
+# ---------------------------------------------------------------------------
+
+_SQL_DROP = "DROP " + "TABLE users;"  # split so the literal is not one token
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > plan.sql <<'EOF'\n" + _SQL_DROP + "\nEOF",
+        "cat > notes.md <<EOF\nnever run chmod 777 on prod\nEOF",
+        "cat <<-EOF > runbook.md\n\tgit push --force origin main is forbidden\n\tEOF",
+        "python3 - <<'PY'\nimport os\nprint('chmod 777 is world-writable')\nPY",
+        "terraform show plan.tfplan > plan.txt <<EOF\nmkfs.ext4 /dev/sdb\nEOF",
+        "python3 -c \"print('chmod 777 is world-writable')\"",
+        "git commit -m \"docs: explain why chmod 777 is refused\"",
+        "git commit -m \"note: git push --force to main is blocked\"",
+    ],
+)
+def test_guard_bash_ignores_data_in_heredocs_and_quoted_phrases(command):
+    result = _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+    assert result.returncode == 0
+    assert not _is_block(result), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # A quoted operator does not open a heredoc that hides the next line.
+        'echo "<<X"\nrm -rf /',
+        "echo '<<X'\nchmod 777 secret.sh",
+        # Quoted single words are still words.
+        'git push --force origin "main"',
+        'chmod "777" secret.sh',
+        # Commands after the heredoc terminator are still checked.
+        "cat > a.txt <<EOF\nhello\nEOF\nrm -rf /etc",
+        # SQL handed to a client as a quoted argument is still caught.
+        'psql -c "' + _SQL_DROP + '"',
+    ],
+)
+def test_guard_bash_still_blocks_real_commands_around_data(command):
+    assert _is_block(_run_hook(GUARD_BASH, {"tool_input": {"command": command}})), command
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — redirection and tee targets go through _policy.decide
+# ---------------------------------------------------------------------------
+
+
+def _bash(command, ws, cwd=None, env=None, payload=None):
+    run_env = {"MAICELIUM_ROOT": str(ws)}
+    if env:
+        run_env.update(env)
+    data = {
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "cwd": str(cwd or ws),
+    }
+    if payload:
+        data.update(payload)
+    return _run_hook(GUARD_BASH, data, env=run_env)
+
+
+def _p(path):
+    """A path as a shell word (forward slashes, also on Windows)."""
+    return str(path).replace("\\", "/")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > .env <<'EOF'\nK=v\nEOF",
+        "cat <<EOF > .env.local\nK=v\nEOF",
+        'echo "K=v" > .env',
+        "printf 'K=v\\n' >> .env",
+        "cat <<< 'K=v' > .env",
+        "echo K=v | tee .env",
+        "echo x > .git/config",
+        "echo '{}' > package-lock.json",
+    ],
+)
+def test_guard_bash_agent_content_to_protected_name_denied(tmp_path, command):
+    """Heredoc, herestring, echo and printf content gets Write's decision."""
+    assert _is_block(_bash(command, tmp_path)), command
+
+
+def test_guard_bash_agent_content_deny_matches_write_message(tmp_path):
+    bash = _bash("cat <<EOF > .env\nK=v\nEOF", tmp_path)
+    write = _write(tmp_path / ".env", tmp_path)
+    assert _reason(bash) == _reason(write)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "./tool.py > .env",
+        "sops -d secrets.enc.yaml > .env",
+        "sops -d x | tee .env",
+        "echo K=v | sort | tee .env",  # tee's producer is sort, a program
+        "gen-config 2> /dev/null > .env.production",
+    ],
+)
+def test_guard_bash_program_output_to_protected_name_asks(tmp_path, command):
+    assert _decision(_bash(command, tmp_path)) == "ask", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python rotate.py",
+        "sops -e -i secrets.yaml",
+        "./tool.py > out.json 2>&1",
+        "make build > build.log 2>/dev/null",
+        "ls >&2",
+        "echo hi > /dev/null",
+        "cat <<EOF > notes.md\nhello\nEOF",
+        "cat <<'EOF' | tee -a docs/plan.md\nstep 1\nEOF",
+        "echo x > \"$TARGET\"",  # unresolvable: left to the other layers
+    ],
+)
+def test_guard_bash_inside_roots_allowed(tmp_path, command):
+    """Decision 4: heredoc to a file inside the roots is allowed."""
+    assert _decision(_bash(command, tmp_path)) is None, command
+
+
+def test_guard_bash_tee_outside_roots_denied(tmp_path):
+    ws, home = tmp_path / "ws", tmp_path / "home"
+    ws.mkdir()
+    home.mkdir()
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    for command in ("echo x | tee ~/fuera.txt", "date | tee $HOME/fuera.txt"):
+        result = _bash(command, ws, env=env)
+        assert _is_block(result), command
+        assert "mai add" in _reason(result)
+
+
+def test_guard_bash_redirect_outside_roots_denied_for_programs_too(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert _is_block(_bash(f"./tool.py > {_p(tmp_path / 'elsewhere' / 'x.txt')}", ws))
+
+
+@requires_symlink
+def test_guard_bash_echo_into_mounted_project_allowed(tmp_path):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    for target in (ws / "projects" / "demo" / "a.txt", repo / "b.txt"):
+        assert _decision(_bash(f"echo x > {_p(target)}", ws, env=env)) is None, target
+
+
+def test_guard_bash_relative_targets_use_payload_cwd(tmp_path):
+    ws = tmp_path / "ws"
+    (ws / "sub").mkdir(parents=True)
+    assert _is_block(_bash("echo K=v > ../.env", ws, cwd=ws / "sub"))
+    assert _decision(_bash("echo x > ../ok.txt", ws, cwd=ws / "sub")) is None
+
+
+# ---------------------------------------------------------------------------
+# guard_bash.py — ln into the mount folders, write verbs on guard files (#44)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ln -s ~ projects/home",
+        "ln -s /opt/repo projects/",
+        "ln -sfn ../elsewhere mesh/layers/evil",
+        "ln -s /x -t projects",
+        "ln -s /x --target-directory=mesh/layers",
+        "sudo ln -s ~ mesh/mcp",
+        "rm -rf projects && ln -s ~ projects",
+    ],
+)
+def test_guard_bash_denies_ln_into_mount_folders(tmp_path, command):
+    (tmp_path / "projects").mkdir()
+    (tmp_path / "mesh" / "layers").mkdir(parents=True)
+    result = _bash(command, tmp_path)
+    assert _is_block(result), command
+    assert "mai add" in _reason(result)
+
+
+def test_guard_bash_denies_ln_from_inside_mount_folder(tmp_path):
+    """`cd projects && ln -s ~ home`: with the payload cwd in projects/, a
+    single-operand ln creates the link right there."""
+    (tmp_path / "projects").mkdir()
+    assert _is_block(_bash("ln -s ~", tmp_path, cwd=tmp_path / "projects"))
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["ln -s ../shared/config.yaml config.yaml", "ln -sf build/app bin/app", "ln a b"],
+)
+def test_guard_bash_allows_ordinary_ln(tmp_path, command):
+    assert _decision(_bash(command, tmp_path)) is None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sed -i 's/deny/allow/' bin/hooks/guard_bash.py",
+        "sed -Ei 's/x/y/' bin/hooks/_policy.py",
+        "sed --in-place 's/x/y/' bin/py.sh",
+        "cp /tmp/x.py bin/hooks/guard_write.py",
+        "mv bin/hooks/guard_bash.py /tmp/",
+        "rm bin/hooks/guard_write.py",
+        "chmod -x bin/py.sh",
+        "truncate -s 0 bin/hooks/guard_bash.py",
+        "install -m 755 x bin/py.cmd",
+        "patch bin/hooks/_policy.py < fix.diff",
+        "git checkout -- bin/hooks/guard_bash.py",
+        "git checkout HEAD~3 -- bin/hooks/_policy.py",
+        "git restore bin/hooks/guard_write.py",
+        "echo '' > bin/hooks/guard_write.py",
+        "./gen.sh >> bin/py.sh",
+        "echo x | tee bin/hooks/guard_bash.py",
+        "echo '{}' > .claude/settings.json",
+        "cp other.json .claude/settings.local.json",
+    ],
+)
+def test_guard_bash_denies_write_verbs_on_guard_files(tmp_path, command):
+    result = _bash(command, tmp_path)
+    assert _is_block(result), command
+    assert "guard file" in _reason(result)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat bin/hooks/guard_bash.py",
+        "grep -n deny bin/hooks/_policy.py",
+        "rg ask bin/hooks/",
+        "git diff bin/hooks/guard_write.py",
+        "python -m pytest tests/test_hooks.py",
+        "sed -n '1,20p' bin/hooks/guard_bash.py",
+        "git checkout main",
+    ],
+)
+def test_guard_bash_allows_reading_guard_files(tmp_path, command):
+    assert not _is_block(_bash(command, tmp_path)), command
+
+
+def test_guard_bash_cp_from_a_guard_file_is_also_denied(tmp_path):
+    """The rule is "names a guard file and uses a write verb": copying FROM a
+    guard is denied too. Read it with cat/grep instead."""
+    assert _is_block(_bash("cp bin/hooks/guard_bash.py review-copy.py", tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# The hook commands exactly as .claude/settings.json registers them
+# ---------------------------------------------------------------------------
+# Claude Code runs command hooks through bash (Git Bash on native Windows) with
+# CLAUDE_PROJECT_DIR set. Run the checked-in commands the same way, from an
+# unrelated working directory, to prove the launcher (bin/py.sh) and the
+# ${CLAUDE_PROJECT_DIR} paths work on every CI platform.
+
+
+def _hook_bash():
+    import shutil
+
+    if sys.platform == "win32":
+        git = shutil.which("git")
+        if git:
+            git_root = os.path.dirname(os.path.dirname(git))
+            for candidate in (
+                os.path.join(git_root, "bin", "bash.exe"),
+                os.path.join(git_root, "usr", "bin", "bash.exe"),
+            ):
+                if os.path.isfile(candidate):
+                    return candidate
+    found = shutil.which("bash")
+    assert found, "bash (Git Bash on Windows) is required to run the hook commands"
+    return found
+
+
+def _settings_hook_command(matcher_word):
+    with open(os.path.join(REPO_ROOT, ".claude", "settings.json"), encoding="utf-8") as f:
+        data = json.load(f)
+    for entry in data["hooks"]["PreToolUse"]:
+        if matcher_word in entry["matcher"].split("|"):
+            return entry["hooks"][0]["command"]
+    raise AssertionError(f"no PreToolUse hook for {matcher_word}")
+
+
+@pytest.mark.parametrize(
+    "matcher,payload",
+    [
+        ("Write", {"tool_name": "Write", "tool_input": {"file_path": os.path.join(REPO_ROOT, ".env")}}),
+        ("Bash", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+    ],
+)
+def test_settings_hook_commands_run_from_any_cwd(tmp_path, matcher, payload):
+    command = _settings_hook_command(matcher)
+    assert "${CLAUDE_PROJECT_DIR:-.}" in command
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = REPO_ROOT
+    env.pop("MAICELIUM_ROOT", None)
+    payload = dict(payload, cwd=str(tmp_path))
+    result = subprocess.run(
+        [_hook_bash(), "-c", command],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    assert _is_block(result), (result.stdout, result.stderr)
+
+
+# ---------------------------------------------------------------------------
+# bin/hook_metrics.py — baseline and follow-up measure for decision 4
+# ---------------------------------------------------------------------------
+
+
+def _jsonl(path, entries):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
+
+
+def test_hook_metrics_counts_denials_and_heredocs(tmp_path):
+    sys.path.insert(0, os.path.join(REPO_ROOT, "bin"))
+    import hook_metrics
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    def tool_use(cmd, ts):
+        return {"cwd": str(ws), "timestamp": ts, "type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}]}}
+
+    def denial(tool, reason, ts):
+        return {"cwd": str(ws), "timestamp": ts, "type": "user", "message": {"content": [
+            {"type": "tool_result", "is_error": True,
+             "content": f"PreToolUse:{tool} hook error: {reason}"}]}}
+
+    _jsonl(tmp_path / "projects" / "-ws" / "a.jsonl", [
+        tool_use("cat > x.md <<'EOF'\nhi\nEOF", "2026-10-02T10:00:00Z"),
+        tool_use("python3 - <<PY\nprint(1)\nPY", "2026-10-03T10:00:00Z"),
+        tool_use("grep x <<< 'herestring only'", "2026-10-03T11:00:00Z"),
+        denial("Write", "Blocked: file_path '/x' is outside the workspace and ...", "2026-10-04T10:00:00Z"),
+        denial("Edit", "Protected file: .env.", "2026-11-01T10:00:00Z"),
+        denial("Bash", "Blocked: chmod 777 ...", "2026-11-02T10:00:00Z"),
+    ])
+    # A session launched elsewhere is ignored unless --all.
+    elsewhere = tool_use("cat <<EOF\nx\nEOF", "2026-10-05T10:00:00Z")
+    elsewhere["cwd"] = str(tmp_path / "other")
+    _jsonl(tmp_path / "projects" / "-other" / "b.jsonl", [elsewhere])
+
+    months = hook_metrics.scan(str(tmp_path / "projects"), workspace=str(ws))
+    assert months["2026-10"]["heredocs"] == 2
+    assert months["2026-10"]["write_denied"] == 1
+    assert months["2026-10"]["write_denied_outside"] == 1
+    assert months["2026-11"]["write_denied"] == 1
+    assert months["2026-11"]["bash_denied"] == 1
+
+    everything = hook_metrics.scan(str(tmp_path / "projects"), workspace=None)
+    assert everything["2026-10"]["heredocs"] == 3
+    assert hook_metrics.scan(str(tmp_path / "projects"), workspace=str(ws), since="2026-11")["2026-11"]["bash_denied"] == 1
+
+
+@pytest.mark.parametrize(
+    "matcher,payload",
+    [
+        ("Write", {"tool_name": "Write", "tool_input": {"file_path": os.path.join(REPO_ROOT, ".env")}}),
+        ("Bash", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}),
+    ],
+)
+def test_settings_hook_commands_without_project_dir_use_cwd(matcher, payload):
+    """A runner that does not set CLAUDE_PROJECT_DIR but runs project hooks
+    from the project root (Cursor importing .claude/settings.json) must still
+    run the guards, not fail open on a broken path."""
+    command = _settings_hook_command(matcher)
+    env = os.environ.copy()
+    env.pop("CLAUDE_PROJECT_DIR", None)
+    env.pop("MAICELIUM_ROOT", None)
+    result = subprocess.run(
+        [_hook_bash(), "-c", command],
+        input=json.dumps(dict(payload, cwd=REPO_ROOT)),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        cwd=REPO_ROOT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert _is_block(result), (result.stdout, result.stderr)

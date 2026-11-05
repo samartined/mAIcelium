@@ -209,9 +209,34 @@ def test_init_writes_python_hooks_in_settings(tmp_path):
 
     settings_file = tmp_path / ".claude" / "settings.json"
     content = settings_file.read_text()
-    assert "bin/py.sh bin/sync_symlinks.py" in content
-    assert "bin/py.sh bin/hooks/guard_bash.py" in content
-    assert "bin/py.sh bin/hooks/guard_write.py" in content
+    # Hooks are referenced through ${CLAUDE_PROJECT_DIR} so they work from any
+    # working directory (#43), falling back to the cwd when a runner does not
+    # set the variable (Cursor runs imported Claude Code hooks from the
+    # project root).
+    pd = '"${CLAUDE_PROJECT_DIR:-.}"'
+    hooks = json.loads(content)["hooks"]
+    commands = " ".join(
+        h["command"] for entries in hooks.values() for e in entries for h in e["hooks"]
+    )
+    assert f"{pd}/bin/py.sh {pd}/bin/sync_symlinks.py" in commands
+    assert f"{pd}/bin/py.sh {pd}/bin/hooks/guard_bash.py" in commands
+    assert f"{pd}/bin/py.sh {pd}/bin/hooks/guard_write.py" in commands
+
+    # The write guard must see every file-writing tool, NotebookEdit included
+    # (it sends notebook_path instead of file_path).
+    data = json.loads(content)
+    matchers = [h["matcher"] for h in data["hooks"]["PreToolUse"]]
+    write_matcher = next(m for m in matchers if "Write" in m)
+    assert set(write_matcher.split("|")) == {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+
+
+def test_repo_settings_match_init_template():
+    """The checked-in .claude/settings.json and init's template must not drift."""
+    repo_settings = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude", "settings.json"
+    )
+    with open(repo_settings, encoding="utf-8") as f:
+        assert json.load(f) == json.loads(init._SETTINGS_JSON)
 
 
 # ── Test 9: settings.json contains Python permissions ───────────────────────
@@ -228,6 +253,10 @@ def test_init_includes_python_permissions(tmp_path):
     allowed = data["permissions"]["allow"]
     assert "Bash(python3:bin/*)" in allowed
     assert "Bash(bin/py.sh:*)" in allowed
+    # ln and rm must not be prompt-free: they are the building blocks of every
+    # symlink-based way around the write guard (#43).
+    assert "Bash(ln:*)" not in allowed
+    assert "Bash(rm:*)" not in allowed
 
 
 # ── Test 10: init runs sync at the end ──────────────────────────────────────
