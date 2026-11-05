@@ -1574,3 +1574,58 @@ def test_guard_write_forged_transcript_outside_claude_projects(tmp_path):
     elsewhere = tmp_path / "elsewhere"
     p = dict(payload, transcript_path=str(elsewhere / "t.jsonl"))
     assert _is_block(_write(elsewhere / "memory" / "x.md", ws, env=env, payload=p))
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — ask for settings, key material and guard files (#44)
+# ---------------------------------------------------------------------------
+
+
+@requires_symlink
+@pytest.mark.parametrize(
+    "rel",
+    [
+        (".claude", "settings.json"),
+        (".claude", "settings.local.json"),
+        ("sub", ".Claude", "Settings.json"),
+        (".sops.yaml",),
+        ("certs", "server.pem"),
+        ("certs", "tls.key"),
+        ("store.p12",),
+        ("store.pfx",),
+        ("kubeconfig",),
+        ("prod.kubeconfig",),
+    ],
+)
+def test_guard_write_asks_inside_mounts(tmp_path, rel):
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(repo.joinpath(*rel), ws, env=env)) == "ask"
+
+
+@pytest.mark.parametrize(
+    "rel,expected",
+    [
+        (("bin", "hooks", "guard_write.py"), "ask"),
+        (("bin", "hooks", "guard_bash.py"), "ask"),
+        (("bin", "hooks", "_policy.py"), "ask"),
+        (("bin", "py.sh"), "ask"),
+        (("bin", "py.cmd"), "ask"),
+        (("bin", "sync_symlinks.py"), None),
+        (("bin", "hooks", "README.md"), None),
+        ((".claude", "settings.local.json"), "ask"),
+    ],
+)
+def test_guard_write_guard_files_ask(tmp_path, rel, expected):
+    assert _decision(_write(tmp_path.joinpath(*rel), tmp_path)) == expected
+
+
+@requires_symlink
+def test_guard_write_guard_rule_is_workspace_only(tmp_path):
+    """A mounted repo's own bin/hooks/ is ordinary code."""
+    ws, repo, mcp, home, env = _mounted_ws(tmp_path)
+    assert _decision(_write(repo / "bin" / "hooks" / "x.py", ws, env=env)) is None
+
+
+def test_guard_write_settings_not_a_substring_match(tmp_path):
+    for rel in (("claude", "settings.json"), ("settings.json",), (".claude", "x", "settings.json")):
+        assert _decision(_write(tmp_path.joinpath(*rel), tmp_path)) is None, rel
