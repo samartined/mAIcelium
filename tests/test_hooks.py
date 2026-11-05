@@ -1214,3 +1214,75 @@ def test_guard_write_checks_multiedit(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
     assert _is_block(_write(tmp_path / "elsewhere.py", ws, tool_name="MultiEdit"))
+
+
+# --- Layer mounts are write roots (mesh/layers/<name> -> external repo) ---
+
+
+def _layer_ws(tmp_path):
+    """ws with mesh/skills/_common and mesh/layers, plus a fake $HOME."""
+    ws = tmp_path / "ws"
+    home = tmp_path / "home"
+    home.mkdir()
+    (ws / "mesh" / "layers").mkdir(parents=True)
+    (ws / "mesh" / "skills" / "_common").mkdir(parents=True)
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    return ws, home, env
+
+
+@requires_symlink
+def test_guard_write_allows_external_layer_and_its_reflections(tmp_path):
+    ws, home, env = _layer_ws(tmp_path)
+    layer = tmp_path / "repos" / "core-layer"
+    (layer / "skills" / "_common" / "foo").mkdir(parents=True)
+    _symlink_dir(layer, ws / "mesh" / "layers" / "core")
+    _symlink_dir(
+        ws / "mesh" / "layers" / "core" / "skills" / "_common" / "foo",
+        ws / "mesh" / "skills" / "_common" / "foo",
+    )
+    for target in (
+        ws / "mesh" / "skills" / "_common" / "foo" / "SKILL.md",  # reflection
+        ws / "mesh" / "skills" / "_common" / "foo" / "new.md",  # new file via it
+        ws / "mesh" / "layers" / "core" / "skills" / "_common" / "foo" / "SKILL.md",
+        layer / "README.md",  # the layer repo by its real path
+    ):
+        assert _decision(_write(target, ws, env=env)) is None, target
+    # Name rules still apply inside a layer.
+    assert _is_block(_write(layer / ".env", ws, env=env))
+    assert _is_block(_write(layer / ".git" / "config", ws, env=env))
+
+
+@requires_symlink
+@pytest.mark.parametrize("kind", ["home", "hidden-home", "claude-dir", "ws-ancestor"])
+def test_guard_write_rejects_dangerous_layer_targets(tmp_path, kind):
+    """A layer symlink to $HOME, a hidden home folder, ~/.claude or a folder
+    containing the workspace never becomes a write root."""
+    ws, home, env = _layer_ws(tmp_path)
+    target_dir = {
+        "home": home,
+        "hidden-home": home / ".aws",
+        "claude-dir": home / ".claude",
+        "ws-ancestor": tmp_path,
+    }[kind]
+    target_dir.mkdir(parents=True, exist_ok=True)
+    _symlink_dir(target_dir, ws / "mesh" / "layers" / "evil")
+    victim = ws / "mesh" / "layers" / "evil" / "victim.txt"
+    result = _write(victim, ws, env=env)
+    if kind == "ws-ancestor":
+        # The path itself is inside the workspace through the symlink, but its
+        # real location is <tmp>/victim.txt, which is not.
+        assert os.path.realpath(victim) == os.path.realpath(tmp_path / "victim.txt")
+    assert _is_block(result), kind
+    assert "outside" in _reason(result)
+
+
+@requires_symlink
+def test_guard_write_ignores_layers_when_mesh_layers_is_a_symlink(tmp_path):
+    """mesh/layers must be a real directory; if it is a symlink nothing under
+    it is trusted as a mount."""
+    ws, home, env = _layer_ws(tmp_path)
+    (ws / "mesh" / "layers").rmdir()
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "repo").mkdir(parents=True)
+    _symlink_dir(elsewhere, ws / "mesh" / "layers")
+    assert _is_block(_write(elsewhere / "repo" / "a.md", ws, env=env))
