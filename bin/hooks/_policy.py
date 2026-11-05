@@ -248,15 +248,41 @@ def layer_roots(ws_root):
     return _mount_children(ws_root, "mesh", "layers")
 
 
+def _mount_single(ws_root, *rel_parts):
+    """Real path of the single mount at <ws>/<rel_parts> (e.g. mesh/mcp), or
+    None. Every parent directory must be a real directory."""
+    current = ws_root
+    for name in rel_parts[:-1]:
+        current = os.path.join(current, name)
+        if os.path.islink(current) or not os.path.isdir(current):
+            return None
+    mount = os.path.join(current, rel_parts[-1])
+    if not os.path.isdir(mount):
+        return None
+    real = os.path.realpath(mount)
+    return real if acceptable_mount(real, ws_root) else None
+
+
+def mount_roots(ws_root):
+    """Real paths of every repo the workspace mounts: projects/<name>,
+    mesh/layers/<name> and mesh/mcp. Duplicates and overlaps are fine."""
+    roots = _mount_children(ws_root, "projects")
+    roots.extend(layer_roots(ws_root))
+    mcp = _mount_single(ws_root, "mesh", "mcp")
+    if mcp:
+        roots.append(mcp)
+    return _dedupe(roots)
+
+
 def compute_roots(ws_root, payload):
     """Real paths under which writes are allowed.
 
     - the workspace itself;
-    - every layer mounted under ``mesh/layers/`` (after ``acceptable_mount``);
+    - every mounted repo (``mount_roots``, after ``acceptable_mount``);
     - Claude Code's plan directory ``~/.claude/plans``.
     """
     roots = [os.path.realpath(ws_root)]
-    roots.extend(layer_roots(ws_root))
+    roots.extend(mount_roots(ws_root))
     roots.append(os.path.realpath(os.path.join(_home(), ".claude", "plans")))
     return _dedupe(roots)
 
