@@ -27,15 +27,27 @@ def _run_hook(hook_path, payload, env=None, cwd=None):
     )
 
 
+def _decision(result):
+    """Return the hook's permissionDecision ("deny"/"ask"), or None (allow).
+
+    A hook that exits non-zero is reported as "error" so tests can tell a
+    crash (which Claude Code treats as non-blocking) from a real decision.
+    """
+    if result.returncode != 0:
+        return "error"
+    if not result.stdout.strip():
+        return None
+    decoded = json.loads(result.stdout)
+    return decoded["hookSpecificOutput"]["permissionDecision"]
+
+
+def _reason(result):
+    return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+
+
 def _is_block(result):
-    """Return True if hook produced a block decision."""
-    if result.returncode != 0 or not result.stdout.strip():
-        return False
-    try:
-        decoded = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return False
-    return decoded.get("decision") == "block"
+    """Return True if the hook denied the tool call."""
+    return _decision(result) == "deny"
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +65,8 @@ def test_guard_bash_blocks_rm_rf_root():
     result = _run_hook(GUARD_BASH, {"tool_input": {"command": "rm -rf /"}})
     assert result.returncode == 0
     assert _is_block(result)
-    decoded = json.loads(result.stdout)
-    assert "root" in decoded["reason"].lower() or "home" in decoded["reason"].lower()
+    reason = _reason(result).lower()
+    assert "root" in reason or "home" in reason
 
 
 def test_guard_bash_blocks_rm_rf_home():
@@ -165,14 +177,15 @@ def test_guard_write_blocks_workspace_md(tmp_path):
     assert _is_block(result)
 
 
-def test_guard_write_blocks_settings_json(tmp_path):
+def test_guard_write_asks_for_settings_json(tmp_path):
+    """The agent's own settings are not silently writable: Edgar confirms."""
     target = tmp_path / ".claude" / "settings.json"
     result = _run_hook(
         GUARD_WRITE,
         {"tool_input": {"file_path": str(target)}},
         env={"MAICELIUM_ROOT": str(tmp_path)},
     )
-    assert _is_block(result)
+    assert _decision(result) == "ask"
 
 
 def test_guard_write_blocks_cursor_folder(tmp_path):
@@ -236,8 +249,7 @@ def test_guard_write_blocks_stale_layer_reflection(tmp_path):
         env={"MAICELIUM_ROOT": str(tmp_path)},
     )
     assert _is_block(result)
-    decoded = json.loads(result.stdout)
-    assert "layer" in decoded["reason"].lower()
+    assert "layer" in _reason(result).lower()
 
 
 @requires_symlink
@@ -568,23 +580,21 @@ def test_guard_bash_known_gap_find_delete():
     )
 
 
-# --- FAIL-OPEN test ---
+# --- FAIL-CLOSED test (#39) ---
 
 
-def test_guard_bash_fail_open_malformed_json():
-    """Malformed/non-JSON stdin must exit 0 (fail-open), not crash or block."""
-    import subprocess
+def test_guard_bash_fails_closed_on_malformed_json():
+    """Malformed/non-JSON stdin must deny (fail closed), never crash."""
     result = subprocess.run(
-        [__import__("sys").executable, GUARD_BASH],
+        [sys.executable, GUARD_BASH],
         input="THIS IS NOT JSON",
         capture_output=True,
         text=True,
         timeout=10,
-        env=__import__("os").environ.copy(),
+        env=os.environ.copy(),
     )
     assert result.returncode == 0
-    # Must NOT produce a block decision
-    assert not _is_block(result)
+    assert _is_block(result)
 
 
 # ---------------------------------------------------------------------------
@@ -665,16 +675,15 @@ def test_guard_bash_blocks_home_var(command):
     assert _is_block(result), f"Expected block for: {command}"
 
 
-# --- Finding 3: unexpected-exception fail-open (documented contract) ---
+# --- Finding 3 / #39: unexpected exception fails CLOSED ---
 
 
-def test_guard_bash_fail_open_on_unexpected_exception():
+def test_guard_bash_fails_closed_on_unexpected_exception():
     """If the matching logic raises an unexpected exception the hook must exit 0
-    WITHOUT blocking, matching the docstring contract. We inject the failure by
-    replacing _RM_RF_BLOCK with an object whose .search() raises, then run
-    main() in a subprocess on a payload that would otherwise be blocked.
+    WITH a deny decision (#39: a crash used to wave the command through). We
+    inject the failure by replacing _RM_RF_BLOCK with an object whose .search()
+    raises, then run main() in a subprocess on a harmless payload.
     """
-    import subprocess
     hooks_dir = os.path.join(REPO_ROOT, "bin", "hooks")
     shim = (
         "import sys\n"
@@ -688,14 +697,15 @@ def test_guard_bash_fail_open_on_unexpected_exception():
     ) % hooks_dir
     result = subprocess.run(
         [sys.executable, "-c", shim],
-        input=json.dumps({"tool_input": {"command": "rm -rf /"}}),
+        input=json.dumps({"tool_input": {"command": "rm -rf node_modules"}}),
         capture_output=True,
         text=True,
         timeout=10,
         env=os.environ.copy(),
     )
     assert result.returncode == 0
-    assert not _is_block(result)
+    assert _is_block(result)
+    assert "crashed" in _reason(result)
 
 
 def test_guard_bash_redos_linear_on_pathological_input():
