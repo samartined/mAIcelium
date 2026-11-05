@@ -992,3 +992,225 @@ def test_guard_bash_redos_linear_full_path_and_flagged_sudo():
         assert elapsed < 5.0, (
             f"guard too slow ({elapsed:.2f}s) on pathological input — possible ReDoS"
         )
+
+
+# ---------------------------------------------------------------------------
+# guard_write.py — shared policy core (_policy.decide)
+# #39 fail closed, #40 layer bypass, #41 lexical aliases, #43 small fixes
+# ---------------------------------------------------------------------------
+
+
+def _write(path, ws, tool_name="Write", env=None, key="file_path"):
+    run_env = {"MAICELIUM_ROOT": str(ws)}
+    if env:
+        run_env.update(env)
+    return _run_hook(
+        GUARD_WRITE,
+        {"tool_name": tool_name, "tool_input": {key: str(path)}},
+        env=run_env,
+    )
+
+
+def _symlink_dir(target, link):
+    os.symlink(str(target), str(link), target_is_directory=True)
+
+
+# --- #39: fail closed ---
+
+
+def test_guard_write_fails_closed_on_nul_in_path(tmp_path):
+    """A NUL byte used to crash the hook with exit 1 (non-blocking)."""
+    result = _write(str(tmp_path / "a") + "\x00b", tmp_path)
+    assert result.returncode == 0
+    assert _is_block(result)
+
+
+@pytest.mark.parametrize("stdin", ["", "THIS IS NOT JSON", "[1, 2]"])
+def test_guard_write_fails_closed_on_invalid_input(tmp_path, stdin):
+    result = subprocess.run(
+        [sys.executable, GUARD_WRITE],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert result.returncode == 0
+    assert _is_block(result)
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [{}, {"file_path": ""}, {"file_path": 42}, {"file_path": "relative/x.py"}],
+)
+def test_guard_write_denies_missing_or_relative_path(tmp_path, tool_input):
+    result = _run_hook(
+        GUARD_WRITE,
+        {"tool_name": "Write", "tool_input": tool_input},
+        env={"MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert _is_block(result)
+
+
+def test_guard_write_fails_closed_on_unexpected_exception(tmp_path):
+    """Any exception inside the policy is a deny, never a pass."""
+    hooks_dir = os.path.join(REPO_ROOT, "bin", "hooks")
+    shim = (
+        "import sys\n"
+        "sys.path.insert(0, %r)\n"
+        "import _policy\n"
+        "def boom(*a, **k):\n"
+        "    raise RuntimeError('injected failure')\n"
+        "_policy.decide = boom\n"
+        "import guard_write\n"
+        "guard_write.main()\n"
+    ) % hooks_dir
+    result = subprocess.run(
+        [sys.executable, "-c", shim],
+        input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(tmp_path / "ok.md")}}),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "MAICELIUM_ROOT": str(tmp_path)},
+    )
+    assert result.returncode == 0
+    assert _is_block(result)
+    assert "crashed" in _reason(result)
+
+
+def test_guard_write_allow_prints_nothing(tmp_path):
+    """Allow must not emit permissionDecision "allow": that would skip
+    Claude Code's own permission prompts."""
+    result = _write(tmp_path / "notes" / "a.md", tmp_path)
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+
+
+# --- #41: rules apply to the lexical AND the real identity ---
+
+
+@requires_symlink
+def test_guard_write_alias_symlink_to_settings_asks(tmp_path):
+    """ln -s ../.claude/settings.json projects/notes.md, then Write notes.md."""
+    ws = tmp_path / "ws"
+    (ws / ".claude").mkdir(parents=True)
+    (ws / ".claude" / "settings.json").write_text("{}\n")
+    (ws / "projects").mkdir()
+    alias = ws / "projects" / "notes.md"
+    os.symlink(os.path.join("..", ".claude", "settings.json"), str(alias))
+    assert _decision(_write(alias, ws)) == "ask"
+
+
+@requires_symlink
+def test_guard_write_alias_symlink_to_env_denied(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / ".env").write_text("K=v\n")
+    alias = ws / "notes.txt"
+    os.symlink(str(ws / ".env"), str(alias))
+    assert _is_block(_write(alias, ws))
+
+
+@requires_symlink
+def test_guard_write_external_alias_to_workspace(tmp_path):
+    """/tmp/w -> <ws>: the real identity keeps every workspace rule."""
+    ws = tmp_path / "ws"
+    (ws / ".claude").mkdir(parents=True)
+    alias = tmp_path / "w"
+    _symlink_dir(ws, alias)
+    assert _decision(_write(alias / ".claude" / "settings.json", ws)) == "ask"
+    assert _is_block(_write(alias / "WORKSPACE.md", ws))
+    assert _is_block(_write(alias / ".cursor" / "rules" / "x.mdc", ws))
+    assert _decision(_write(alias / "src" / "main.py", ws)) is None
+
+
+@pytest.mark.parametrize(
+    "rel,expected",
+    [
+        ((".CLAUDE", "settings.json"), "ask"),
+        ((".Claude", "Settings.local.json"), "ask"),
+        (("workspace.md",), "deny"),
+        (("mAIcelium.CODE-WORKSPACE",), "deny"),
+        ((".Claude", "Projects-Context.md"), "deny"),
+        ((".ENV",), "deny"),
+        (("sub", ".Env.Local"), "deny"),
+        ((".Git", "config"), "deny"),
+        (("Package-Lock.json",), "deny"),
+        ((".CURSOR", "x"), "deny"),
+        ((".Claude", "Skills", "x", "SKILL.md"), "deny"),
+    ],
+)
+def test_guard_write_name_rules_ignore_case(tmp_path, rel, expected):
+    """#43: case variants hit the same rule (they are the same file on
+    macOS/Windows)."""
+    assert _decision(_write(tmp_path.joinpath(*rel), tmp_path)) == expected
+
+
+# --- #40: no layer-reflection bypass of the perimeter ---
+
+
+@requires_symlink
+def test_guard_write_malicious_layer_cannot_reach_home(tmp_path):
+    """mesh/layers/evil -> ~ plus a reflection through it must not open ~."""
+    ws = tmp_path / "ws"
+    home = tmp_path / "home"
+    home.mkdir()
+    (ws / "mesh" / "layers").mkdir(parents=True)
+    (ws / "mesh" / "skills" / "_common").mkdir(parents=True)
+    _symlink_dir(home, ws / "mesh" / "layers" / "evil")
+    _symlink_dir(ws / "mesh" / "layers" / "evil", ws / "mesh" / "skills" / "_common" / "x")
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    for target in (
+        ws / "mesh" / "skills" / "_common" / "x" / ".bashrc",
+        ws / "mesh" / "layers" / "evil" / ".bashrc",
+    ):
+        result = _write(target, ws, env=env)
+        assert _is_block(result), target
+        assert "outside" in _reason(result)
+
+
+# --- #43: small fixes ---
+
+
+@pytest.mark.parametrize("name", ["..notes.md", "a..b.md", "...md"])
+def test_guard_write_allows_leading_dots_in_name(tmp_path, name):
+    """Used to be refused by a startswith('..') check on the relative path."""
+    assert _decision(_write(tmp_path / name, tmp_path)) is None
+
+
+def test_guard_write_denies_git_pointer_file(tmp_path):
+    """A .git FILE (worktree / submodule pointer) is protected like the dir."""
+    result = _write(tmp_path / "sub" / ".git", tmp_path)
+    assert _is_block(result)
+    assert "git commit -F" in _reason(result)
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        (".env.example", None),
+        (".env.prod.example", None),
+        (".env.sample", None),
+        (".env.template", None),
+        (".env.production", "deny"),
+        (".env", "deny"),
+    ],
+)
+def test_guard_write_env_templates(tmp_path, name, expected):
+    assert _decision(_write(tmp_path / name, tmp_path)) == expected
+
+
+def test_guard_write_checks_notebook_edit(tmp_path):
+    """NotebookEdit sends notebook_path, not file_path: it is checked too."""
+    outside = tmp_path / "elsewhere" / "nb.ipynb"
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert _is_block(_write(outside, ws, tool_name="NotebookEdit", key="notebook_path"))
+    inside = ws / "nb.ipynb"
+    assert _decision(_write(inside, ws, tool_name="NotebookEdit", key="notebook_path")) is None
+
+
+def test_guard_write_checks_multiedit(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert _is_block(_write(tmp_path / "elsewhere.py", ws, tool_name="MultiEdit"))
