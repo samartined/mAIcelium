@@ -44,7 +44,7 @@ _SETTINGS_JSON = """\
         "hooks": [
           {
             "type": "command",
-            "command": "\\"${CLAUDE_PROJECT_DIR}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR}\\"/bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed - context may be stale. Read .claude/projects-context.md.\\"",
+            "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed - context may be stale. Read .claude/projects-context.md.\\"",
             "timeout": 10
           }
         ]
@@ -56,7 +56,7 @@ _SETTINGS_JSON = """\
         "hooks": [
           {
             "type": "command",
-            "command": "\\"${CLAUDE_PROJECT_DIR}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR}\\"/bin/hooks/guard_bash.py",
+            "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_bash.py",
             "timeout": 10
           }
         ]
@@ -66,7 +66,7 @@ _SETTINGS_JSON = """\
         "hooks": [
           {
             "type": "command",
-            "command": "\\"${CLAUDE_PROJECT_DIR}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR}\\"/bin/hooks/guard_write.py",
+            "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_write.py",
             "timeout": 10
           }
         ]
