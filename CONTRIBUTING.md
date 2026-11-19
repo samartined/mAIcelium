@@ -50,6 +50,12 @@ change, followed by an immediate release PR.
 
 ## Tests
 
+Work test-first: write the test, watch it fail for the expected reason, then
+make it pass. A bug fix lands together with the test that reproduces it, and a
+feature PR lists its acceptance criteria, each covered by a test. The full
+procedure is in `mesh/rules/maicelium-identity.mdc` ("Changing mAIcelium
+itself (test-first)").
+
 ```bash
 python -m pytest -q -m "not install"
 ```
