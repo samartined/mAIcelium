@@ -1705,6 +1705,86 @@ def test_guard_bash_still_blocks_real_commands_around_data(command):
 
 
 # ---------------------------------------------------------------------------
+# guard_bash.py — force push to main/master, per segment and on real tokens
+# ---------------------------------------------------------------------------
+
+
+def _guard_bash(command):
+    return _run_hook(GUARD_BASH, {"tool_input": {"command": command}})
+
+
+def _is_force_push_block(result):
+    return _is_block(result) and "force push to main/master" in _reason(result)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # The -f is inside a word of another segment.
+        "git push origin main && git branch -d feat/devops-frontmatter-x",
+        # The flag and the branch come from another segment.
+        "git push origin dev && git checkout -f main",
+        # The branch name only contains "main".
+        "git push --force origin feature/main-menu",
+    ],
+)
+def test_guard_bash_allows_what_is_not_a_force_push_to_main(command):
+    result = _guard_bash(command)
+    assert _decision(result) is None, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # -f inside a cluster of short flags.
+        "git push -uf origin main",
+        # A "+" on the refspec forces that update.
+        "git push origin +main",
+        # The destination of src:dst is what gets overwritten.
+        "git push origin +HEAD:main",
+        # Global git options, with a separate value, before the subcommand.
+        "git -C /some/repo push -f origin main",
+        "git -c user.name=x push --force origin main",
+        "git --work-tree /some/repo push -f origin master",
+    ],
+)
+def test_guard_bash_blocks_every_form_of_force_push_to_main(command):
+    assert _is_force_push_block(_guard_bash(command)), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push -f origin main",
+        "git push --force origin master",
+        "git push --force-with-lease origin main",
+        "git push origin main --force",
+        "git push -f origin HEAD:refs/heads/main",
+        "git --git-dir /some/repo/.git push -f origin master",
+        "(git push -f origin main)",
+        "if true; then git push -f origin main; fi",
+        "timeout 60 git push --force origin main",
+        "/usr/bin/git push -f origin main",
+    ],
+)
+def test_guard_bash_keeps_blocking_force_push_to_main(command):
+    assert _is_force_push_block(_guard_bash(command)), command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push origin main",
+        # A "+" forces only its own refspec: main is pushed without force.
+        "git push origin +feature main",
+    ],
+)
+def test_guard_bash_allows_push_to_main_without_force(command):
+    result = _guard_bash(command)
+    assert _decision(result) is None, result.stdout + result.stderr
+
+
+# ---------------------------------------------------------------------------
 # guard_bash.py — redirection and tee targets go through _policy.decide
 # ---------------------------------------------------------------------------
 
