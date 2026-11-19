@@ -151,9 +151,16 @@ quotes is ignored, so `echo "<<X"` cannot hide the next line.
 The pattern rules are:
 - `rm -rf` on dangerous targets, evaluated per segment and at command position;
 - destructive SQL;
-- force push to `main`/`master`;
+- force push to `main`/`master`, evaluated per segment on real words;
 - `mkfs`/`dd`;
 - `chmod 777`.
+
+A push counts as forced with `-f` (also inside a cluster such as `-uf`), any
+`--force*` option, or a `+` on a refspec, which forces that refspec only. It is
+blocked when a forced refspec's destination (the `dst` of `src:dst`, with
+`refs/heads/` dropped) is `main` or `master`. Global options before `push`
+(`git -C <dir> push`) are skipped. `git push -f` with no refspec is not judged:
+its destination depends on the current branch.
 
 `chmod 777`, force push and `mkfs`/`dd` match on the command with quoted phrases
 blanked. A quoted single word stays a word, so `git push --force origin "main"`
