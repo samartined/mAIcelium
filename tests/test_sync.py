@@ -430,6 +430,39 @@ def test_sync_reflects_mesh_skills_into_claude_skills(tmp_path, monkeypatch):
 
 
 @requires_symlink
+def test_sync_reflects_sub_skills_of_a_domain_that_is_itself_a_skill(tmp_path, monkeypatch):
+    """A domain folder with its own SKILL.md AND sub-skill folders must reflect
+    both: the domain as <domain> and each sub-skill as <domain>--<skill>.
+    Children without SKILL.md (references/, scripts/) must not be reflected.
+    """
+    ws = _bootstrap_workspace(tmp_path)
+
+    domain = ws / "mesh" / "skills" / "_domains" / "devops"
+    _write(str(domain / "SKILL.md"), "devops\n")
+    _write(str(domain / "terraform-workflow" / "SKILL.md"), "tf\n")
+    _write(str(domain / "gcp-iam" / "SKILL.md"), "iam\n")
+    _write(str(domain / "references" / "notes.md"), "not a skill\n")
+
+    _patch_root(monkeypatch, ws)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = sync_symlinks.main([])
+    assert rc == 0
+
+    expected = ["devops", "devops--terraform-workflow", "devops--gcp-iam"]
+    for target in (ws / ".claude" / "skills",
+                   ws / ".cursor" / "skills-cursor",
+                   ws / ".agents" / "skills"):
+        for name in expected:
+            link = target / name
+            assert link.is_symlink(), f"{link} is not a symlink"
+            assert (link / "SKILL.md").is_file(), f"{link} does not resolve"
+        assert not os.path.lexists(str(target / "devops--references")), (
+            f"{target}/devops--references must not be reflected (no SKILL.md)"
+        )
+
+
+@requires_symlink
 def test_sync_cleans_broken_symlinks_in_claude_skills(tmp_path, monkeypatch):
     """A dangling link under .claude/skills/ (skill removed from a layer) must
     be pruned, exactly as in .cursor/skills-cursor/ and .agents/skills/."""
