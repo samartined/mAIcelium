@@ -148,6 +148,32 @@ When the work is on the mAIcelium repo itself (not on a linked project), follow
   lines;
 - after a release, fast-forward `dev` to `main`.
 
+## Changing mAIcelium itself (test-first)
+
+Changes to mAIcelium's own code (`bin/`, `maicelium_cli.py`,
+`mesh/commands/scripts/`) are test-first. Docs, rules and skills are exempt.
+
+1. **Scope before code.** List the behaviors the change must have, one line
+   each. A bug fix has one item: its reproduction. A feature lists the
+   acceptance criteria from its issue or brief; ask when they are missing.
+2. **Red.** Turn one item into a test in `tests/`. Run it and confirm it fails
+   for the expected reason: an assertion about the behavior, not an import
+   error or a typo. A test that already passes, or fails for another reason,
+   proves nothing; fix the test first.
+3. **Green.** Make the smallest change that passes it. Never edit, weaken or
+   skip a test to get there.
+4. **Refactor** with the suite green, then take the next item.
+5. **Done** means the full suite is green
+   (`python -m pytest -q -m "not install"`) and the report shows both the red
+   run and the green run.
+
+Code written before its test is deleted, not set aside: write the test, watch
+it fail, then write the code again from the test.
+
+**Stop instead of looping.** If the same failure survives two fix attempts,
+stop editing. Reproduce it again, find the root cause, and report what you
+know before a third attempt.
+
 ## Separated git mode
 
 `bin/separate_git.py` moves `.git` out of the workspace root into a sibling directory
