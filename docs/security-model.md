@@ -114,6 +114,19 @@ Other mount rules:
 - Duplicate links to one repo, or one repo that is both a project and a layer,
   are fine.
 
+**Claude Code's working directories.** Claude Code judges a Write or Edit by
+where the path resolves. A file under `projects/<name>/` resolves outside the
+workspace, so auto mode would prompt for every write and `acceptEdits` would not
+approve it. `mai sync` (and `add`, `remove`, `init`) therefore lists the real
+path of every mount that lies outside the workspace, after the mount filter
+above, in `permissions.additionalDirectories` of `.claude/settings.local.json`.
+It keeps the file's other keys and the user's own entries, removes only the
+entries it added before (remembered in `.claude/maicelium-additional-dirs.json`),
+and leaves a file that is not valid JSON untouched. Claude Code applies that
+untracked file without the trust step, and directories listed there grant file
+access only. The IDE extensions get the same effect from the folders of
+`mAIcelium.code-workspace`. The guard still runs first on every write.
+
 Layer reflections (`mesh/skills/_*/…`, `mesh/rules/_*/…`) are not a special case.
 Their real path falls inside the layer's root. A real file there, one that does
 not resolve into a layer, is a stale reflection and is denied with the
