@@ -25,7 +25,11 @@ import re
 import sys
 
 from _lib.argresolve import AmbiguousArgsError, resolve_name_and_path
-from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _lib.context import (
+    regenerate_claude_context,
+    regenerate_claude_local_settings,
+    regenerate_workspace_file,
+)
 from _lib.conventions import load_conventions
 from _lib.platform import create_link, resolve_root
 from _lib.workspace_writer import add_project_entry, create_workspace_template
@@ -271,6 +275,7 @@ def main(argv=None):
     print("  Claude project context updated")
 
     regenerate_workspace_file(root)
+    regenerate_claude_local_settings(root)
     print("  Workspace file updated (mAIcelium.code-workspace)")
 
     _list_active_projects(root)

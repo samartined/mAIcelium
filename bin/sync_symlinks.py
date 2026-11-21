@@ -21,7 +21,11 @@ import shutil
 import sys
 from typing import List
 
-from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _lib.context import (
+    regenerate_claude_context,
+    regenerate_claude_local_settings,
+    regenerate_workspace_file,
+)
 from _lib.conventions import load_conventions
 from _lib.platform import check_symlink_privilege, is_windows, resolve_root
 from _lib.symlinks import detect_junction, find_broken_symlinks
@@ -930,7 +934,7 @@ def _workspace_file_nonempty(root):
 
 # ── Entry point ─────────────────────────────────────────────────────────────
 
-def main(argv=None):
+def main(argv=None, root=None):
     parser = argparse.ArgumentParser(
         description="Sync mesh/ symlinks into .cursor/, .agents/, .mcp.json, etc.",
     )
@@ -953,7 +957,8 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    root = resolve_root()
+    # init passes the root it was given; the CLI resolves it.
+    root = root or resolve_root()
 
     # 1. Privilege check FIRST — abort cleanly before any destructive op.
     if not check_symlink_privilege():
@@ -1011,6 +1016,7 @@ def main(argv=None):
     regenerate_claude_context(root)
     _ensure_claude_md_context_reference(root)
     regenerate_workspace_file(root)
+    regenerate_claude_local_settings(root)
     print("  Workspace file regenerated")
     print("Symlinks synced.")
 

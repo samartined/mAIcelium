@@ -8,6 +8,8 @@ import glob
 import json
 import os
 import re
+import sys
+import tempfile
 
 from _lib.conventions import load_conventions
 from _lib.workspace import load_workspace_section
@@ -106,6 +108,128 @@ def regenerate_workspace_file(root):
     with open(wsfile, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2, ensure_ascii=False)
         f.write("\n")
+
+
+# Real paths sync last wrote into permissions.additionalDirectories. Kept
+# apart so a later sync removes only its own entries, never the user's.
+_MANAGED_DIRS_FILE = "maicelium-additional-dirs.json"
+
+
+def _external_mount_roots(root):
+    """Real paths of the mounted repos (projects/<name>, mesh/layers/<name>,
+    mesh/mcp) that lie outside the workspace.
+
+    Reuses the write guard's ``mount_roots`` so the guard and Claude Code
+    agree on what a mount is: the same ``acceptable_mount`` filter keeps a
+    disk root, $HOME or anything holding it, the workspace, and hidden
+    folders of $HOME out of the list.
+    """
+    hooks_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+    if hooks_dir not in sys.path:
+        sys.path.append(hooks_dir)  # appended: never shadows another module
+    import _policy
+
+    ws_real = os.path.realpath(root)
+    return [r for r in _policy.mount_roots(root) if not _policy.is_under(r, ws_real)]
+
+
+def _write_json_atomic(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def regenerate_claude_local_settings(root):
+    """List the mounted repos' real paths in ``permissions.additionalDirectories``
+    of ``.claude/settings.local.json``.
+
+    Every mounted repo is a symlink inside the workspace. Claude Code judges a
+    Write/Edit by where it resolves: a file under ``projects/<name>`` lands
+    outside the working directory, so auto mode prompts for every write and
+    acceptEdits does not approve it. Listing the real paths as additional
+    working directories removes that prompt, as the IDE extensions already do
+    with the folders of ``mAIcelium.code-workspace``. Claude Code applies an
+    untracked ``settings.local.json`` without the workspace trust step, and
+    directories listed there grant file access only (no skills or commands).
+
+    Other keys and the user's own entries are kept. Entries this function
+    added before and that are no longer mounted are removed; it remembers
+    them in ``.claude/maicelium-additional-dirs.json``. A settings file that
+    is not valid JSON is left untouched, with a warning.
+    """
+    claude_dir = os.path.join(root, ".claude")
+    settings_path = os.path.join(claude_dir, "settings.local.json")
+    managed_path = os.path.join(claude_dir, _MANAGED_DIRS_FILE)
+
+    wanted = _external_mount_roots(root)
+
+    previous = []
+    if os.path.isfile(managed_path):
+        try:
+            with open(managed_path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                previous = [p for p in loaded if isinstance(p, str)]
+        except (json.JSONDecodeError, OSError):
+            previous = []
+
+    settings = {}
+    original = None
+    if os.path.isfile(settings_path):
+        try:
+            with open(settings_path, encoding="utf-8") as f:
+                settings = json.load(f)
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+            print(
+                f"Warning: .claude/settings.local.json is not readable JSON ({e}); "
+                f"left untouched, so Claude Code may prompt for writes in mounted repos.",
+                file=sys.stderr,
+            )
+            return
+        if not isinstance(settings, dict):
+            print(
+                "Warning: .claude/settings.local.json is not a JSON object; left untouched.",
+                file=sys.stderr,
+            )
+            return
+        original = json.dumps(settings, sort_keys=True)
+    elif not wanted:
+        return
+
+    permissions = settings.get("permissions")
+    if not isinstance(permissions, dict):
+        permissions = {}
+    current = permissions.get("additionalDirectories")
+    if not isinstance(current, list):
+        current = []
+
+    stale = set(previous) - set(wanted)
+    merged = [d for d in current if d not in stale]
+    merged += [d for d in wanted if d not in merged]
+
+    if merged:
+        permissions["additionalDirectories"] = merged
+    else:
+        permissions.pop("additionalDirectories", None)
+    if permissions:
+        settings["permissions"] = permissions
+    else:
+        settings.pop("permissions", None)
+
+    if json.dumps(settings, sort_keys=True) != original:
+        _write_json_atomic(settings_path, settings)
+    if wanted != previous and (wanted or os.path.exists(managed_path)):
+        _write_json_atomic(managed_path, wanted)
 
 
 def _layer_dirs_for(mesh_layers, pname):
