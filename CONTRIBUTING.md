@@ -46,7 +46,15 @@ change, followed by an immediate release PR.
 - **Language:** code, commits, PRs and docs are in English (see
   `mesh/rules/documentation-language.mdc`).
 - **Public repo:** never write personal paths (`/Users/<name>`) or client names
-  in commits, PRs, issues or docs.
+  in commits, PRs, issues or docs. Use neutral names (`acme`, `globex`), `~` or
+  `/home/user` for paths, and commit with your GitHub noreply email
+  (`git config user.email <id>+<login>@users.noreply.github.com`). No AI
+  attribution trailers in commits or PRs.
+- **Public text check:** the `Public text` workflow runs
+  `bin/check_public_text.py` on every push and pull request. Names no pattern can
+  know (clients, employers) come from the `PRIVATE_WORDS` repository secret.
+  Before pushing, run it locally with your own list:
+  `bin/py.sh bin/check_public_text.py --words-from <your-layer>/claude/global.json --commits origin/dev..HEAD`.
 
 ## Tests
 
