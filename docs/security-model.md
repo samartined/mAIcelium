@@ -62,10 +62,13 @@ Each hook prints at most one decision:
 - **Ask needs a human.** In `claude -p` and in the `dontAsk` permission mode
   there is nobody to confirm, so `ask` behaves as deny. That is expected.
 - **Both hooks fail closed.** Invalid stdin or any unexpected exception produces
-  a deny with the reason, logged to `.claude/hook-failures.log`. If the
-  interpreter cannot start at all, the hook exits non-zero and Claude Code treats
-  that as non-blocking. Claude Code ≥ v2.1.295 can make that blocking with
-  `"onFailure": "block"` on the hook entry; that setting is left to the user.
+  a deny with the reason, logged to `.claude/hook-failures.log`.
+- **A guard that does not run blocks too.** Both guard entries set
+  `"onFailure": "block"`, so a guard that cannot start, exits with a code other
+  than 0 or 2, or hits its 10 s timeout blocks the tool call instead of letting
+  it through. Claude Code needs v2.1.295 or later for this; older versions treat
+  those failures as non-blocking. The SessionStart sync does not set it: a
+  failed sync must not stop the session.
 - **Every deny says what to do instead:** mount the repo, use the scratchpad,
   confirm the ask, use the package manager, or `mai sync`.
 
@@ -289,9 +292,10 @@ Accepted or mitigated, but not closed:
 - **Failing closed blocks every write and command if a guard has a bug.** The
   CI matrix and the crash tests cover this. `.claude/hook-failures.log` holds
   the details.
-- **The guards' own failure to start** (missing interpreter, timeout) is
-  non-blocking unless `"onFailure": "block"` is set. See
-  [Decision contract](#decision-contract).
+- **On Claude Code older than v2.1.295, the guards' own failure to start**
+  (missing interpreter, timeout) is non-blocking: those versions do not apply
+  `"onFailure": "block"`. Other runners that import these hooks, such as
+  Cursor, may not apply it either. See [Decision contract](#decision-contract).
 - **Relocated auto-memory is not supported yet.** `autoMemoryDirectory` and
   `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` are not used today.
 - **`scratchpad_dir` has only been verified in cloud sessions.** If a local
