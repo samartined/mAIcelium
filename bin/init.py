@@ -15,7 +15,11 @@ import datetime
 import os
 import sys
 
-from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _lib.context import (
+    regenerate_claude_context,
+    regenerate_claude_local_settings,
+    regenerate_workspace_file,
+)
 from _lib.platform import check_symlink_privilege, create_link, is_windows, resolve_root
 from _lib.workspace_writer import create_workspace_template
 
@@ -28,8 +32,6 @@ _SETTINGS_JSON = """\
       "Bash(cat:*)",
       "Bash(find:*)",
       "Bash(realpath:*)",
-      "Bash(ln:*)",
-      "Bash(rm:*)",
       "Bash(mkdir:*)",
       "Bash(python3:bin/*)",
       "Bash(python3:bin/hooks/*)",
@@ -46,7 +48,7 @@ _SETTINGS_JSON = """\
         "hooks": [
           {
             "type": "command",
-            "command": "bin/py.sh bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed - context may be stale. Read .claude/projects-context.md.\\"",
+            "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/sync_symlinks.py > /dev/null && echo \\"Context synced. Read .claude/projects-context.md for workspace and project rules.\\" || echo \\"sync_symlinks.py failed - context may be stale. Read .claude/projects-context.md.\\"",
             "timeout": 10
           }
         ]
@@ -54,22 +56,24 @@ _SETTINGS_JSON = """\
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Shell",
         "hooks": [
           {
             "type": "command",
-            "command": "bin/py.sh bin/hooks/guard_bash.py",
-            "timeout": 10
+            "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_bash.py",
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "bin/py.sh bin/hooks/guard_write.py",
-            "timeout": 10
+            "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_write.py",
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }
@@ -380,6 +384,7 @@ def main(root=None):
 
     print("  -> Generating workspace file...")
     regenerate_workspace_file(root)
+    regenerate_claude_local_settings(root)
     print("  OK Workspace file created (mAIcelium.code-workspace)")
 
     print("  -> Generating Claude project context...")
@@ -389,7 +394,7 @@ def main(root=None):
     # Sync symlinks: materializes mesh layers, generates MCP configs,
     # regenerates workspace file and Claude context.
     import sync_symlinks
-    sync_symlinks.main([])
+    sync_symlinks.main([], root=root)
 
     print("")
     print("mAIcelium initialized successfully.")
