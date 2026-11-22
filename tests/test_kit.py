@@ -91,6 +91,13 @@ class TestScan:
         assert ("notes.py", 2) in [(f.path, f.line) for f in findings]
         assert word in [f.word for f in findings]
 
+    def test_a_windows_path_is_found_whichever_slash_the_text_uses(self, tmp_path):
+        root = tmp_path / "out"
+        root.mkdir()
+        (root / "a.md").write_text("cache in C:\\Users\\grace\\cache\nor C:/Users/grace/cache\n")
+        findings = leaks.scan(str(root), words=["C:\\Users\\grace"])
+        assert [f.line for f in findings] == [1, 2]
+
     def test_names_match_whole_words_only(self, tmp_path):
         root = tmp_path / "out"
         root.mkdir()
