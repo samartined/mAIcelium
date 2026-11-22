@@ -54,6 +54,12 @@ class TestDenylist:
                          "graces-private-skills", "ghopper", "grace-kit", "G. Hopper"):
             assert expected in words
 
+    def test_the_source_can_list_its_own_private_words(self, builder):
+        with open(os.path.join(builder["source"], "claude", "global.json"), "w") as handle:
+            json.dump({"exclude": [], "private_words": ["Acme Corp", "Initech"]}, handle)
+        words = leaks.denylist([builder["source"]], keep=["Ada"])
+        assert "Acme Corp" in words and "Initech" in words
+
     def test_the_new_owner_and_explicitly_allowed_words_are_kept_out(self, builder):
         words = leaks.denylist([builder["source"]], keep=["Grace Hopper", "ghopper"])
         assert "Grace Hopper" not in words and "ghopper" not in words

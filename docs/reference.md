@@ -126,8 +126,9 @@ the kit belongs to.
   the skills they serve and the rules they read.
 - **The trace check** refuses the copy, and leaves nothing behind, when the copied content
   carries the builder's git name or email, their home path, the source repo's name or
-  remote owner, its plugin name or author, or names a skill or rule of the source that
-  was not copied. The new owner's name is never a trace; `--allow <word>` lets another
+  remote owner, its plugin name or author, a word the source lists under `private_words`
+  in its `claude/global.json` (clients, employers, organizations), or names a skill or
+  rule of the source that was not copied. The new owner's name is never a trace; `--allow <word>` lets another
   through.
 - **`update`** replaces only the engine files recorded in `claude/engine.json` and the
   engine's hooks. It stops when an engine file was edited in the kit (or the record is
