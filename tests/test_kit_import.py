@@ -1,4 +1,4 @@
-"""`mai skills-repo import`: turn a repo of skills and rules, in any agent's format, into a skills repo.
+"""`mai kit import`: turn a repo of skills and rules, in any agent's format, into a skills repo.
 
 Why this file exists: people keep their skills and rules in the format of whichever agent
 they use. Conversion runs in two steps. `plan` writes an editable map of what each file
@@ -21,7 +21,7 @@ import pytest
 from _lib.layer_kit import generator, importer
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPT = os.path.join(REPO_ROOT, "bin", "skills_repo.py")
+SCRIPT = os.path.join(REPO_ROOT, "bin", "kit.py")
 POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="the engine uses fcntl and symlinks")
 
 

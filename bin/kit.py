@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-"""Skills repos: create one, share skills in one, update one, import one.
+"""Kits: create one, share your skills and rules in one, update one, import one.
 
-A skills repo is a folder of skills and rules that works in any Claude Code session on a
+A kit is a repo of skills and rules that works in any Claude Code session on a
 machine (with or without mAIcelium) and that a mAIcelium workspace can mount as a layer.
 
 Usage:
-  skills_repo.py create <folder> [--name <name>] [--owner "<name>"]
-      An empty skills repo.
-  skills_repo.py share <folder> --skills <path>... [--name] [--owner] [--allow <word>]...
-      A skills repo holding some of your skills, to give to someone else. <path> is a
-      skill folder, or a folder holding several (a whole domain). The skills bring the
-      hooks and rules they need. Nothing that identifies you or your repo may go in:
-      the copy is refused, saying where the trace is; --allow lets one word through.
-  skills_repo.py update <folder> [--force]
+  kit.py create <folder> [--name <name>] [--owner "<name>"]
+      An empty kit.
+  kit.py share <folder> --from <your-repo> [--only <name>]... [--name] [--owner] [--allow <word>]...
+      A kit holding your skills and rules, in the same layout, to give to someone else.
+      Without --only it holds everything; each --only names `_common`, a domain (its
+      skills and its rules), a skill or a rule. Skills bring the hooks and rules their
+      hooks need. Nothing that identifies you may go in, and no copied text may name a
+      skill or rule that stays behind: the copy is refused, saying where; --allow lets
+      one word through.
+  kit.py update <folder> [--force]
       Brings the repo's engine (claude/) up to this mAIcelium, leaving skills, rules
       and the repo's own hooks alone. Stops on engine files edited in the repo unless
       --force is given.
-  skills_repo.py import plan <source> [--out <map.json>]
-  skills_repo.py import apply <map.json> <folder> [--name] [--owner] [--allow <word>]...
+  kit.py import plan <source> [--out <map.json>]
+  kit.py import apply <map.json> <folder> [--name] [--owner] [--allow <word>]...
       Converts skills and rules kept in another tool's format (Claude, Cursor, Windsurf,
       Cline, Copilot, CLAUDE.md and the like). `plan` writes a map to review and edit;
       `apply` builds the repo from it. The source is only read.
@@ -52,14 +54,15 @@ def _identity_options(parser):
 
 
 def _parse(argv):
-    parser = argparse.ArgumentParser(prog="mai skills-repo", description="Create, share, update or import skills repos.")
+    parser = argparse.ArgumentParser(prog="mai kit", description="Create, share, update or import a kit of skills and rules.")
     actions = parser.add_subparsers(dest="action", required=True)
-    create = actions.add_parser("create", help="an empty skills repo")
+    create = actions.add_parser("create", help="an empty kit")
     create.add_argument("folder")
     _identity_options(create)
-    share = actions.add_parser("share", help="a skills repo with some of your skills, to give away")
+    share = actions.add_parser("share", help="a kit with your skills and rules, to give away")
     share.add_argument("folder")
-    share.add_argument("--skills", action="append", required=True, metavar="PATH")
+    share.add_argument("--from", dest="source", required=True, metavar="YOUR-REPO")
+    share.add_argument("--only", action="append", default=[], metavar="NAME")
     share.add_argument("--allow", action="append", default=[], metavar="WORD")
     _identity_options(share)
     update = actions.add_parser("update", help="bring a repo's engine up to this mAIcelium")
@@ -85,7 +88,7 @@ def _name_and_owner(args, folder):
 def _print_created(report, name, owner):
     print("Created %s (name %s, owner %s)." % (report["path"], name, owner))
     for key, label in (("skills", "Skills"), ("added", "Added because their hooks need them"),
-                       ("hooks", "Hooks"), ("rules", "Rules the hooks read")):
+                       ("hooks", "Hooks"), ("rules", "Rules")):
         if report.get(key):
             print("%s: %s" % (label, ", ".join(report[key])))
     print("Next: put it in its own git repo (for example on GitHub), then on each machine run")
@@ -101,10 +104,10 @@ def _create(args):
 def _share(args):
     folder = _caller_path(args.folder)
     name, owner = _name_and_owner(args, folder)
-    skills = generator.expand_skill_folders(_caller_path(part) for value in args.skills
-                                            for part in value.split(",") if part)
-    _print_created(generator.create(folder, name=name, owner=owner, with_skills=skills, allow=args.allow),
-                   name, owner)
+    only = [part for value in args.only for part in value.split(",") if part]
+    skills, rules = generator.select(_caller_path(args.source), only=only)
+    report = generator.create(folder, name=name, owner=owner, with_skills=skills, with_rules=rules, allow=args.allow)
+    _print_created(report, name, owner)
 
 
 def _update(args):
@@ -125,7 +128,7 @@ def _import(args):
         for kind, count in sorted(counts.items()):
             print("  %-22s %d" % (kind, count))
         print("Map written to %s. Review it (targets, domains, skipped sections), then run:" % out)
-        print("  mai skills-repo import apply %s <new-folder>" % args.out)
+        print("  mai kit import apply %s <new-folder>" % args.out)
         return
     folder = _caller_path(args.folder)
     name, owner = _name_and_owner(args, folder)
@@ -138,7 +141,7 @@ def main(argv=None):
     try:
         {"create": _create, "share": _share, "update": _update, "import": _import}[args.action](args)
     except generator.LayerError as error:
-        print("mai skills-repo: %s" % error, file=sys.stderr)
+        print("mai kit: %s" % error, file=sys.stderr)
         return 2
     return 0
 

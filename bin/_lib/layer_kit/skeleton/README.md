@@ -51,6 +51,6 @@ Both ways can be used at once: inside the workspace every skill still loads once
 
 ## Engine updates
 
-`claude/` comes from the mAIcelium layer kit. `mai skills-repo update <folder>` replaces the
+`claude/` comes from the mAIcelium layer kit. `mai kit update <folder>` replaces the
 engine files only, and stops if any of them was edited here. Hooks marked `"origin": "repo"`
 in the registry are yours and are never touched.

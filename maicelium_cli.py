@@ -84,10 +84,10 @@ VERBS = {
         "aliases": ["project-health", "project_health"],
         "summary": "Run health checks across all linked projects",
     },
-    "skills-repo": {
-        "rel_path": "bin/skills_repo.py",
-        "aliases": ["skills_repo"],
-        "summary": "Create, share, update or import a skills repo (works in any Claude Code session)",
+    "kit": {
+        "rel_path": "bin/kit.py",
+        "aliases": [],
+        "summary": "Create, share, update or import a kit of skills and rules (works in any Claude Code session)",
     },
 }
 

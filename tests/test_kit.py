@@ -1,4 +1,4 @@
-"""`mai skills-repo create` and `share`, and the trace check that guards everything they copy.
+"""`mai kit create` and `share`, and the trace check that guards everything they copy.
 
 Why this file exists: a new skills repo is often built for someone else, from material
 that lives in the builder's own repos. Nothing that identifies the builder or their
@@ -16,7 +16,7 @@ import pytest
 from _lib.layer_kit import generator, leaks
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPT = os.path.join(REPO_ROOT, "bin", "skills_repo.py")
+SCRIPT = os.path.join(REPO_ROOT, "bin", "kit.py")
 
 
 def git(*args, cwd):
@@ -113,32 +113,32 @@ class TestCommandLine:
         assert manifest["name"] == "acme-skills"
         assert "doctor.py --fix" in completed.stdout
 
-    def test_share_takes_skill_folders_relative_to_the_caller(self, builder, tmp_path):
+    def test_share_takes_the_source_relative_to_the_caller(self, builder, tmp_path):
         completed = self.run("share", "acme-skills", "--owner", "Ada",
-                             "--skills", "graces-private-skills/skills/_common/compiler-tips",
+                             "--from", "graces-private-skills", "--only", "compiler-tips",
                              cwd=str(tmp_path / "home"), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 0, completed.stderr
         assert (tmp_path / "acme-skills/skills/_common/compiler-tips/SKILL.md").is_file()
         assert "Skills: _common/compiler-tips" in completed.stdout
 
-    def test_share_takes_a_folder_of_skills_whole(self, builder, tmp_path):
+    def test_share_only_takes_a_whole_area(self, builder, tmp_path):
         completed = self.run("share", "acme-skills", "--owner", "Ada",
-                             "--skills", "graces-private-skills/skills/_common",
+                             "--from", "graces-private-skills", "--only", "_common",
                              cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 0, completed.stderr
         assert sorted(os.listdir(tmp_path / "acme-skills/skills/_common")) == [
             ".gitkeep", "compiler-tips", "secret-sauce"]
 
-    def test_share_needs_skills(self, tmp_path):
+    def test_share_needs_a_source_repo(self, tmp_path):
         completed = self.run("share", "acme-skills", "--owner", "Ada", cwd=str(tmp_path),
                              env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 2
 
-    def test_a_folder_without_skills_is_refused(self, builder, tmp_path):
+    def test_a_source_without_skills_or_rules_is_refused(self, builder, tmp_path):
         (tmp_path / "empty").mkdir()
-        completed = self.run("share", "acme-skills", "--owner", "Ada", "--skills", "empty",
+        completed = self.run("share", "acme-skills", "--owner", "Ada", "--from", "empty",
                              cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
-        assert completed.returncode == 2 and "no skill" in completed.stderr
+        assert completed.returncode == 2 and "no skills/ or rules/" in completed.stderr
 
     def test_a_refusal_exits_2_with_the_reason(self, tmp_path):
         (tmp_path / "taken").mkdir()

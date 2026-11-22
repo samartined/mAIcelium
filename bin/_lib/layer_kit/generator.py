@@ -30,12 +30,13 @@ class LayerError(Exception):
     """A request the kit refuses; the message says why and what to do."""
 
 
-def create(destination, name, owner, with_skills=(), allow=(), populate=None):
+def create(destination, name, owner, with_skills=(), with_rules=(), allow=(), populate=None):
     """Write a new skills repo at destination.
 
     with_skills: skill folders of another repo to start with. Each brings its hooks (from
     that repo's claude/hooks/registry.json), the hooks those need and the skills they
-    serve. Returns {"path", "skills", "hooks", "added"}, where "added" lists the skills
+    serve. with_rules: rule files of the same repo. Both keep their place in the layout.
+    Returns {"path", "skills", "rules", "hooks", "added"}, where "added" lists the skills
     pulled in by hooks rather than asked for.
 
     populate: an optional step that adds content to the new repo before it is checked
@@ -49,17 +50,18 @@ def create(destination, name, owner, with_skills=(), allow=(), populate=None):
     destination = os.path.abspath(destination)
     if os.path.exists(destination) and (not os.path.isdir(destination) or os.listdir(destination)):
         raise LayerError("%s already exists and is not empty; choose another folder" % destination)
-    selection = _select(with_skills)
+    selection = _select(with_skills, with_rules)
     parent = os.path.dirname(destination)
     os.makedirs(parent, exist_ok=True)
-    staging = tempfile.mkdtemp(prefix=".skills-repo-", dir=parent)
+    staging = tempfile.mkdtemp(prefix=".kit-", dir=parent)
     try:
         _write_skeleton(staging, name, owner)
         _write_engine(staging)
         _write_identity(staging, name, owner)
         if selection:
             _copy_selection(staging, selection)
-            left_behind = leaks.left_behind_skills(selection["source"], sorted(selection["skills"]))
+            left_behind = (leaks.left_behind_skills(selection["source"], sorted(selection["skills"]))
+                           + leaks.left_behind_rules(selection["source"], sorted(selection["rules"])))
             refuse_traces(staging, selection["source"], left_behind, keep=[owner, *allow])
         if populate:
             source, left_behind = populate(staging)
@@ -155,23 +157,50 @@ def _sha256(path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def expand_skill_folders(paths):
-    """Each path as skill folders: every folder at or below it that holds a SKILL.md."""
-    found = []
-    for path in paths:
-        path = os.path.realpath(path)
-        below = [folder for folder, _, names in os.walk(path) if "SKILL.md" in names]
-        if not below:
-            raise LayerError("%s holds no skill (no SKILL.md in it or below it)" % path)
-        found.extend(sorted(below))
-    return found
+def select(source, only=()):
+    """Skill folders and rule files of source to share: everything, or what `only` names.
+
+    Each name in `only` is `_common`, a domain (its skills and its rules), a skill folder
+    name or a rule name (with or without .mdc).
+    """
+    source = os.path.realpath(source)
+    skills_root, rules_root = os.path.join(source, "skills"), os.path.join(source, "rules")
+    if not os.path.isdir(skills_root) and not os.path.isdir(rules_root):
+        raise LayerError("%s has no skills/ or rules/ folder" % source)
+    all_skills = [folder for folder, _, names in os.walk(skills_root) if "SKILL.md" in names]
+    all_rules = [os.path.join(folder, name) for folder, _, names in os.walk(rules_root)
+                 for name in names if name.endswith(".mdc")]
+    if not only:
+        return sorted(all_skills), sorted(all_rules)
+    skills, rules = set(), set()
+    for name in only:
+        name = name.strip().strip("/")
+        if name == "_common":
+            areas = [os.path.join(skills_root, "_common"), os.path.join(rules_root, "_common")]
+        else:
+            areas = [os.path.join(skills_root, "_domains", name), os.path.join(rules_root, "_domains", name)]
+        picked_skills = [path for path in all_skills if any(_within(path, area) for area in areas)]
+        picked_rules = [path for path in all_rules if any(_within(path, area) for area in areas)]
+        if not picked_skills and not picked_rules:
+            stem = name[:-4] if name.endswith(".mdc") else name
+            picked_skills = [path for path in all_skills if os.path.basename(path) == name]
+            picked_rules = [path for path in all_rules if os.path.basename(path) == stem + ".mdc"]
+        if not picked_skills and not picked_rules:
+            raise LayerError("%s has no domain, skill or rule called %s" % (source, name))
+        skills.update(picked_skills)
+        rules.update(picked_rules)
+    return sorted(skills), sorted(rules)
 
 
-def _select(with_skills):
-    """Work out which skills and hooks to copy from the source repo."""
-    if not with_skills:
+def _within(path, folder):
+    return path == folder or path.startswith(folder + os.sep)
+
+
+def _select(with_skills, with_rules=()):
+    """Work out which skills, rules and hooks to copy from the source repo."""
+    if not with_skills and not with_rules:
         return None
-    sources, asked = set(), set()
+    sources, asked, asked_rules = set(), set(), set()
     for folder in with_skills:
         folder = os.path.realpath(folder)
         if not os.path.isfile(os.path.join(folder, "SKILL.md")):
@@ -179,8 +208,15 @@ def _select(with_skills):
         source = _source_root(folder)
         sources.add(source)
         asked.add(os.path.relpath(folder, os.path.join(source, "skills")).replace(os.sep, "/"))
+    for path in with_rules:
+        path = os.path.realpath(path)
+        if not (path.endswith(".mdc") and os.path.isfile(path)):
+            raise LayerError("%s is not a rule file (.mdc)" % path)
+        source = _source_root(path, "rules")
+        sources.add(source)
+        asked_rules.add(os.path.relpath(path, os.path.join(source, "rules")).replace(os.sep, "/"))
     if len(sources) > 1:
-        raise LayerError("the skills must all come from one repo; got %s" % ", ".join(sorted(sources)))
+        raise LayerError("the skills and rules must all come from one repo; got %s" % ", ".join(sorted(sources)))
     source = sources.pop()
     registry = _read_json(os.path.join(source, "claude", "hooks", "registry.json"))
     skills, hooks = set(asked), set()
@@ -201,18 +237,18 @@ def _select(with_skills):
     for relative in skills:
         if not os.path.isfile(os.path.join(source, "skills", relative, "SKILL.md")):
             raise LayerError("a hook of %s serves skills/%s, which does not exist" % (source, relative))
-    rules = {rule for hook in hooks for rule in registry[hook].get("rules", [])}
+    rules = asked_rules | {rule for hook in hooks for rule in registry[hook].get("rules", [])}
     return {"source": source, "registry": registry, "skills": skills, "hooks": hooks, "asked": asked,
             "rules": rules}
 
 
-def _source_root(folder):
-    current = os.path.dirname(folder)
+def _source_root(path, area="skills"):
+    current = os.path.dirname(path)
     while current != os.path.dirname(current):
-        if os.path.basename(current) == "skills":
+        if os.path.basename(current) == area:
             return os.path.dirname(current)
         current = os.path.dirname(current)
-    raise LayerError("%s is not inside a skills/ folder of a skills repo" % folder)
+    raise LayerError("%s is not inside a %s/ folder of a skills repo" % (path, area))
 
 
 def _copy_selection(root, selection):
@@ -303,7 +339,7 @@ def refuse_traces(root, source, left_behind, keep):
     if findings:
         raise LayerError(
             "the copied content carries traces of its source, so nothing was created:\n%s\n"
-            "Remove them from the source, add the skill they name with --skills, or pass "
+            "Remove them from the source, share what they name too (--only), or pass "
             "--allow <word> for a word that may stay." % leaks.describe(findings))
 
 
