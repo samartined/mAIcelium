@@ -79,7 +79,10 @@ wrapper, or encoding tricks can still slip past or, in principle, mis-fire.
     allowed.  The safe-operand allowlist accepts the same prefix, so
     ``/bin/rm -rf node_modules`` stays allowed too.
   * Destructive SQL (DROP TABLE, TRUNCATE)
-  * git push --force to main/master
+  * Force push to main/master, per segment and on real words: -f (also in a
+    cluster such as -uf), any --force* option or a "+" refspec, whose
+    destination (the dst of src:dst, refs/heads/ dropped) is main or master.
+    Global git options before the subcommand (``git -C <dir> push``) count.
   * Low-level disk ops (mkfs, dd)
   * chmod 777
 
@@ -101,6 +104,9 @@ DOCUMENTED GAPS (not blocked — known best-effort limit)
                                 stripped set sudo|doas|time|nice|env)
   * rm --recursive --force /   (GNU long-form flags: the flag matcher targets
                                 the common short clusters ``-rf``/``-fr``)
+  * git push -f ; git push -f origin ; git push --mirror origin
+                               (no refspec names the destination: it depends
+                                on the current branch, or covers every branch)
 """
 import json
 import os
@@ -673,6 +679,20 @@ def structural_decisions(code, payload, ws_root, policy):
     return out
 
 
+def _segments(cmd):
+    """Yield each segment of *cmd* the way the pattern rules see it.
+
+    The lower-cased command is split on separators (``_SEGMENT_SPLIT``); each
+    segment has its whitespace collapsed, a trailing space appended (so
+    operand-terminating lookaheads still fire at end of segment) and its
+    leading wrappers stripped (``_LEADING_WRAPPERS``), so a command-position
+    anchor sees the real command token.
+    """
+    for segment in _SEGMENT_SPLIT.split(cmd.lower()):
+        seg_norm = " ".join(segment.split()) + " "
+        yield _LEADING_WRAPPERS.sub("", seg_norm, count=1)
+
+
 def _command_is_dangerous(cmd):
     """Return True if any segment of *cmd* is a blockable rm -rf invocation.
 
@@ -706,16 +726,65 @@ def _command_is_dangerous(cmd):
         argument (``sudo -u root rm``), and GNU long flags are residual
         best-effort gaps (see module docstring).
     """
-    lowered = cmd.lower()
-    for segment in _SEGMENT_SPLIT.split(lowered):
-        # Normalise each segment the same way the whole command used to be
-        # (collapse whitespace, append a trailing space so operand-terminating
-        # lookaheads still fire at end of segment).
-        seg_norm = " ".join(segment.split()) + " "
-        # Strip leading wrappers so the command-position anchor sees the real
-        # command token; only then is this segment an ``rm`` invocation.
-        seg_cmd = _LEADING_WRAPPERS.sub("", seg_norm, count=1)
-        if _RM_RF_BLOCK.search(seg_cmd) and not _RM_SAFE_OPERANDS.search(seg_cmd):
+    return any(
+        _RM_RF_BLOCK.search(seg_cmd) and not _RM_SAFE_OPERANDS.search(seg_cmd)
+        for seg_cmd in _segments(cmd)
+    )
+
+
+# Force push to main/master, judged per segment on real words. A push forces
+# with -f (alone or in a cluster such as -uf), any --force* option, or a "+" on
+# a refspec, which forces that refspec only. The destination is the dst of
+# src:dst (the whole refspec when it has no colon) without refs/heads/. Every
+# word that is not an option is read as a refspec, the repository included,
+# which errs on the side of blocking.
+_PROTECTED_BRANCHES = frozenset({"main", "master"})
+
+# git's global options that take their value as the next word. Lower-cased,
+# so "-c" stands for both -c and -C.
+_GIT_OPTIONS_WITH_VALUE = frozenset(
+    {"-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
+)
+
+
+def _git_push_args(words):
+    """Yield the arguments of every ``git [global options] push`` in *words*."""
+    for i, word in enumerate(words):
+        if os.path.basename(word) != "git":
+            continue
+        j = i + 1
+        while j < len(words) and words[j].startswith("-"):
+            j += 2 if words[j] in _GIT_OPTIONS_WITH_VALUE else 1
+        if j < len(words) and words[j] == "push":
+            yield words[j + 1:]
+
+
+def _is_force_option(arg):
+    if arg.startswith("--"):
+        return arg.startswith("--force")
+    return arg.startswith("-") and "f" in arg[1:]
+
+
+def _forces_protected_branch(push_args):
+    force = any(_is_force_option(a) for a in push_args)
+    refspecs = [a for a in push_args if not a.startswith("-")]
+    for spec in refspecs:
+        dst = spec.lstrip("+").rpartition(":")[2].removeprefix("refs/heads/")
+        if dst in _PROTECTED_BRANCHES and (force or spec.startswith("+")):
+            return True
+    return False
+
+
+def _is_force_push_to_protected_branch(cmd):
+    """True if a segment of *cmd* force-pushes to main or master.
+
+    ``git`` may stand anywhere in its segment, not only at command position:
+    ``(git push ...)``, ``then git push ...`` and ``timeout 60 git push ...``
+    are force pushes too, so parentheses and backticks are dropped first.
+    """
+    for segment in _segments(cmd):
+        words = re.sub(r"[()`]", " ", segment).split()
+        if any(_forces_protected_branch(args) for args in _git_push_args(words)):
             return True
     return False
 
@@ -815,9 +884,7 @@ def _evaluate(cmd, payload=None, ws_root=None, policy=None):
         )
 
     # Force push to main/master
-    if re.search(r"git\s+push\s+.*(-f|--force)", bare) and re.search(
-        r"\b(main|master)\b", bare
-    ):
+    if _is_force_push_to_protected_branch(bare):
         _block(
             "Blocked: force push to main/master. "
             "This rewrites shared history."

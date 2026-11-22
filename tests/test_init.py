@@ -230,6 +230,28 @@ def test_init_writes_python_hooks_in_settings(tmp_path):
     assert set(write_matcher.split("|")) == {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
 
+def test_init_guard_hooks_block_when_they_fail():
+    """A guard that cannot start or times out must block, not let the call through.
+
+    Without onFailure, Claude Code treats a PreToolUse hook that fails to
+    start, exits non-zero or hits its timeout as non-blocking. A timed-out
+    guard_bash was observed letting a command through.
+    """
+    data = json.loads(init._SETTINGS_JSON)
+    guard_hooks = [h for entry in data["hooks"]["PreToolUse"] for h in entry["hooks"]]
+    assert {h["command"].rsplit("/", 1)[-1] for h in guard_hooks} == {
+        "guard_bash.py",
+        "guard_write.py",
+    }
+    for hook in guard_hooks:
+        assert hook.get("onFailure") == "block", hook["command"]
+
+    # The context sync is not a guard: a failed sync must not stop the session.
+    for entry in data["hooks"]["SessionStart"]:
+        for hook in entry["hooks"]:
+            assert "onFailure" not in hook
+
+
 def test_repo_settings_match_init_template():
     """The checked-in .claude/settings.json and init's template must not drift."""
     repo_settings = os.path.join(
@@ -270,6 +292,24 @@ def test_init_runs_sync_at_end(tmp_path):
 
     ws_file = tmp_path / "mAIcelium.code-workspace"
     assert ws_file.is_file(), "sync_symlinks must have run and produced the workspace file"
+
+
+@requires_symlink
+def test_init_sync_stays_in_the_given_root(tmp_path, monkeypatch):
+    """The final sync must run on the root init was given, not on the
+    checkout the code lives in (that sync rewrote the real workspace's
+    generated files, and its .claude/settings.local.json, on every test run)."""
+    import sync_symlinks
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.setattr(sync_symlinks, "resolve_root", lambda: str(elsewhere))
+    target = tmp_path / "ws"
+    target.mkdir()
+
+    rc = init.main(root=str(target))
+    assert rc == 0
+    assert os.listdir(str(elsewhere)) == []
 
 
 # ── Test 11: SessionStart hook emits a short message, not a file dump ─────────

@@ -15,7 +15,11 @@ import datetime
 import os
 import sys
 
-from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _lib.context import (
+    regenerate_claude_context,
+    regenerate_claude_local_settings,
+    regenerate_workspace_file,
+)
 from _lib.platform import check_symlink_privilege, create_link, is_windows, resolve_root
 from _lib.workspace_writer import create_workspace_template
 
@@ -57,7 +61,8 @@ _SETTINGS_JSON = """\
           {
             "type": "command",
             "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_bash.py",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       },
@@ -67,7 +72,8 @@ _SETTINGS_JSON = """\
           {
             "type": "command",
             "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_write.py",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }
@@ -378,6 +384,7 @@ def main(root=None):
 
     print("  -> Generating workspace file...")
     regenerate_workspace_file(root)
+    regenerate_claude_local_settings(root)
     print("  OK Workspace file created (mAIcelium.code-workspace)")
 
     print("  -> Generating Claude project context...")
@@ -387,7 +394,7 @@ def main(root=None):
     # Sync symlinks: materializes mesh layers, generates MCP configs,
     # regenerates workspace file and Claude context.
     import sync_symlinks
-    sync_symlinks.main([])
+    sync_symlinks.main([], root=root)
 
     print("")
     print("mAIcelium initialized successfully.")

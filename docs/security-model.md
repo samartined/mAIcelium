@@ -62,10 +62,13 @@ Each hook prints at most one decision:
 - **Ask needs a human.** In `claude -p` and in the `dontAsk` permission mode
   there is nobody to confirm, so `ask` behaves as deny. That is expected.
 - **Both hooks fail closed.** Invalid stdin or any unexpected exception produces
-  a deny with the reason, logged to `.claude/hook-failures.log`. If the
-  interpreter cannot start at all, the hook exits non-zero and Claude Code treats
-  that as non-blocking. Claude Code ≥ v2.1.295 can make that blocking with
-  `"onFailure": "block"` on the hook entry; that setting is left to the user.
+  a deny with the reason, logged to `.claude/hook-failures.log`.
+- **A guard that does not run blocks too.** Both guard entries set
+  `"onFailure": "block"`, so a guard that cannot start, exits with a code other
+  than 0 or 2, or hits its 10 s timeout blocks the tool call instead of letting
+  it through. Claude Code needs v2.1.295 or later for this; older versions treat
+  those failures as non-blocking. The SessionStart sync does not set it: a
+  failed sync must not stop the session.
 - **Every deny says what to do instead:** mount the repo, use the scratchpad,
   confirm the ask, use the package manager, or `mai sync`.
 
@@ -114,6 +117,19 @@ Other mount rules:
 - Duplicate links to one repo, or one repo that is both a project and a layer,
   are fine.
 
+**Claude Code's working directories.** Claude Code judges a Write or Edit by
+where the path resolves. A file under `projects/<name>/` resolves outside the
+workspace, so auto mode would prompt for every write and `acceptEdits` would not
+approve it. `mai sync` (and `add`, `remove`, `init`) therefore lists the real
+path of every mount that lies outside the workspace, after the mount filter
+above, in `permissions.additionalDirectories` of `.claude/settings.local.json`.
+It keeps the file's other keys and the user's own entries, removes only the
+entries it added before (remembered in `.claude/maicelium-additional-dirs.json`),
+and leaves a file that is not valid JSON untouched. Claude Code applies that
+untracked file without the trust step, and directories listed there grant file
+access only. The IDE extensions get the same effect from the folders of
+`mAIcelium.code-workspace`. The guard still runs first on every write.
+
 Layer reflections (`mesh/skills/_*/…`, `mesh/rules/_*/…`) are not a special case.
 Their real path falls inside the layer's root. A real file there, one that does
 not resolve into a layer, is a stale reflection and is denied with the
@@ -151,9 +167,16 @@ quotes is ignored, so `echo "<<X"` cannot hide the next line.
 The pattern rules are:
 - `rm -rf` on dangerous targets, evaluated per segment and at command position;
 - destructive SQL;
-- force push to `main`/`master`;
+- force push to `main`/`master`, evaluated per segment on real words;
 - `mkfs`/`dd`;
 - `chmod 777`.
+
+A push counts as forced with `-f` (also inside a cluster such as `-uf`), any
+`--force*` option, or a `+` on a refspec, which forces that refspec only. It is
+blocked when a forced refspec's destination (the `dst` of `src:dst`, with
+`refs/heads/` dropped) is `main` or `master`. Global options before `push`
+(`git -C <dir> push`) are skipped. `git push -f` with no refspec is not judged:
+its destination depends on the current branch.
 
 `chmod 777`, force push and `mkfs`/`dd` match on the command with quoted phrases
 blanked. A quoted single word stays a word, so `git push --force origin "main"`
@@ -269,9 +292,10 @@ Accepted or mitigated, but not closed:
 - **Failing closed blocks every write and command if a guard has a bug.** The
   CI matrix and the crash tests cover this. `.claude/hook-failures.log` holds
   the details.
-- **The guards' own failure to start** (missing interpreter, timeout) is
-  non-blocking unless `"onFailure": "block"` is set. See
-  [Decision contract](#decision-contract).
+- **On Claude Code older than v2.1.295, the guards' own failure to start**
+  (missing interpreter, timeout) is non-blocking: those versions do not apply
+  `"onFailure": "block"`. Other runners that import these hooks, such as
+  Cursor, may not apply it either. See [Decision contract](#decision-contract).
 - **Relocated auto-memory is not supported yet.** `autoMemoryDirectory` and
   `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` are not used today.
 - **`scratchpad_dir` has only been verified in cloud sessions.** If a local
