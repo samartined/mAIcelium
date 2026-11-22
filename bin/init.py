@@ -61,7 +61,8 @@ _SETTINGS_JSON = """\
           {
             "type": "command",
             "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_bash.py",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       },
@@ -71,7 +72,8 @@ _SETTINGS_JSON = """\
           {
             "type": "command",
             "command": "\\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/py.sh \\"${CLAUDE_PROJECT_DIR:-.}\\"/bin/hooks/guard_write.py",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }
