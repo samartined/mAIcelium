@@ -9,8 +9,12 @@
 
 ## Allowed permissions
 - Full read access to the workspace.
-- Write access only inside `projects/<active-project>/`.
+- Write access only inside `projects/<active-project>/` (the guard allows any repo
+  mounted under `projects/`, `mesh/layers/` or `mesh/mcp`, plus the session scratchpad;
+  see `docs/security-model.md`).
 - Write access inside `mesh/` for new rules, skills, commands, and prompts.
+- Changes to `bin/hooks/`, `bin/py.sh`, `bin/py.cmd` and `.claude/settings*.json`
+  need the user's confirmation.
 - Execution of scripts in `bin/`.
 - Execution of scripts in `bin/hooks/` (PreToolUse security checks).
 - Execution of Python scripts: `python3 mesh/commands/scripts/*.py`.

@@ -268,6 +268,32 @@ def test_add_then_remove_leaves_clean_state(tmp_path, monkeypatch):
     assert (repo / ".cursor" / "rules" / "rule.md").is_file()
 
 
+@requires_symlink
+def test_add_and_remove_update_local_additional_directories(tmp_path, monkeypatch):
+    """Mounting a repo lists its real path as a Claude Code working directory,
+    so Write/Edit through projects/<name> is not judged outside the workspace;
+    unmounting removes it again."""
+    import json
+
+    ws = _bootstrap_workspace(tmp_path)
+    repo = _make_fake_project(tmp_path, "fakeproj")
+    _patch_root(monkeypatch, ws)
+    settings = ws / ".claude" / "settings.local.json"
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = add_project.main(["add_project.py", "demo", str(repo)])
+    assert rc == 0, buf.getvalue()
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    assert data["permissions"]["additionalDirectories"] == [os.path.realpath(str(repo))]
+
+    with redirect_stdout(buf):
+        rc = remove_project.main(["remove_project.py", "demo"])
+    assert rc == 0, buf.getvalue()
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    assert "additionalDirectories" not in data.get("permissions", {})
+
+
 def test_remove_nonexistent_project_does_not_crash(tmp_path, monkeypatch):
     ws = _bootstrap_workspace(tmp_path)
     _patch_root(monkeypatch, ws)

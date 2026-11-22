@@ -475,10 +475,11 @@ The `/git_backup` agent command supports both modes (normal and separated) autom
 
 ## Security model
 
-- **PreToolUse hooks (claude):** The workspace implements layered defense before actions execute:
-  - `bin/hooks/guard_bash.py` is a **best-effort speed-bump** that blocks common literal destructive shell commands (e.g., `rm -rf /`, `rm -rf /etc`, `git push --force`). It is **not a security boundary**: it performs regex matching over the raw command string and is inherently bypassable via shell expansion, variable indirection, command substitution, sub-shells, eval, or other encoding tricks. The hook **fails open by design** — on any parse error or unexpected input it logs the failure and exits without blocking. **Residual risk:** commands that achieve the same effect through indirection (e.g., `T=/etc; rm -rf $T`, `rm -rf $(echo /etc)`, `find /etc -delete`) are not caught. Real security relies on the write-scope boundary and human review.
-  - `bin/hooks/guard_write.py` protects sensitive and auto-generated files (e.g., `WORKSPACE.md`, `.env`, lockfiles). This is the primary write-scope boundary.
-- Agents can **only write** inside `projects/<active-project>/` and `mesh/` (for new rules, skills, commands, prompts). This write-scope constraint, enforced by `guard_write.py` and human review, is the actual security boundary — not `guard_bash.py`.
+- **PreToolUse hooks (claude):** two hooks run before every tool call; both delegate file decisions to the shared, stdlib-only `bin/hooks/_policy.py`. The full model is in [`security-model.md`](security-model.md).
+  - `bin/hooks/guard_write.py` (Write, Edit, MultiEdit, NotebookEdit) is the write-scope boundary. A write is allowed only when its **resolved** path falls under a write root: the workspace, the repos mounted under `projects/`, `mesh/layers/` and `mesh/mcp`, `~/.claude/plans/`, the project's auto-memory, the session scratchpad and plain temp directories. Inside the roots, name rules deny `.env*`, `.git` internals, lockfiles and auto-generated workspace files, and **ask** for agent settings, key material and the guard files themselves.
+  - `bin/hooks/guard_bash.py` is a **best-effort speed-bump** for destructive shell commands (e.g., `rm -rf /`, `git push --force` to `main`). It skips heredoc bodies and quoted phrases, which are data, and routes every redirection and `tee` target through the same write policy. It is **not a security boundary**: a program the agent runs can still write anywhere the user can.
+  - Both hooks **fail closed**: invalid input or any unexpected exception is a deny, logged to `.claude/hook-failures.log`.
+- Agents write inside the workspace and the repos it mounts. This write-scope constraint, enforced by `guard_write.py` and human review of `ask` decisions, is the actual security boundary, not `guard_bash.py`.
 - Agents must **never modify** `.cursor/`, `.claude/`, or `.agents/` — these are auto-generated.
 - Scripts **never run** `rm -rf` on symlink targets — only the symlink is removed.
 - `.claude/settings.json` defines allowed bash operations including `python3 mesh/commands/scripts/*` and wires the protection hooks.
