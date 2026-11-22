@@ -134,10 +134,16 @@ The full convention (including the authoring decision tree) lives in
 `mesh/rules/workspace-conventions.mdc` under "Layer routing convention".
 
 A layer can also work outside mAIcelium, in any Claude Code session, as a **kit**:
-`mai kit create` starts one, `mai kit share --from <layer> --only <domain>` gives some of
-a layer's skills and rules to someone else with no trace of their owner, `mai kit update`
-brings a kit's engine up to date, and `mai kit import` converts another tool's skills and
-rules. See "Kits" in `docs/reference.md`.
+
+- `mai kit create <folder>` starts an empty one.
+- `mai kit share <folder> --owner "<who>" --from <layer> --only <domain>` gives some of a
+  layer's skills and rules to someone else, with no trace of the layer's owner.
+- `mai kit update <folder>` brings a kit's engine up to date.
+- `mai kit import plan <source>`, then `mai kit import apply <map> <folder>`, converts
+  another tool's skills and rules.
+
+A bare `<folder>` name goes to `kits/`, which git ignores; never create a kit elsewhere
+inside the workspace. See "Kits" in `docs/reference.md`.
 
 ## Skill categories
 

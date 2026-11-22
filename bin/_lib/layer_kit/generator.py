@@ -1,4 +1,4 @@
-"""Build a new skills repo from the layer kit.
+"""Build a new kit (a repo of skills and rules) from the layer kit.
 
 The result has the mAIcelium layer layout (skills/_common, skills/_domains,
 rules/_domains), so a workspace can mount it, and the engine in claude/, so any Claude
@@ -31,7 +31,7 @@ class LayerError(Exception):
 
 
 def create(destination, name, owner, with_skills=(), with_rules=(), allow=(), populate=None):
-    """Write a new skills repo at destination.
+    """Write a new kit at destination.
 
     with_skills: skill folders of another repo to start with. Each brings its hooks (from
     that repo's claude/hooks/registry.json), the hooks those need and the skills they
@@ -129,7 +129,7 @@ def _write_identity(root, name, owner):
     _write_json(os.path.join(claude, ".claude-plugin", "plugin.json"), {
         "name": name,
         "version": "0.1.0",
-        "description": "Hooks of the %s skills repo, delivered to every Claude Code session. Holds no "
+        "description": "Hooks of the %s kit, delivered to every Claude Code session. Holds no "
                        "skills: those are personal links kept in sync by the SessionStart hook." % name,
         "author": {"name": owner},
     })
@@ -261,7 +261,7 @@ def _source_root(path, area="skills"):
         if os.path.basename(current) == area:
             return os.path.dirname(current)
         current = os.path.dirname(current)
-    raise LayerError("%s is not inside a %s/ folder of a skills repo" % (path, area))
+    raise LayerError("%s is not inside a %s/ folder of a kit or skills repo" % (path, area))
 
 
 def _copy_selection(root, selection):
