@@ -1,4 +1,4 @@
-"""Layer kit: the engine and skeleton that `mai skills-repo` copies into a new skills repo.
+"""Layer kit: the engine and skeleton that `mai kit` copies into a new skills repo.
 
 Why this file exists: the kit is copied into repos owned by other people. It must hold
 nothing that belongs to whoever wrote it, and a freshly generated repo must pass its own

@@ -58,6 +58,18 @@ def left_behind_skills(source, selected):
     return sorted(names - chosen_names)
 
 
+def left_behind_rules(source, selected):
+    """Rule file names (with .mdc) in source that are not being copied.
+
+    selected: the copied rules, as paths under rules/ or bare file names.
+    """
+    chosen = {os.path.basename(entry) for entry in selected}
+    names = set()
+    for _, _, files in os.walk(os.path.join(source, "rules")):
+        names.update(name for name in files if name.endswith(".mdc"))
+    return sorted(names - chosen)
+
+
 def scan(root, words, skill_names=(), names_ignored_in=()):
     """Every line under root that holds a word, or names a left-behind skill as a path or code.
 
@@ -65,8 +77,7 @@ def scan(root, words, skill_names=(), names_ignored_in=()):
     for, such as the kit's own engine, whose paths are not anyone's skills.
     """
     word_patterns = [(word, _word_pattern(word)) for word in words]
-    name_patterns = [(name, re.compile(r"(?:/%s(?:/|$)|`%s`)" % (re.escape(name), re.escape(name))))
-                     for name in skill_names]
+    name_patterns = [(name, _name_pattern(name)) for name in skill_names]
     ignored = set(names_ignored_in)
     findings = []
     for folder, subfolders, names in _walk(root):
@@ -89,6 +100,14 @@ def describe(findings, limit=20):
     if len(findings) > limit:
         lines.append("... and %d more" % (len(findings) - limit))
     return "\n".join(lines)
+
+
+def _name_pattern(name):
+    """A skill name counts as a path segment or code; a rule file name (x.mdc) anywhere."""
+    escaped = re.escape(name)
+    if name.endswith(".mdc"):
+        return re.compile(r"(?<![\w-])%s(?![\w-])" % escaped)
+    return re.compile(r"(?:/%s(?:/|$)|`%s`)" % (escaped, escaped))
 
 
 def _word_pattern(word):

@@ -1,4 +1,4 @@
-"""`mai skills-repo update <repo>`: bring a skills repo's engine up to the kit's.
+"""`mai kit update <repo>`: bring a skills repo's engine up to the kit's.
 
 Why this file exists: every skills repo carries its own copy of the engine, and its owner
 must be able to take the kit's improvements without losing anything of theirs. The
@@ -124,7 +124,7 @@ def test_the_upgraded_repo_keeps_its_invariants(repo, newer_kit):
 
 
 def test_the_command_line_upgrades_and_reports(repo, tmp_path):
-    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "skills_repo.py")
+    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "kit.py")
     os.remove(os.path.join(repo, "claude/engine.json"))
     refused = subprocess.run([sys.executable, script, "update", "acme-skills"], capture_output=True, text=True,
                              env=dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path)))

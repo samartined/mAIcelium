@@ -1,4 +1,4 @@
-"""`mai skills-repo share`: a new skills repo with skills taken from another repo.
+"""`mai kit share`: a new skills repo with skills taken from another repo.
 
 Why this file exists: giving someone a few of your skills must give them everything
 those skills need to work (their hooks, the hooks those hooks rely on, the skills those
@@ -177,8 +177,65 @@ def test_the_new_repo_keeps_its_invariants(tmp_path, source):
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_a_folder_that_is_a_skill_and_holds_skills_brings_them_all(source):
+def share(tmp_path, source, only=(), allow=()):
+    skills, rules = generator.select(source, only=only)
+    destination = str(tmp_path / "acme-skills")
+    generator.create(destination, name="acme-skills", owner="Ada", with_skills=skills, with_rules=rules, allow=allow)
+    return destination
+
+
+def listing(root, folder):
+    found = []
+    for current, _, names in os.walk(os.path.join(root, folder)):
+        found += [os.path.relpath(os.path.join(current, name), root) for name in names
+                  if name != ".gitkeep" and not os.path.basename(current).startswith(".")]
+    return sorted(path.replace(os.sep, "/") for path in found)
+
+
+def test_a_domain_that_is_also_a_skill_brings_itself_and_everything_inside(tmp_path, source):
     skill(source, "_domains/ops")
-    found = generator.expand_skill_folders([os.path.join(source, "skills", "_domains", "ops")])
-    names = sorted(os.path.relpath(path, os.path.realpath(os.path.join(source, "skills"))) for path in found)
-    assert names == ["_domains/ops", "_domains/ops/base", "_domains/ops/combo", "_domains/ops/guarded"]
+    git("add", "-A", cwd=source)
+    git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "domain skill", cwd=source)
+    skills, _ = generator.select(source, only=["ops"])
+    root = os.path.realpath(os.path.join(source, "skills"))
+    assert [os.path.relpath(path, root) for path in skills] == [
+        "_domains/ops", "_domains/ops/base", "_domains/ops/combo", "_domains/ops/guarded"]
+
+
+def test_a_domain_brings_its_skills_and_its_rules_in_the_same_layout(tmp_path, source):
+    destination = share(tmp_path, source, only=["ops"])
+    assert listing(destination, "rules") == ["rules/_domains/ops/guard-rule.mdc", "rules/_domains/ops/other-rule.mdc"]
+    assert [path for path in listing(destination, "skills") if path.endswith("SKILL.md")] == [
+        "skills/_domains/ops/base/SKILL.md", "skills/_domains/ops/combo/SKILL.md", "skills/_domains/ops/guarded/SKILL.md"]
+
+
+def test_without_only_the_whole_repo_is_shared(tmp_path, source):
+    destination = share(tmp_path, source)
+    skills = [path for path in listing(destination, "skills") if path.endswith("SKILL.md")]
+    assert "skills/_common/keeper/SKILL.md" in skills and "skills/_domains/ops/base/SKILL.md" in skills
+    assert "rules/_domains/ops/other-rule.mdc" in listing(destination, "rules")
+
+
+def test_only_takes_a_single_skill_or_rule_by_name(tmp_path, source):
+    destination = share(tmp_path, source, only=["plain", "other-rule"])
+    assert listing(destination, "rules") == ["rules/_domains/ops/other-rule.mdc"]
+    assert [path for path in listing(destination, "skills") if path.endswith("SKILL.md")] == [
+        "skills/_common/plain/SKILL.md"]
+
+
+def test_an_unknown_name_is_refused(tmp_path, source):
+    with pytest.raises(generator.LayerError) as refusal:
+        generator.select(source, only=["nothing-called-this"])
+    assert "nothing-called-this" in str(refusal.value)
+
+
+def test_a_skill_naming_a_rule_left_behind_is_refused(tmp_path, source):
+    write(os.path.join(source, "skills/_common/plain/SKILL.md"),
+          "---\nname: plain\ndescription: d\n---\nFollow `other-rule.mdc`.\n")
+    git("add", "-A", cwd=source)
+    git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "mention", cwd=source)
+    with pytest.raises(generator.LayerError) as refusal:
+        share(tmp_path, source, only=["plain"])
+    assert "other-rule.mdc" in str(refusal.value)
+    destination = share(tmp_path, source, only=["plain", "other-rule"])
+    assert os.path.isfile(os.path.join(destination, "rules/_domains/ops/other-rule.mdc"))

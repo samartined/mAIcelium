@@ -142,7 +142,7 @@ mai <verb> --help   # forwarded to the target script (shows its own help if it s
 | `set-flag` | `set-project-flag` | Set a project flag |
 | `list` | `ls`, `list-projects` | List all linked projects |
 | `health` | `project-health` | Run health checks across all linked projects |
-| `skills-repo` | `skills_repo` | Create a skills repo, share some of your skills in one, update its engine, or import another tool's skills and rules |
+| `kit` | — | Create a kit of skills and rules, share yours with someone, update its engine, or import another tool's skills and rules |
 
 Global flags (must appear **before** the verb): `--root <path>`, `--version` / `-V`, `--help` / `-h`.
 

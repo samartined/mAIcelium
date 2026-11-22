@@ -60,7 +60,7 @@ verbatim to the target script — `mai sync --check-only`, `mai sync --help`, an
 | `set-flag` | `set-project-flag`, `set_project_flag` | `bin/set_project_flag.py` | Set a project flag |
 | `list` | `ls`, `list-projects`, `list_projects` | `mesh/commands/scripts/list_projects.py` | List all linked projects |
 | `health` | `project-health`, `project_health` | `mesh/commands/scripts/project_health.py` | Run health checks across all linked projects |
-| `skills-repo` | `skills_repo` | `bin/skills_repo.py` | Create, share, update or import a skills repo |
+| `kit` | — | `bin/kit.py` | Create, share, update or import a kit of skills and rules |
 
 **Note on `add` / `remove`:** these target the deterministic `bin/` writers, not the
 `mesh/commands/scripts/` fuzzy-matching variants used by IDE slash commands.
@@ -97,38 +97,40 @@ is broken. Broken-symlink details are always printed in the report text regardle
 
 ---
 
-### Skills repos: `skills-repo`
+### Kits: `kit`
 
-A **skills repo** is a folder of skills and rules that works in every Claude Code session
-on a machine, with or without mAIcelium, and that a workspace can mount as a layer
+A **kit** is a repo of skills and rules that works in every Claude Code session on a
+machine, with or without mAIcelium, and that a workspace can mount as a layer
 (`skills/_common`, `skills/_domains/<domain>`, `rules/_domains/<domain>`). What makes it
 work everywhere is the engine in its `claude/` folder, which comes from the layer kit in
 `bin/_lib/layer_kit/`.
 
 ```bash
-mai skills-repo create <folder>                        # an empty skills repo
-mai skills-repo share <folder> --skills <path> ...     # some of your skills, to give to someone
-mai skills-repo update <folder> [--force]              # bring its engine up to this mAIcelium
-mai skills-repo import plan <source> [--out map.json]  # map skills/rules kept in another tool's format
-mai skills-repo import apply <map.json> <folder>       # build the repo from the reviewed map
+mai kit create <folder>                                   # an empty kit
+mai kit share <folder> --from <your-repo> [--only <name>]  # your skills and rules, to give to someone
+mai kit update <folder> [--force]                         # bring its engine up to this mAIcelium
+mai kit import plan <source> [--out map.json]             # map skills/rules kept in another tool's format
+mai kit import apply <map.json> <folder>                  # build the kit from the reviewed map
 ```
 
 `--name` (default: the folder name) and `--owner` (default: git's `user.name`) set who
-the repo belongs to.
+the kit belongs to.
 
 - **The result** is a git repo with no commit. Its owner pushes it and runs
-  `python3 <repo>/claude/doctor.py --fix` once per machine; `mai add-layer` mounts it in
-  a workspace. Inside the workspace each skill still loads once.
-- **`share --skills`** takes a skill folder or a folder holding several (a whole domain,
-  such as `skills/_domains/devops`). It copies the files git tracks and, from the source
-  repo's `claude/hooks/registry.json`, the hooks that serve those skills, the hooks they
-  need, the skills those hooks serve and the rules they read.
+  `python3 <kit>/claude/doctor.py --fix` once per machine; `mai add-layer` mounts it in a
+  workspace. Inside the workspace each skill still loads once.
+- **`share`** copies skills and rules from `--from` in the same layout. Without `--only`
+  it copies everything; each `--only` names `_common`, a domain (its skills and its
+  rules), a skill or a rule. Only files git tracks are copied. Skills bring, from the
+  source's `claude/hooks/registry.json`, the hooks that serve them, the hooks those need,
+  the skills they serve and the rules they read.
 - **The trace check** refuses the copy, and leaves nothing behind, when the copied content
   carries the builder's git name or email, their home path, the source repo's name or
-  remote owner, its plugin name or author, or the name of a source skill that was not
-  copied. The new owner's name is never a trace; `--allow <word>` lets another through.
+  remote owner, its plugin name or author, or names a skill or rule of the source that
+  was not copied. The new owner's name is never a trace; `--allow <word>` lets another
+  through.
 - **`update`** replaces only the engine files recorded in `claude/engine.json` and the
-  engine's hooks. It stops when an engine file was edited in the repo (or the record is
+  engine's hooks. It stops when an engine file was edited in the kit (or the record is
   missing) unless `--force` is given, and refuses to leave a wired hook the registry does
   not declare.
 - **`import`** recognises skill folders (`SKILL.md`), Cursor rules (`.mdc`), Claude Code
