@@ -70,6 +70,10 @@ mai health               # equivalent of /project_health
 mai add-mcp <path>       # equivalent of /add_mcp_source
 mai remove-mcp           # equivalent of /remove_mcp_source
 mai add-layer <name> <path>    # add a mesh layer
+mai kit create <folder>                          # an empty kit of skills and rules (works in any Claude Code session)
+mai kit share <folder> --from <repo> [--only X]  # your skills and rules, to give to someone
+mai kit update <folder>                          # bring a kit's engine up to date
+mai kit import plan <src>                        # convert another tool's skills/rules (then: import apply)
 mai remove-layer <name>        # remove a mesh layer
 mai set-flag <proj> <key> <val> # set a project flag
 mai separate-git         # move .git outside the workspace

@@ -60,6 +60,7 @@ verbatim to the target script — `mai sync --check-only`, `mai sync --help`, an
 | `set-flag` | `set-project-flag`, `set_project_flag` | `bin/set_project_flag.py` | Set a project flag |
 | `list` | `ls`, `list-projects`, `list_projects` | `mesh/commands/scripts/list_projects.py` | List all linked projects |
 | `health` | `project-health`, `project_health` | `mesh/commands/scripts/project_health.py` | Run health checks across all linked projects |
+| `kit` | — | `bin/kit.py` | Create, share, update or import a kit of skills and rules |
 
 **Note on `add` / `remove`:** these target the deterministic `bin/` writers, not the
 `mesh/commands/scripts/` fuzzy-matching variants used by IDE slash commands.
@@ -95,6 +96,51 @@ messages if you need to distinguish the cases.
 is broken. Broken-symlink details are always printed in the report text regardless of exit code.
 
 ---
+
+### Kits: `kit`
+
+A **kit** is a repo of skills and rules that works in every Claude Code session on a
+machine, with or without mAIcelium, and that a workspace can mount as a layer
+(`skills/_common`, `skills/_domains/<domain>`, `rules/_domains/<domain>`). What makes it
+work everywhere is the engine in its `claude/` folder, which comes from the layer kit in
+`bin/_lib/layer_kit/`.
+
+```bash
+mai kit create <folder>                                   # an empty kit
+mai kit share <folder> --from <your-repo> [--only <name>] [--except <name>]  # your skills and rules, to give to someone
+mai kit update <folder> [--force]                         # bring its engine up to this mAIcelium
+mai kit import plan <source> [--out map.json]             # map skills/rules kept in another tool's format
+mai kit import apply <map.json> <folder>                  # build the kit from the reviewed map
+```
+
+`--name` (default: the folder name) and `--owner` (default: git's `user.name`) set who
+the kit belongs to.
+
+- **The result** is a git repo with no commit. Its owner pushes it and runs
+  `python3 <kit>/claude/doctor.py --fix` once per machine; `mai add-layer` mounts it in a
+  workspace. Inside the workspace each skill still loads once.
+- **`share`** copies skills and rules from `--from` in the same layout. Without `--only`
+  it copies everything; each `--only` names `_common`, a domain (its skills and its
+  rules), a skill or a rule, and each `--except` leaves one out the same way. Only files git tracks are copied. Skills bring, from the
+  source's `claude/hooks/registry.json`, the hooks that serve them, the hooks those need,
+  the skills they serve and the rules they read.
+- **The trace check** refuses the copy, and leaves nothing behind, when the copied content
+  carries the builder's git name or email, their home path, the source repo's name or
+  remote owner, its plugin name or author, a word the source lists under `private_words`
+  in its `claude/global.json` (clients, employers, organizations), or names a skill or
+  rule of the source that was not copied. The new owner's name is never a trace; `--allow <word>` lets another
+  through.
+- **`update`** replaces only the engine files recorded in `claude/engine.json` and the
+  engine's hooks. It stops when an engine file was edited in the kit (or the record is
+  missing) unless `--force` is given, and refuses to leave a wired hook the registry does
+  not declare.
+- **`import`** recognises skill folders (`SKILL.md`), Cursor rules (`.mdc`), Claude Code
+  commands, Windsurf rules, Cline rules, Copilot instructions and single instruction files
+  (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, split by `## ` section, with
+  project-context sections proposed as skip). Everything else is listed as unknown. `plan`
+  only reads the source; `apply` follows the map, never a guess.
+- **Platforms:** the engine needs Linux or macOS (`fcntl`, symlinks); the command itself
+  runs anywhere.
 
 ## Scripts
 
