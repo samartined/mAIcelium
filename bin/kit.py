@@ -1,35 +1,41 @@
 #!/usr/bin/env python3
 """Kits: create one, share your skills and rules in one, update one, import one.
 
-A kit is a repo of skills and rules that works in any Claude Code session on a
-machine (with or without mAIcelium) and that a mAIcelium workspace can mount as a layer.
+A kit is a repo of skills and rules that works in any Claude Code session on a machine
+(with or without mAIcelium) and that a mAIcelium workspace can mount as a layer.
 
 Usage:
   kit.py create <folder> [--name <name>] [--owner "<name>"]
-      An empty kit.
-  kit.py share <folder> --from <your-repo> [--only <name>]... [--except <name>]...
-               [--name] [--owner] [--allow <word>]...
-      A kit holding your skills and rules, in the same layout, to give to someone else.
-      Without --only it holds everything; each --only names `_common`, a domain (its
-      skills and its rules), a skill or a rule, and --except leaves one out the same way. Skills bring the hooks and rules their
-      hooks need. Nothing that identifies you may go in, and no copied text may name a
-      skill or rule that stays behind: the copy is refused, saying where; --allow lets
-      one word through.
+      An empty kit: the layer layout, the engine in claude/ and a README and AGENTS.md.
+  kit.py share <folder> --owner "<name>" --from <your-repo>
+               [--only <name>]... [--except <name>]... [--allow <word>]... [--name <name>]
+      A kit with your skills and rules, in the same layout, for someone else (--owner is
+      required). Without --only it holds everything; each --only names `_common`, a
+      domain (its skills and its rules), a skill or a rule, and each --except leaves one
+      out the same way. Skills bring the hooks that serve them and the rules those hooks
+      read. Nothing that identifies you or your repo may go in, and no copied text may
+      name a skill or rule left behind: the copy is refused, saying which file and line;
+      --allow lets one word through.
   kit.py update <folder> [--force]
-      Brings the repo's engine (claude/) up to this mAIcelium, leaving skills, rules
-      and the repo's own hooks alone. Stops on engine files edited in the repo unless
+      Brings the kit's engine (claude/) up to this mAIcelium, leaving its skills, rules,
+      own hooks and settings alone. Stops on engine files edited in the kit unless
       --force is given.
   kit.py import plan <source> [--out <map.json>]
-  kit.py import apply <map.json> <folder> [--name] [--owner] [--allow <word>]...
-      Converts skills and rules kept in another tool's format (Claude, Cursor, Windsurf,
-      Cline, Copilot, CLAUDE.md and the like). `plan` writes a map to review and edit;
-      `apply` builds the repo from it. The source is only read.
+  kit.py import apply <map.json> <folder> [--name <name>] [--owner "<name>"] [--allow <word>]...
+      Converts skills and rules kept in another tool's format (Claude Code, Cursor,
+      Windsurf, Cline, Copilot, CLAUDE.md and the like). `plan` writes a map to review
+      and edit; `apply` builds the kit from it. The source is only read.
 
-Where kits go: a bare name (`devops-ines`) means `<workspace>/kits/devops-ines`, a folder
-git ignores, so a kit never ends up in the workspace's own (public) repo. A path is read
-relative to the directory `mai` was called from; inside the workspace it must be under
-kits/. The same holds for the map of `import`. --name defaults to the
-folder name, --owner to git's user.name. Exit 2 when a request is refused.
+--owner is the person the kit belongs to: it names the README, AGENTS.md, hard-rules.md
+and the plugin's author. It defaults to git's user.name, except in `share`, where it is
+required. --name is the kit's plugin name (lowercase letters, digits and dashes): the
+name of its link under ~/.claude/skills, of its state folder and the prefix of its
+messages. It defaults to the folder name.
+
+Where kits go: a bare name (`devops-for-alex`) means `<workspace>/kits/devops-for-alex`, a folder
+git ignores, so a kit never ends up in the workspace's own repo. A path is read relative
+to the directory `mai` was called from and, inside the workspace, must be under kits/.
+The import map follows the same rule. Exit 2 when a request is refused.
 """
 import _bootstrap  # noqa: F401
 
@@ -74,37 +80,46 @@ def _git_user():
     return completed.stdout.strip()
 
 
+NAME_HELP = "the kit's plugin name (default: the folder name)"
+FOLDER_HELP = "a bare name goes to <workspace>/kits/; a path is read from where mai was called"
+
+
 def _identity_options(parser):
-    parser.add_argument("--name")
-    parser.add_argument("--owner")
+    parser.add_argument("--name", help=NAME_HELP)
+    parser.add_argument("--owner", help="who the kit belongs to (default: git's user.name)")
 
 
 def _parse(argv):
     parser = argparse.ArgumentParser(prog="mai kit", description="Create, share, update or import a kit of skills and rules.")
     actions = parser.add_subparsers(dest="action", required=True)
     create = actions.add_parser("create", help="an empty kit")
-    create.add_argument("folder")
+    create.add_argument("folder", help=FOLDER_HELP)
     _identity_options(create)
     share = actions.add_parser("share", help="a kit with your skills and rules, to give away")
-    share.add_argument("folder")
-    share.add_argument("--from", dest="source", required=True, metavar="YOUR-REPO")
-    share.add_argument("--only", action="append", default=[], metavar="NAME")
-    share.add_argument("--except", dest="exclude", action="append", default=[], metavar="NAME")
-    share.add_argument("--allow", action="append", default=[], metavar="WORD")
-    share.add_argument("--name")
-    share.add_argument("--owner", required=True, help="who the kit is for")
-    update = actions.add_parser("update", help="bring a repo's engine up to this mAIcelium")
-    update.add_argument("folder")
-    update.add_argument("--force", action="store_true")
+    share.add_argument("folder", help=FOLDER_HELP)
+    share.add_argument("--owner", required=True, help="who the kit is for (required)")
+    share.add_argument("--from", dest="source", required=True, metavar="YOUR-REPO",
+                       help="the repo (or mesh layer) to copy skills and rules from")
+    share.add_argument("--only", action="append", default=[], metavar="NAME",
+                       help="_common, a domain, a skill or a rule to share (repeatable; default: all)")
+    share.add_argument("--except", dest="exclude", action="append", default=[], metavar="NAME",
+                       help="_common, a domain, a skill or a rule to leave out (repeatable)")
+    share.add_argument("--allow", action="append", default=[], metavar="WORD",
+                       help="a word the trace check may let through (repeatable)")
+    share.add_argument("--name", help=NAME_HELP)
+    update = actions.add_parser("update", help="bring a kit's engine up to this mAIcelium")
+    update.add_argument("folder", help=FOLDER_HELP)
+    update.add_argument("--force", action="store_true", help="overwrite engine files edited in the kit")
     imported = actions.add_parser("import", help="convert skills and rules from another tool's format")
     steps = imported.add_subparsers(dest="step", required=True)
-    plan = steps.add_parser("plan", help="map a source repo")
-    plan.add_argument("source")
-    plan.add_argument("--out", default="layer-map.json")
-    apply = steps.add_parser("apply", help="build a skills repo from a map")
-    apply.add_argument("map")
-    apply.add_argument("folder")
-    apply.add_argument("--allow", action="append", default=[], metavar="WORD")
+    plan = steps.add_parser("plan", help="map a source repo; reads it only")
+    plan.add_argument("source", help="the repo whose skills and rules to convert")
+    plan.add_argument("--out", default="layer-map.json", help="the map to write (default: kits/layer-map.json)")
+    apply = steps.add_parser("apply", help="build a kit from a reviewed map")
+    apply.add_argument("map", help="the map written by plan")
+    apply.add_argument("folder", help=FOLDER_HELP)
+    apply.add_argument("--allow", action="append", default=[], metavar="WORD",
+                       help="a word the trace check may let through (repeatable)")
     _identity_options(apply)
     return parser.parse_args(argv)
 

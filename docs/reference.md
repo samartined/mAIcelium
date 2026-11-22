@@ -106,48 +106,85 @@ work everywhere is the engine in its `claude/` folder, which comes from the laye
 `bin/_lib/layer_kit/`.
 
 ```bash
-mai kit create <folder>                                   # an empty kit
-mai kit share <folder> --from <your-repo> [--only <name>] [--except <name>]  # your skills and rules, to give to someone
-mai kit update <folder> [--force]                         # bring its engine up to this mAIcelium
-mai kit import plan <source> [--out map.json]             # map skills/rules kept in another tool's format
-mai kit import apply <map.json> <folder>                  # build the kit from the reviewed map
+mai kit create <folder> [--name <name>] [--owner "<name>"]
+mai kit share <folder> --owner "<name>" --from <your-repo> [--only <name>]... [--except <name>]...
+mai kit update <folder> [--force]
+mai kit import plan <source> [--out <map.json>]
+mai kit import apply <map.json> <folder> [--name <name>] [--owner "<name>"]
 ```
 
-`--name` (default: the folder name) and `--owner` (default: git's `user.name`; required by
-`share`) set who the kit belongs to.
+| Action | What it does |
+|--------|--------------|
+| `create` | An empty kit: the layout above, the engine, a `README.md` and an `AGENTS.md` |
+| `share` | A kit with your skills and rules, in the same layout, for someone else |
+| `update` | Brings a kit's engine up to this mAIcelium |
+| `import plan` / `import apply` | Converts another tool's skills and rules into a kit, through a map you review |
 
-**Where kits go.** A bare name (`devops-ines`) means `<workspace>/kits/devops-ines`, a
-folder git ignores, so a kit never ends up in the workspace's own repo. A path is read
-relative to the directory `mai` was called from and, inside the workspace, must be under
-`kits/`. The import map follows the same rule (`layer-map.json` lands in `kits/`).
+Example: give someone your devops skills and rules, except one personal rule.
 
-- **The result** is a git repo with no commit. Its owner pushes it and runs
-  `python3 <kit>/claude/doctor.py --fix` once per machine; `mai add-layer` mounts it in a
-  workspace. Inside the workspace each skill still loads once.
-- **`share`** copies skills and rules from `--from` in the same layout. Without `--only`
-  it copies everything; each `--only` names `_common`, a domain (its skills and its
-  rules), a skill or a rule, and each `--except` leaves one out the same way. Only files git tracks are copied. Skills bring, from the
-  source's `claude/hooks/registry.json`, the hooks that serve them, the hooks those need,
-  the skills they serve and the rules they read.
+```bash
+mai kit share devops-for-alex --owner "Alex" --from mesh/layers/core --only devops --except personal-notes
+```
+
+**Options shared by every action**
+
+| Option | Meaning | Default |
+|--------|---------|---------|
+| `<folder>` | Where the kit goes. A bare name means `<workspace>/kits/<name>`; a path is read from the directory `mai` was called from and, inside the workspace, must be under `kits/` | — |
+| `--owner` | The person the kit belongs to. It names the `README.md`, `AGENTS.md`, `claude/hard-rules.md` and the plugin's author | git's `user.name`; **required by `share`**, since a shared kit is for someone else |
+| `--name` | The kit's plugin name (lowercase letters, digits, dashes): its link under `~/.claude/skills`, its state folder and the prefix of its messages | the folder name |
+| `--allow <word>` | A word the trace check may let through (`share`, `import apply`) | none |
+
+**Where kits go.** `/kits/` is in `.gitignore`, so a kit made with a bare name never ends
+up in the workspace's own repo; a path inside the workspace but outside `kits/` is
+refused. The import map follows the same rule (`layer-map.json` lands in `kits/`).
+
+**After the kit is made.** It is a git repo with no commit. Its owner pushes it (for
+example to a private GitHub repo) and, on each machine, clones it and runs
+`python3 <kit>/claude/doctor.py --fix` once. From then on every Claude Code session sees
+its skills and runs its hooks, and the kit keeps itself up to date from its remote. In a
+mAIcelium workspace, `mai add-layer` mounts it as well; each skill still loads once.
+
+**A kit's own settings**
+
+| File | What it holds |
+|------|---------------|
+| `claude/global.json` | `exclude`: skills never linked into every session. `state_dir`: the state folder's name, when it must differ from `--name`. `private_words`: words `share` refuses to copy out of this kit (clients, employers, organizations) |
+| `claude/hard-rules.md` | Rules for every session of its owner; `doctor.py --fix` imports it from `~/.claude/CLAUDE.md`. It starts empty |
+| `claude/hooks/registry.json` | Each hook: its script, its test, the skills it serves, the rules it reads, the hooks it needs, and whether it is the engine's or the kit's |
+| `claude/engine.json` | The engine files and their hashes, written by the kit; `update` uses it |
+
+**`share` in detail**
+
+- It copies skills and rules from `--from` in the same layout, only files git tracks.
+  Without `--only` it copies everything; each `--only` names `_common`, a domain (its
+  skills and its rules), a skill or a rule, and each `--except` leaves one out the same way.
+- Skills bring, from the source's `claude/hooks/registry.json`, the hooks that serve them,
+  the hooks those need, the skills they serve and the rules they read.
 - **The trace check** refuses the copy, and leaves nothing behind, when the content
   copied from the source carries the builder's git name or email, their home path, the
   source repo's name or remote owner (its folder name only when it has no remote), its
-  plugin name or author, a word the source lists under `private_words` in its
-  `claude/global.json` (clients, employers, organizations), or names a skill or rule of
-  the source that was not copied. Only `--allow <word>` lets one of them through; the
-  files the kit writes for the new owner are not checked. `share` requires `--owner`,
-  since a shared kit is always for someone else.
-- **`update`** replaces only the engine files recorded in `claude/engine.json` and the
-  engine's hooks. It stops when an engine file was edited in the kit (or the record is
-  missing) unless `--force` is given, and refuses to leave a wired hook the registry does
-  not declare.
-- **`import`** recognises skill folders (`SKILL.md`), Cursor rules (`.mdc`), Claude Code
-  commands, Windsurf rules, Cline rules, Copilot instructions and single instruction files
-  (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, split by `## ` section, with
-  project-context sections proposed as skip). Everything else is listed as unknown. `plan`
-  only reads the source; `apply` follows the map, never a guess.
-- **Platforms:** the engine needs Linux or macOS (`fcntl`, symlinks); the command itself
-  runs anywhere.
+  plugin name or author, a word under `private_words`, or the name of a skill or rule of
+  the source that was not copied. It reports each file and line. Only `--allow` lets a
+  word through; the files the kit writes for the new owner are not checked.
+
+**`update` in detail.** It replaces only the engine files recorded in
+`claude/engine.json` and the engine's own hooks, and never the kit's skills, rules, hooks
+or settings. It stops when an engine file was edited in the kit (or the record is
+missing) unless `--force` is given, and refuses to leave a wired hook the registry does
+not declare.
+
+**`import` in detail.** `plan` reads the source, never changes it, and writes a map of
+what each file is and where it goes. It recognises skill folders (`SKILL.md`), Cursor
+rules (`.mdc`), Claude Code commands, Windsurf rules, Cline rules, Copilot instructions
+and single instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`),
+which it splits by `## ` section, proposing to skip the sections that read as project
+context. Everything else is listed as unknown and skipped. Edit any target, action or
+domain in the map, then `apply` builds the kit from it, never from a guess, and runs the
+same trace check as `share`.
+
+**Platforms.** The engine needs Linux or macOS (`fcntl`, symlinks); the `mai kit`
+command itself runs anywhere.
 
 ## Scripts
 

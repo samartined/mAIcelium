@@ -1,4 +1,4 @@
-"""Turn a repo of skills and rules, in any agent's format, into a skills repo.
+"""Turn a repo of skills and rules, in any agent's format, into a kit.
 
 Two steps, so nothing is decided behind the owner's back:
 - plan(source) returns a map of every file it found: what it is, what it becomes and
@@ -63,7 +63,7 @@ def plan(source):
 
 
 def apply(mapping, destination, name, owner, allow=()):
-    """Build a skills repo at destination from a map made by plan()."""
+    """Build a kit at destination from a map made by plan()."""
     if mapping.get("format") != FORMAT:
         raise generator.LayerError("this map was not made by this version of mai kit import")
     source = mapping["source"]

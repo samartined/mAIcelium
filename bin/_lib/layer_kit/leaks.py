@@ -1,4 +1,4 @@
-"""Traces of whoever builds a skills repo, found before the repo is handed over.
+"""Traces of whoever builds a kit, found before the kit is handed over.
 
 Whatever the kit copies from someone's own repos (skills given with `share`, a repo
 converted with `import`) may carry their identity: their name or email, their home
