@@ -209,9 +209,56 @@ def test_init_writes_python_hooks_in_settings(tmp_path):
 
     settings_file = tmp_path / ".claude" / "settings.json"
     content = settings_file.read_text()
-    assert "bin/py.sh bin/sync_symlinks.py" in content
-    assert "bin/py.sh bin/hooks/guard_bash.py" in content
-    assert "bin/py.sh bin/hooks/guard_write.py" in content
+    # Hooks are referenced through ${CLAUDE_PROJECT_DIR} so they work from any
+    # working directory (#43), falling back to the cwd when a runner does not
+    # set the variable (Cursor runs imported Claude Code hooks from the
+    # project root).
+    pd = '"${CLAUDE_PROJECT_DIR:-.}"'
+    hooks = json.loads(content)["hooks"]
+    commands = " ".join(
+        h["command"] for entries in hooks.values() for e in entries for h in e["hooks"]
+    )
+    assert f"{pd}/bin/py.sh {pd}/bin/sync_symlinks.py" in commands
+    assert f"{pd}/bin/py.sh {pd}/bin/hooks/guard_bash.py" in commands
+    assert f"{pd}/bin/py.sh {pd}/bin/hooks/guard_write.py" in commands
+
+    # The write guard must see every file-writing tool, NotebookEdit included
+    # (it sends notebook_path instead of file_path).
+    data = json.loads(content)
+    matchers = [h["matcher"] for h in data["hooks"]["PreToolUse"]]
+    write_matcher = next(m for m in matchers if "Write" in m)
+    assert set(write_matcher.split("|")) == {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+
+
+def test_init_guard_hooks_block_when_they_fail():
+    """A guard that cannot start or times out must block, not let the call through.
+
+    Without onFailure, Claude Code treats a PreToolUse hook that fails to
+    start, exits non-zero or hits its timeout as non-blocking. A timed-out
+    guard_bash was observed letting a command through.
+    """
+    data = json.loads(init._SETTINGS_JSON)
+    guard_hooks = [h for entry in data["hooks"]["PreToolUse"] for h in entry["hooks"]]
+    assert {h["command"].rsplit("/", 1)[-1] for h in guard_hooks} == {
+        "guard_bash.py",
+        "guard_write.py",
+    }
+    for hook in guard_hooks:
+        assert hook.get("onFailure") == "block", hook["command"]
+
+    # The context sync is not a guard: a failed sync must not stop the session.
+    for entry in data["hooks"]["SessionStart"]:
+        for hook in entry["hooks"]:
+            assert "onFailure" not in hook
+
+
+def test_repo_settings_match_init_template():
+    """The checked-in .claude/settings.json and init's template must not drift."""
+    repo_settings = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude", "settings.json"
+    )
+    with open(repo_settings, encoding="utf-8") as f:
+        assert json.load(f) == json.loads(init._SETTINGS_JSON)
 
 
 # ── Test 9: settings.json contains Python permissions ───────────────────────
@@ -228,6 +275,10 @@ def test_init_includes_python_permissions(tmp_path):
     allowed = data["permissions"]["allow"]
     assert "Bash(python3:bin/*)" in allowed
     assert "Bash(bin/py.sh:*)" in allowed
+    # ln and rm must not be prompt-free: they are the building blocks of every
+    # symlink-based way around the write guard (#43).
+    assert "Bash(ln:*)" not in allowed
+    assert "Bash(rm:*)" not in allowed
 
 
 # ── Test 10: init runs sync at the end ──────────────────────────────────────
@@ -241,6 +292,24 @@ def test_init_runs_sync_at_end(tmp_path):
 
     ws_file = tmp_path / "mAIcelium.code-workspace"
     assert ws_file.is_file(), "sync_symlinks must have run and produced the workspace file"
+
+
+@requires_symlink
+def test_init_sync_stays_in_the_given_root(tmp_path, monkeypatch):
+    """The final sync must run on the root init was given, not on the
+    checkout the code lives in (that sync rewrote the real workspace's
+    generated files, and its .claude/settings.local.json, on every test run)."""
+    import sync_symlinks
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.setattr(sync_symlinks, "resolve_root", lambda: str(elsewhere))
+    target = tmp_path / "ws"
+    target.mkdir()
+
+    rc = init.main(root=str(target))
+    assert rc == 0
+    assert os.listdir(str(elsewhere)) == []
 
 
 # ── Test 11: SessionStart hook emits a short message, not a file dump ─────────

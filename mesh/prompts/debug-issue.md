@@ -1,6 +1,6 @@
 # Prompt: Debug an issue
 
-Refer to `mesh/skills/_common/debug/SKILL.md` for the full debugging methodology.
+Refer to `mesh/skills/_common/root-cause-debugging/SKILL.md` for the full debugging methodology.
 
 ## Template
 I have the following error/problem: {{DESCRIPTION}}

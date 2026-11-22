@@ -21,7 +21,11 @@ import shutil
 import sys
 from typing import List
 
-from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _lib.context import (
+    regenerate_claude_context,
+    regenerate_claude_local_settings,
+    regenerate_workspace_file,
+)
 from _lib.conventions import load_conventions
 from _lib.platform import check_symlink_privilege, is_windows, resolve_root
 from _lib.symlinks import detect_junction, find_broken_symlinks
@@ -390,7 +394,10 @@ def _plan_skills_for(target_dir, root):
                 kind="link", src=src, dst=dst, target_is_directory=True,
             ))
 
-    # _domains skills: flat (folder has SKILL.md) or nested (domain--skillname)
+    # _domains skills: flat (folder has SKILL.md), nested (domain--skillname),
+    # or hybrid (folder has SKILL.md AND sub-skills). In the flat/hybrid case
+    # only children carrying their own SKILL.md become <domain>--<skill>, so a
+    # flat skill's references/ or scripts/ folders are never registered.
     domains_root = os.path.join(skills_root, "_domains")
     if os.path.isdir(domains_root):
         for domain in sorted(os.listdir(domains_root)):
@@ -403,6 +410,15 @@ def _plan_skills_for(target_dir, root):
                     kind="link", src=domain_dir, dst=dst,
                     target_is_directory=True,
                 ))
+                for entry in sorted(os.listdir(domain_dir)):
+                    src = os.path.join(domain_dir, entry)
+                    if not os.path.isfile(os.path.join(src, "SKILL.md")):
+                        continue
+                    dst = os.path.join(target_dir, f"{domain}--{entry}")
+                    actions.append(Action(
+                        kind="link", src=src, dst=dst,
+                        target_is_directory=True,
+                    ))
             else:
                 for entry in sorted(os.listdir(domain_dir)):
                     src = os.path.join(domain_dir, entry)
@@ -918,7 +934,7 @@ def _workspace_file_nonempty(root):
 
 # ── Entry point ─────────────────────────────────────────────────────────────
 
-def main(argv=None):
+def main(argv=None, root=None):
     parser = argparse.ArgumentParser(
         description="Sync mesh/ symlinks into .cursor/, .agents/, .mcp.json, etc.",
     )
@@ -941,7 +957,8 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    root = resolve_root()
+    # init passes the root it was given; the CLI resolves it.
+    root = root or resolve_root()
 
     # 1. Privilege check FIRST — abort cleanly before any destructive op.
     if not check_symlink_privilege():
@@ -999,6 +1016,7 @@ def main(argv=None):
     regenerate_claude_context(root)
     _ensure_claude_md_context_reference(root)
     regenerate_workspace_file(root)
+    regenerate_claude_local_settings(root)
     print("  Workspace file regenerated")
     print("Symlinks synced.")
 

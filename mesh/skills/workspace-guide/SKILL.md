@@ -54,6 +54,9 @@ Before editing any skill or rule:
    (flat, not under `_common|_domains|_clients`), `mesh/commands/…`,
    `mesh/prompts/…`, `mesh/mcp/…`, or anywhere under `bin/`, it is a
    mAIcelium-native resource. Edit directly and commit in the mAIcelium repo.
+   Exception: the guards (`bin/hooks/**/*.py`, `bin/py.sh`, `bin/py.cmd`) and
+   `.claude/settings*.json` are edited only with Write/Edit, and each change
+   asks the user for confirmation; shell write verbs on them are denied.
 
 To list all active drift at any time:
 ```bash
