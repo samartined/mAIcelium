@@ -949,7 +949,7 @@ def main():
             cmd, data = read
             decision = _evaluate(cmd, data, _get_root(), _policy)
             if decision is not None:
-                _policy.emit(decision)
+                _policy.emit(decision, data)
     except Exception as e:  # noqa: BLE001 - intentional broad fail-closed
         reason = f"{_HOOK} crashed: {type(e).__name__}: {e}"
         _log_failure(reason)

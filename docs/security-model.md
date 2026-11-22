@@ -258,12 +258,19 @@ has a guard of its own from mAIcelium.
 **Cursor** runs Claude Code hooks by import. By default it loads the hooks of
 `.claude/settings.json` (Settings > Agents > Third-Party Imports) and maps
 `PreToolUse` to its own `preToolUse`. So in a Cursor agent session opened on the
-workspace, the mAIcelium guards may run, but with Cursor's tool names and
-payloads. Whether they work there is still to be verified. The known risks and a
-manual test procedure are tracked in #49. Cursor's own limits also
-apply:
+workspace, the mAIcelium guards run with Cursor's tool names and payloads.
+The manual test in #49 (macOS, 2026-11-22) confirmed that:
+- the write guard gets the target path from Cursor's `Write` payload, so the
+  `.env` and outside-the-roots rules deny as in Claude Code;
+- the Bash guard runs on Cursor's `Shell` tool (matcher `Bash|Shell`).
+
+Cursor's own limits also apply:
 - there is no hook before a file edit, only `preToolUse` and `afterFileEdit`;
-- `ask` is not enforced on `preToolUse`.
+- `ask` is not enforced on `preToolUse`: the test edited `.claude/settings.json`
+  without a prompt. So when the payload comes from Cursor (it carries
+  `cursor_version`, or the event name `preToolUse`), both guards turn every
+  `ask` into a deny. In Cursor, the workspace settings, the guards and key
+  material are changed by hand or from Claude Code.
 
 **Antigravity** reads `.agents/` (rules, skills, `hooks.json`) but nothing from
 `.claude/`, so none of the mAIcelium guards run there.
