@@ -1,4 +1,4 @@
-"""`mai new-layer <repo> --upgrade`: bring a skills repo's engine up to the kit's.
+"""`mai skills-repo update <repo>`: bring a skills repo's engine up to the kit's.
 
 Why this file exists: every skills repo carries its own copy of the engine, and its owner
 must be able to take the kit's improvements without losing anything of theirs. The
@@ -124,12 +124,12 @@ def test_the_upgraded_repo_keeps_its_invariants(repo, newer_kit):
 
 
 def test_the_command_line_upgrades_and_reports(repo, tmp_path):
-    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "new_layer.py")
+    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "skills_repo.py")
     os.remove(os.path.join(repo, "claude/engine.json"))
-    refused = subprocess.run([sys.executable, script, "acme-skills", "--upgrade"], capture_output=True, text=True,
+    refused = subprocess.run([sys.executable, script, "update", "acme-skills"], capture_output=True, text=True,
                              env=dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path)))
     assert refused.returncode == 2 and "--force" in refused.stderr
-    done = subprocess.run([sys.executable, script, "acme-skills", "--upgrade", "--force"], capture_output=True,
+    done = subprocess.run([sys.executable, script, "update", "acme-skills", "--force"], capture_output=True,
                           text=True, env=dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path)))
     assert done.returncode == 0, done.stderr
     assert "engine is up to date" in done.stdout

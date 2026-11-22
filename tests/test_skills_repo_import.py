@@ -1,4 +1,4 @@
-"""`mai import-layer`: turn a repo of skills and rules, in any agent's format, into a skills repo.
+"""`mai skills-repo import`: turn a repo of skills and rules, in any agent's format, into a skills repo.
 
 Why this file exists: people keep their skills and rules in the format of whichever agent
 they use. Conversion runs in two steps. `plan` writes an editable map of what each file
@@ -21,7 +21,7 @@ import pytest
 from _lib.layer_kit import generator, importer
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPT = os.path.join(REPO_ROOT, "bin", "import_layer.py")
+SCRIPT = os.path.join(REPO_ROOT, "bin", "skills_repo.py")
 POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="the engine uses fcntl and symlinks")
 
 
@@ -206,11 +206,11 @@ class TestApply:
 class TestCommandLine:
     def test_plan_then_apply(self, tmp_path, source):
         env = dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path))
-        planned = subprocess.run([sys.executable, SCRIPT, "plan", source, "--out", "map.json"],
+        planned = subprocess.run([sys.executable, SCRIPT, "import", "plan", source, "--out", "map.json"],
                                  capture_output=True, text=True, env=env)
         assert planned.returncode == 0, planned.stderr
         assert json.loads((tmp_path / "map.json").read_text())["source"] == source
-        applied = subprocess.run([sys.executable, SCRIPT, "apply", "map.json", "acme-skills", "--owner", "Ada"],
+        applied = subprocess.run([sys.executable, SCRIPT, "import", "apply", "map.json", "acme-skills", "--owner", "Ada"],
                                  capture_output=True, text=True, env=env)
         assert applied.returncode == 0, applied.stderr
         assert (tmp_path / "acme-skills/rules/_domains/general/security.mdc").is_file()

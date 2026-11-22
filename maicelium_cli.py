@@ -84,15 +84,10 @@ VERBS = {
         "aliases": ["project-health", "project_health"],
         "summary": "Run health checks across all linked projects",
     },
-    "new-layer": {
-        "rel_path": "bin/new_layer.py",
-        "aliases": ["new_layer"],
-        "summary": "Create a new skills repo (mesh layer + Claude Code engine)",
-    },
-    "import-layer": {
-        "rel_path": "bin/import_layer.py",
-        "aliases": ["import_layer"],
-        "summary": "Convert a repo of skills and rules into a skills repo (plan, then apply)",
+    "skills-repo": {
+        "rel_path": "bin/skills_repo.py",
+        "aliases": ["skills_repo"],
+        "summary": "Create, share, update or import a skills repo (works in any Claude Code session)",
     },
 }
 

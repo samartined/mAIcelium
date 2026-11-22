@@ -1,4 +1,4 @@
-"""`mai new-layer --with`: start a new skills repo with skills taken from another repo.
+"""`mai skills-repo share`: a new skills repo with skills taken from another repo.
 
 Why this file exists: giving someone a few of your skills must give them everything
 those skills need to work (their hooks, the hooks those hooks rely on, the skills those

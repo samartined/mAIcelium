@@ -52,7 +52,7 @@ def create(destination, name, owner, with_skills=(), allow=(), populate=None):
     selection = _select(with_skills)
     parent = os.path.dirname(destination)
     os.makedirs(parent, exist_ok=True)
-    staging = tempfile.mkdtemp(prefix=".new-layer-", dir=parent)
+    staging = tempfile.mkdtemp(prefix=".skills-repo-", dir=parent)
     try:
         _write_skeleton(staging, name, owner)
         _write_engine(staging)
@@ -155,6 +155,21 @@ def _sha256(path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
+def expand_skill_folders(paths):
+    """Each path as skill folders: itself when it holds a SKILL.md, else every skill below it."""
+    found = []
+    for path in paths:
+        path = os.path.realpath(path)
+        if os.path.isfile(os.path.join(path, "SKILL.md")):
+            found.append(path)
+            continue
+        below = [folder for folder, _, names in os.walk(path) if "SKILL.md" in names]
+        if not below:
+            raise LayerError("%s holds no skill (no SKILL.md in it or below it)" % path)
+        found.extend(sorted(below))
+    return found
+
+
 def _select(with_skills):
     """Work out which skills and hooks to copy from the source repo."""
     if not with_skills:
@@ -168,7 +183,7 @@ def _select(with_skills):
         sources.add(source)
         asked.add(os.path.relpath(folder, os.path.join(source, "skills")).replace(os.sep, "/"))
     if len(sources) > 1:
-        raise LayerError("--with skills must all come from one repo; got %s" % ", ".join(sorted(sources)))
+        raise LayerError("the skills must all come from one repo; got %s" % ", ".join(sorted(sources)))
     source = sources.pop()
     registry = _read_json(os.path.join(source, "claude", "hooks", "registry.json"))
     skills, hooks = set(asked), set()
@@ -291,7 +306,7 @@ def refuse_traces(root, source, left_behind, keep):
     if findings:
         raise LayerError(
             "the copied content carries traces of its source, so nothing was created:\n%s\n"
-            "Remove them from the source, add the skill they name with --with, or pass "
+            "Remove them from the source, add the skill they name with --skills, or pass "
             "--allow <word> for a word that may stay." % leaks.describe(findings))
 
 

@@ -91,7 +91,7 @@ class TestUNIT1:
         expected_verbs = {
             "init", "add", "remove", "sync", "separate-git",
             "add-mcp", "remove-mcp", "add-layer", "remove-layer",
-            "set-flag", "list", "health", "new-layer", "import-layer",
+            "set-flag", "list", "health", "skills-repo",
         }
         assert set(maicelium_cli.VERBS.keys()) == expected_verbs, (
             f"VERBS keys: {set(maicelium_cli.VERBS.keys())}"
@@ -460,7 +460,7 @@ class TestUNIT5:
         expected_verbs = [
             "init", "add", "remove", "sync", "separate-git",
             "add-mcp", "remove-mcp", "add-layer", "remove-layer",
-            "set-flag", "list", "health", "new-layer", "import-layer",
+            "set-flag", "list", "health", "skills-repo",
         ]
         for verb in expected_verbs:
             assert verb in out, f"Expected verb '{verb}' in help output"
@@ -708,7 +708,7 @@ class TestUNIT8:
             return FakeResult()
 
         monkeypatch.setattr(cli.subprocess, "run", fake_run)
-        cli.dispatch("new-layer", ["acme"], str(ws))
+        cli.dispatch("skills-repo", ["create", "acme"], str(ws))
 
         assert captured["kwargs"]["env"].get("MAICELIUM_CALLER_CWD") == str(elsewhere)
 
