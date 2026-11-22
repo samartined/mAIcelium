@@ -73,7 +73,7 @@ def _run():
         return
 
     decision = _policy.decide(tool_name, tool_input, data, ws_root)
-    _policy.emit(decision)
+    _policy.emit(decision, data)
 
 
 def main():
