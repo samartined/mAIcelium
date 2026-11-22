@@ -54,6 +54,18 @@ class TestDenylist:
                          "graces-private-skills", "ghopper", "grace-kit", "G. Hopper"):
             assert expected in words
 
+    def test_a_clone_in_a_folder_of_another_name_is_known_by_its_remote(self, builder, tmp_path):
+        clone = tmp_path / "core"
+        git("clone", "-q", builder["source"], str(clone), cwd=str(tmp_path))
+        git("remote", "set-url", "origin", "git@github.com:ghopper/graces-private-skills.git", cwd=str(clone))
+        words = leaks.denylist([str(clone)], keep=["Ada"])
+        assert "core" not in words
+        assert "graces-private-skills" in words and "ghopper" in words
+
+    def test_without_a_remote_the_folder_name_is_the_repo_name(self, builder):
+        git("remote", "remove", "origin", cwd=builder["source"])
+        assert "graces-private-skills" in leaks.denylist([builder["source"]], keep=["Ada"])
+
     def test_the_source_can_list_its_own_private_words(self, builder):
         with open(os.path.join(builder["source"], "claude", "global.json"), "w") as handle:
             json.dump({"exclude": [], "private_words": ["Acme Corp", "Initech"]}, handle)
@@ -148,6 +160,11 @@ class TestCommandLine:
                              cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 0, completed.stderr
         assert sorted(os.listdir(tmp_path / "acme-skills/skills/_common")) == [".gitkeep", "compiler-tips"]
+
+    def test_share_needs_the_new_owner(self, builder, tmp_path):
+        completed = self.run("share", "acme-skills", "--from", "graces-private-skills",
+                             cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
+        assert completed.returncode == 2 and "--owner" in completed.stderr
 
     def test_share_needs_a_source_repo(self, tmp_path):
         completed = self.run("share", "acme-skills", "--owner", "Ada", cwd=str(tmp_path),

@@ -124,12 +124,14 @@ the kit belongs to.
   rules), a skill or a rule, and each `--except` leaves one out the same way. Only files git tracks are copied. Skills bring, from the
   source's `claude/hooks/registry.json`, the hooks that serve them, the hooks those need,
   the skills they serve and the rules they read.
-- **The trace check** refuses the copy, and leaves nothing behind, when the copied content
-  carries the builder's git name or email, their home path, the source repo's name or
-  remote owner, its plugin name or author, a word the source lists under `private_words`
-  in its `claude/global.json` (clients, employers, organizations), or names a skill or
-  rule of the source that was not copied. The new owner's name is never a trace; `--allow <word>` lets another
-  through.
+- **The trace check** refuses the copy, and leaves nothing behind, when the content
+  copied from the source carries the builder's git name or email, their home path, the
+  source repo's name or remote owner (its folder name only when it has no remote), its
+  plugin name or author, a word the source lists under `private_words` in its
+  `claude/global.json` (clients, employers, organizations), or names a skill or rule of
+  the source that was not copied. Only `--allow <word>` lets one of them through; the
+  files the kit writes for the new owner are not checked. `share` requires `--owner`,
+  since a shared kit is always for someone else.
 - **`update`** replaces only the engine files recorded in `claude/engine.json` and the
   engine's hooks. It stops when an engine file was edited in the kit (or the record is
   missing) unless `--force` is given, and refuses to leave a wired hook the registry does
