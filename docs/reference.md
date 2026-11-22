@@ -280,15 +280,15 @@ Skills are consumed from `mesh/skills/` organized by category. Depending on the 
 
 | Skill | Directory | Purpose |
 |-------|-----------|---------|
-| **Code Review** | `_common/code-review/` | Analyze architecture, error handling, security, readability. Classify findings as blocker / suggestion / nit. |
+| **Structured Code Review** | `_common/structured-code-review/` | Hunt real defects from several angles, verify each candidate, sweep for what the first pass missed, rank findings as important / pre-existing / nit. |
 | **Planning** | `_common/planning/` | Decompose features into atomic tasks, estimate complexity (S/M/L), identify dependencies and risks. |
 | **Workspace Guide** | `_common/workspace-guide/` | Auto-orientation for agents: always write to `mesh/`, naming conventions, command output format, symlink architecture. |
 | **Git Workflow** | `_common/git-workflow/` | Git operations, branching strategy, PR workflow. |
 | **Testing** | `_common/testing/` | Test strategy, coverage, edge cases. |
 | **Documentation** | `_common/documentation/` | Writing and maintaining docs. |
-| **Debug** | `_common/debug/` | Systematic debugging: reproduce, isolate, hypothesize, fix, verify. |
+| **Root-Cause Debugging** | `_common/root-cause-debugging/` | Root cause before any fix, the reproduction as a failing test, and a hard stop after two failed attempts. |
 | **Refactoring** | `_common/refactoring/` | Safe refactoring workflows: identify scope, plan changes, validate behavior preservation. |
-| **Security Review** | `_common/security-review/` | Security-focused code review: secrets, auth, injection, dependencies. |
+| **Secure Code Review** | `_common/secure-code-review/` | Security review of a change (default) or a whole service (audit mode): only high-confidence vulnerabilities with an exploit scenario and a fix. |
 | **Cursor Workspace Migration** | `_domains/cursor/cursor-workspace-migration/` | Migrate Cursor chat history and workspace data between machines. |
 
 ### Tech stack skills (`_domains/`)
@@ -312,7 +312,7 @@ Reusable prompt templates live in `mesh/prompts/`. They use `{{PLACEHOLDER}}` sy
 | Template | File | Use case |
 |----------|------|----------|
 | **Debug an issue** | `debug-issue.md` | Systematic debugging: reproduce flow, identify components, rank hypotheses, propose fix |
-| **Review a PR** | `review-pr.md` | Code review using the code-review skill, classify findings, provide examples |
+| **Review a PR** | `review-pr.md` | Code review using the structured-code-review skill, classify findings, provide examples |
 | **Plan a feature** | `plan-feature.md` | Feature breakdown, dependency ordering, effort estimation, risk identification |
 
 ---
