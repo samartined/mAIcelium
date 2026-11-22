@@ -113,7 +113,9 @@ def _name_pattern(name):
 
 
 def _word_pattern(word):
-    escaped = re.escape(word)
+    # Lines are compared with every backslash turned into "/", so a path matches
+    # whichever separator it was written with.
+    escaped = "/".join(re.escape(part) for part in re.split(r"[\\/]", word))
     if word[:1].isalnum():
         escaped = r"(?<![\w])" + escaped
     if word[-1:].isalnum():

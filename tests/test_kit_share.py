@@ -198,7 +198,7 @@ def test_a_domain_that_is_also_a_skill_brings_itself_and_everything_inside(tmp_p
     git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "domain skill", cwd=source)
     skills, _ = generator.select(source, only=["ops"])
     root = os.path.realpath(os.path.join(source, "skills"))
-    assert [os.path.relpath(path, root) for path in skills] == [
+    assert [os.path.relpath(path, root).replace(os.sep, "/") for path in skills] == [
         "_domains/ops", "_domains/ops/base", "_domains/ops/combo", "_domains/ops/guarded"]
 
 
