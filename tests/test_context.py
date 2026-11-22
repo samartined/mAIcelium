@@ -2,7 +2,11 @@
 import json
 import os
 
-from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _lib.context import (
+    regenerate_claude_context,
+    regenerate_claude_local_settings,
+    regenerate_workspace_file,
+)
 from _marks import requires_symlink
 
 
@@ -82,6 +86,181 @@ def test_regenerate_workspace_file_corrupted_existing_resets(tmp_path):
         data = json.load(f)
     assert data["folders"] == [{"path": ".", "name": "mAIcelium"}]
     assert data["settings"] == {}
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# regenerate_claude_local_settings
+#
+# Claude Code prompts in auto mode for a Write/Edit whose path is inside the
+# working directory but resolves, through a symlink, outside it. Every mounted
+# repo is such a symlink, so sync lists the mounts' real paths in
+# permissions.additionalDirectories of .claude/settings.local.json.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _local_settings(root):
+    path = os.path.join(root, ".claude", "settings.local.json")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _mount(tmp_path, rel_link, target_name):
+    """Create tmp_path/<target_name> and a symlink to it at ws/<rel_link>."""
+    target = tmp_path / target_name
+    target.mkdir()
+    link = tmp_path / "ws" / rel_link
+    link.parent.mkdir(parents=True, exist_ok=True)
+    os.symlink(str(target), str(link))
+    return os.path.realpath(str(target))
+
+
+def _ws(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    return str(ws)
+
+
+def test_local_settings_not_created_without_mounts(tmp_path):
+    root = _ws(tmp_path)
+    regenerate_claude_local_settings(root)
+    assert not os.path.exists(os.path.join(root, ".claude", "settings.local.json"))
+
+
+@requires_symlink
+def test_local_settings_lists_project_real_path(tmp_path):
+    root = _ws(tmp_path)
+    real = _mount(tmp_path, "projects/foo", "repo_foo")
+    regenerate_claude_local_settings(root)
+    assert _local_settings(root) == {"permissions": {"additionalDirectories": [real]}}
+
+
+@requires_symlink
+def test_local_settings_lists_external_layer_and_mcp(tmp_path):
+    root = _ws(tmp_path)
+    layer = _mount(tmp_path, "mesh/layers/core", "layer_core")
+    mcp = _mount(tmp_path, "mesh/mcp", "mcp_defs")
+    regenerate_claude_local_settings(root)
+    dirs = _local_settings(root)["permissions"]["additionalDirectories"]
+    assert layer in dirs
+    assert mcp in dirs
+
+
+@requires_symlink
+def test_local_settings_skips_mounts_inside_workspace(tmp_path):
+    """A real layer folder inside the workspace is already a working directory."""
+    root = _ws(tmp_path)
+    os.makedirs(os.path.join(root, "mesh", "layers", "local"))
+    real = _mount(tmp_path, "projects/foo", "repo_foo")
+    regenerate_claude_local_settings(root)
+    assert _local_settings(root)["permissions"]["additionalDirectories"] == [real]
+
+
+@requires_symlink
+def test_local_settings_never_lists_home(tmp_path, monkeypatch):
+    """A mount pointing at $HOME (or anything holding it) is never listed,
+    using the same filter as the write guard."""
+    root = _ws(tmp_path)
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+    os.makedirs(os.path.join(root, "projects"))
+    os.symlink(str(fake_home), os.path.join(root, "projects", "evil"))
+    regenerate_claude_local_settings(root)
+    assert not os.path.exists(os.path.join(root, ".claude", "settings.local.json"))
+
+
+@requires_symlink
+def test_local_settings_preserves_user_keys_and_entries(tmp_path):
+    root = _ws(tmp_path)
+    real = _mount(tmp_path, "projects/foo", "repo_foo")
+    _write(
+        os.path.join(root, ".claude", "settings.local.json"),
+        json.dumps(
+            {
+                "outputStyle": "Concise",
+                "permissions": {
+                    "allow": ["Bash(ls:*)"],
+                    "additionalDirectories": ["/user/own/dir"],
+                },
+            }
+        ),
+    )
+    regenerate_claude_local_settings(root)
+    data = _local_settings(root)
+    assert data["outputStyle"] == "Concise"
+    assert data["permissions"]["allow"] == ["Bash(ls:*)"]
+    assert data["permissions"]["additionalDirectories"] == ["/user/own/dir", real]
+
+
+@requires_symlink
+def test_local_settings_is_idempotent(tmp_path):
+    root = _ws(tmp_path)
+    real = _mount(tmp_path, "projects/foo", "repo_foo")
+    regenerate_claude_local_settings(root)
+    regenerate_claude_local_settings(root)
+    assert _local_settings(root)["permissions"]["additionalDirectories"] == [real]
+
+
+@requires_symlink
+def test_local_settings_not_rewritten_when_unchanged(tmp_path):
+    """The user's own formatting survives a sync that changes nothing."""
+    root = _ws(tmp_path)
+    real = _mount(tmp_path, "projects/foo", "repo_foo")
+    regenerate_claude_local_settings(root)
+    path = os.path.join(root, ".claude", "settings.local.json")
+    custom = '{"permissions":{"additionalDirectories":[' + json.dumps(real) + ']}}'
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(custom)
+    regenerate_claude_local_settings(root)
+    with open(path, encoding="utf-8") as f:
+        assert f.read() == custom
+
+
+@requires_symlink
+def test_local_settings_drops_unmounted_entries_only(tmp_path):
+    """After an unmount, sync removes the entry it added and keeps the user's."""
+    root = _ws(tmp_path)
+    real_foo = _mount(tmp_path, "projects/foo", "repo_foo")
+    real_bar = _mount(tmp_path, "projects/bar", "repo_bar")
+    _write(
+        os.path.join(root, ".claude", "settings.local.json"),
+        json.dumps({"permissions": {"additionalDirectories": ["/user/own/dir"]}}),
+    )
+    regenerate_claude_local_settings(root)
+    os.unlink(os.path.join(root, "projects", "foo"))
+    regenerate_claude_local_settings(root)
+    dirs = _local_settings(root)["permissions"]["additionalDirectories"]
+    assert dirs == ["/user/own/dir", real_bar]
+    assert real_foo not in dirs
+
+
+@requires_symlink
+def test_local_settings_removes_empty_key_after_last_unmount(tmp_path):
+    root = _ws(tmp_path)
+    _mount(tmp_path, "projects/foo", "repo_foo")
+    _write(
+        os.path.join(root, ".claude", "settings.local.json"),
+        json.dumps({"permissions": {"allow": ["Bash(ls:*)"]}}),
+    )
+    regenerate_claude_local_settings(root)
+    os.unlink(os.path.join(root, "projects", "foo"))
+    regenerate_claude_local_settings(root)
+    assert _local_settings(root) == {"permissions": {"allow": ["Bash(ls:*)"]}}
+
+
+@requires_symlink
+def test_local_settings_leaves_unreadable_file_untouched(tmp_path, capsys):
+    """A settings.local.json that is not valid JSON belongs to the user: sync
+    warns and does not overwrite it."""
+    root = _ws(tmp_path)
+    _mount(tmp_path, "projects/foo", "repo_foo")
+    path = os.path.join(root, ".claude", "settings.local.json")
+    _write(path, "{ not valid json")
+    regenerate_claude_local_settings(root)
+    with open(path, encoding="utf-8") as f:
+        assert f.read() == "{ not valid json"
+    assert "settings.local.json" in capsys.readouterr().err
 
 
 # ────────────────────────────────────────────────────────────────────────────

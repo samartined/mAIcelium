@@ -19,7 +19,11 @@ import re
 import shutil
 import sys
 
-from _lib.context import regenerate_claude_context, regenerate_workspace_file
+from _lib.context import (
+    regenerate_claude_context,
+    regenerate_claude_local_settings,
+    regenerate_workspace_file,
+)
 from _lib.platform import resolve_root
 from _lib.workspace_writer import remove_project_entry
 
@@ -143,6 +147,7 @@ def main(argv=None):
     print("  Claude project context updated")
 
     regenerate_workspace_file(root)
+    regenerate_claude_local_settings(root)
     print("  Workspace file updated (mAIcelium.code-workspace)")
     return 0
 
