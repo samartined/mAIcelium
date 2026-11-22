@@ -3,8 +3,9 @@
 Whatever the kit copies from someone's own repos (skills given with `share`, a repo
 converted with `import`) may carry their identity: their name or email, their home
 folder, the name or remote of their private repo, or the names of skills they kept for
-themselves. The words to look for are worked out from the sources and the machine, so
-nobody keeps a list. The new owner's name, and any word passed explicitly, are left out.
+themselves. Those words are worked out from the sources and the machine. What no machine
+can know (clients, employers, organizations) a source lists in `private_words` in its
+claude/global.json. The new owner's name, and any word passed explicitly, are left out.
 """
 
 import collections
@@ -30,6 +31,7 @@ def denylist(sources, keep=(), environ=None):
         words.update(_git_config(source, "user.name", "user.email"))
         words.add(os.path.basename(os.path.realpath(source)))
         words.update(_remote_parts(source))
+        words.update(_read_json(os.path.join(source, "claude", "global.json")).get("private_words") or [])
         manifest = _read_json(os.path.join(source, "claude", ".claude-plugin", "plugin.json"))
         words.add(manifest.get("name") or "")
         words.add((manifest.get("author") or {}).get("name") or "")
