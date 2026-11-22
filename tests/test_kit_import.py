@@ -206,12 +206,24 @@ class TestApply:
 
 class TestCommandLine:
     def test_plan_then_apply(self, tmp_path, source):
-        env = dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path))
-        planned = subprocess.run([sys.executable, SCRIPT, "import", "plan", source, "--out", "map.json"],
+        env = dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path), MAICELIUM_ROOT=str(tmp_path / "ws"))
+        planned = subprocess.run([sys.executable, SCRIPT, "import", "plan", source, "--out", "./map.json"],
                                  capture_output=True, text=True, env=env)
         assert planned.returncode == 0, planned.stderr
         assert json.loads((tmp_path / "map.json").read_text())["source"] == source
-        applied = subprocess.run([sys.executable, SCRIPT, "import", "apply", "map.json", "acme-skills", "--owner", "Ada"],
-                                 capture_output=True, text=True, env=env)
+        applied = subprocess.run([sys.executable, SCRIPT, "import", "apply", "./map.json", "./acme-skills",
+                                  "--owner", "Ada"], capture_output=True, text=True, env=env)
         assert applied.returncode == 0, applied.stderr
         assert (tmp_path / "acme-skills/rules/_domains/general/security.mdc").is_file()
+
+    def test_bare_names_keep_the_map_and_the_kit_in_kits(self, tmp_path, source):
+        ws = tmp_path / "ws"
+        env = dict(os.environ, MAICELIUM_CALLER_CWD=str(ws), MAICELIUM_ROOT=str(ws))
+        planned = subprocess.run([sys.executable, SCRIPT, "import", "plan", source],
+                                 capture_output=True, text=True, env=env)
+        assert planned.returncode == 0, planned.stderr
+        assert (ws / "kits" / "layer-map.json").is_file()
+        applied = subprocess.run([sys.executable, SCRIPT, "import", "apply", "layer-map.json", "acme-skills",
+                                  "--owner", "Ada"], capture_output=True, text=True, env=env)
+        assert applied.returncode == 0, applied.stderr
+        assert (ws / "kits" / "acme-skills" / "rules").is_dir()

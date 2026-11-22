@@ -128,10 +128,10 @@ if ENGINE_RUNS_HERE:
 def test_the_command_line_upgrades_and_reports(repo, tmp_path):
     script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "kit.py")
     os.remove(os.path.join(repo, "claude/engine.json"))
-    refused = subprocess.run([sys.executable, script, "update", "acme-skills"], capture_output=True, text=True,
-                             env=dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path)))
+    refused = subprocess.run([sys.executable, script, "update", "./acme-skills"], capture_output=True, text=True,
+                             env=dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path), MAICELIUM_ROOT=str(tmp_path / "ws")))
     assert refused.returncode == 2 and "--force" in refused.stderr
-    done = subprocess.run([sys.executable, script, "update", "acme-skills", "--force"], capture_output=True,
-                          text=True, env=dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path)))
+    done = subprocess.run([sys.executable, script, "update", "./acme-skills", "--force"], capture_output=True,
+                          text=True, env=dict(os.environ, MAICELIUM_CALLER_CWD=str(tmp_path), MAICELIUM_ROOT=str(tmp_path / "ws")))
     assert done.returncode == 0, done.stderr
     assert "engine is up to date" in done.stdout
