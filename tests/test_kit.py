@@ -129,6 +129,13 @@ class TestCommandLine:
         assert sorted(os.listdir(tmp_path / "acme-skills/skills/_common")) == [
             ".gitkeep", "compiler-tips", "secret-sauce"]
 
+    def test_share_except_leaves_things_out(self, builder, tmp_path):
+        completed = self.run("share", "acme-skills", "--owner", "Ada", "--from", "graces-private-skills",
+                             "--only", "_common", "--except", "secret-sauce",
+                             cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
+        assert completed.returncode == 0, completed.stderr
+        assert sorted(os.listdir(tmp_path / "acme-skills/skills/_common")) == [".gitkeep", "compiler-tips"]
+
     def test_share_needs_a_source_repo(self, tmp_path):
         completed = self.run("share", "acme-skills", "--owner", "Ada", cwd=str(tmp_path),
                              env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
