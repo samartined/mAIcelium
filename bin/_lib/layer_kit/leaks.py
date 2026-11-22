@@ -1,7 +1,7 @@
 """Traces of whoever builds a skills repo, found before the repo is handed over.
 
-Whatever the kit copies from someone's own repos (a skill given with --with, a repo
-converted by import-layer) may carry their identity: their name or email, their home
+Whatever the kit copies from someone's own repos (skills given with `share`, a repo
+converted with `import`) may carry their identity: their name or email, their home
 folder, the name or remote of their private repo, or the names of skills they kept for
 themselves. The words to look for are worked out from the sources and the machine, so
 nobody keeps a list. The new owner's name, and any word passed explicitly, are left out.

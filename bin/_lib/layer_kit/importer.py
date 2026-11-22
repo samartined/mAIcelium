@@ -65,7 +65,7 @@ def plan(source):
 def apply(mapping, destination, name, owner, allow=()):
     """Build a skills repo at destination from a map made by plan()."""
     if mapping.get("format") != FORMAT:
-        raise generator.LayerError("this map was not made by this version of import-layer")
+        raise generator.LayerError("this map was not made by this version of mai skills-repo import")
     source = mapping["source"]
     work = list(_work(mapping))
     _refuse_clashes(work)
