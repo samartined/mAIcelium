@@ -253,3 +253,14 @@ def test_except_with_an_unknown_name_is_refused(tmp_path, source):
     with pytest.raises(generator.LayerError) as refusal:
         generator.select(source, only=["ops"], exclude=["not-there"])
     assert "not-there" in str(refusal.value)
+
+
+def test_the_builders_own_name_is_a_trace_even_when_they_are_the_owner(tmp_path, source):
+    write(os.path.join(source, "skills/_common/plain/SKILL.md"),
+          "---\nname: plain\ndescription: d\n---\nWritten by Grace Hopper.\n")
+    git("add", "-A", cwd=source)
+    git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "signed", cwd=source)
+    with pytest.raises(generator.LayerError):
+        generator.create(str(tmp_path / "kit"), name="kit", owner="Grace Hopper",
+                         with_skills=[os.path.join(source, "skills/_common/plain")])
+    assert not os.path.exists(tmp_path / "kit")

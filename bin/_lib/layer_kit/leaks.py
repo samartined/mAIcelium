@@ -5,7 +5,7 @@ converted with `import`) may carry their identity: their name or email, their ho
 folder, the name or remote of their private repo, or the names of skills they kept for
 themselves. Those words are worked out from the sources and the machine. What no machine
 can know (clients, employers, organizations) a source lists in `private_words` in its
-claude/global.json. The new owner's name, and any word passed explicitly, are left out.
+claude/global.json. Only the words passed explicitly are left out.
 """
 
 import collections
@@ -29,8 +29,10 @@ def denylist(sources, keep=(), environ=None):
         words.add(home)
     for source in sources:
         words.update(_git_config(source, "user.name", "user.email"))
-        words.add(os.path.basename(os.path.realpath(source)))
-        words.update(_remote_parts(source))
+        # The repo's name: its remote's when it has one, since a clone's folder may carry
+        # any name, even a common word ("core"); the folder's otherwise.
+        remote = _remote_parts(source)
+        words.update(remote or [os.path.basename(os.path.realpath(source))])
         words.update(_read_json(os.path.join(source, "claude", "global.json")).get("private_words") or [])
         manifest = _read_json(os.path.join(source, "claude", ".claude-plugin", "plugin.json"))
         words.add(manifest.get("name") or "")
@@ -72,20 +74,24 @@ def left_behind_rules(source, selected):
     return sorted(names - chosen)
 
 
-def scan(root, words, skill_names=(), names_ignored_in=()):
+def scan(root, words, skill_names=(), names_ignored_in=(), skip=()):
     """Every line under root that holds a word, or names a left-behind skill as a path or code.
 
+    skip: files (relative to root, with /) not looked at at all, such as the files the kit
+    itself writes for the new owner.
     names_ignored_in: files (relative to root, with /) where skill names are not looked
     for, such as the kit's own engine, whose paths are not anyone's skills.
     """
     word_patterns = [(word, _word_pattern(word)) for word in words]
     name_patterns = [(name, _name_pattern(name)) for name in skill_names]
-    ignored = set(names_ignored_in)
+    ignored, skipped = set(names_ignored_in), set(skip)
     findings = []
     for folder, subfolders, names in _walk(root):
         for file_name in sorted(names):
             path = os.path.join(folder, file_name)
             relative = os.path.relpath(path, root).replace(os.sep, "/")
+            if relative in skipped:
+                continue
             patterns = word_patterns + ([] if relative in ignored else name_patterns)
             for word, pattern in patterns:
                 if pattern.search("/" + relative):
