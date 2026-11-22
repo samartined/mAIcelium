@@ -1,0 +1,21 @@
+{
+  "registry": {
+    "session-start": {
+      "script": "session_start.py",
+      "origin": "engine"
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

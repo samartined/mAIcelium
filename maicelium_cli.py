@@ -84,6 +84,11 @@ VERBS = {
         "aliases": ["project-health", "project_health"],
         "summary": "Run health checks across all linked projects",
     },
+    "kit": {
+        "rel_path": "bin/kit.py",
+        "aliases": [],
+        "summary": "Create, share, update or import a kit of skills and rules (works in any Claude Code session)",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -262,6 +267,8 @@ def dispatch(verb: str, args: list[str], root: str) -> int:
     # Build child env: parent env + MAICELIUM_ROOT set to workspace root
     child_env = os.environ.copy()
     child_env["MAICELIUM_ROOT"] = str(root)
+    # The child runs in the workspace root; verbs that take paths read them from here.
+    child_env["MAICELIUM_CALLER_CWD"] = os.getcwd()
 
     result = subprocess.run(
         cmd,
