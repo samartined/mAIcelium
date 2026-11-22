@@ -95,7 +95,7 @@ Examples of native: `workspace-guide`, `workspace-conventions`,
 `maicelium-identity`, `commit-conventions`, `ai-files-language`.
 
 Examples of shared (in layer `core`): `terraform-workflow`, `gcp-iam`,
-`incident-response`, `code-review`, `refactoring`, `debug`,
+`incident-response`, `structured-code-review`, `refactoring`, `root-cause-debugging`,
 `documentation`, `cursor-workspace-migration`.
 
 ### Layer routing — how `sync_symlinks.py` classifies content
@@ -132,6 +132,12 @@ bin/py.sh bin/remove_mesh_layer.py <name>
 
 The full convention (including the authoring decision tree) lives in
 `mesh/rules/workspace-conventions.mdc` under "Layer routing convention".
+
+A layer can also work outside mAIcelium, in any Claude Code session, as a **kit**:
+`mai kit create` starts one, `mai kit share --from <layer> --only <domain>` gives some of
+a layer's skills and rules to someone else with no trace of their owner, `mai kit update`
+brings a kit's engine up to date, and `mai kit import` converts another tool's skills and
+rules. See "Kits" in `docs/reference.md`.
 
 ## Skill categories
 

@@ -42,7 +42,7 @@ graph TD
     Skills --> Clients["_clients/"]
     Skills --> Domains["_domains/"]
 
-    Common --> CodeReview["code-review/"]
+    Common --> CodeReview["structured-code-review/"]
     Common --> Planning["planning/"]
     Common --> WorkspaceGuide["workspace-guide/"]
     Common --> GitWorkflow["git-workflow/"]
@@ -82,7 +82,7 @@ Cursor scans `.cursor/rules/` for rule files and `.cursor/skills-cursor/` for sk
 ```
 .cursor/rules/global.mdc            → ../../mesh/rules/global.mdc
 .cursor/rules/coding-standards.mdc   → ../../mesh/rules/_domains/software/coding-standards.mdc
-.cursor/skills-cursor/code-review    → ../../mesh/skills/_common/code-review
+.cursor/skills-cursor/structured-code-review → ../../mesh/skills/_common/structured-code-review
 .cursor/skills-cursor/planning       → ../../mesh/skills/_common/planning
 ```
 
@@ -100,7 +100,7 @@ Claude Code consumes the mesh through two complementary channels.
 **Skills — native discovery via symlinks.** Claude Code scans `.claude/skills/` for skill directories, exactly as Cursor scans `.cursor/skills-cursor/`. mAIcelium reflects the same flat namespace there:
 
 ```
-.claude/skills/code-review          → ../../mesh/skills/_common/code-review
+.claude/skills/structured-code-review → ../../mesh/skills/_common/structured-code-review
 .claude/skills/devops--terraform    → ../../mesh/skills/_domains/devops/terraform-workflow
 .claude/skills/acme--jira-workflow → ../../mesh/skills/_clients/acme/jira-workflow
 .claude/skills/my-api--testing      → /home/user/dev/my-api/.cursor/skills/testing/
@@ -239,15 +239,15 @@ graph TD
     SkillsDir --> ClientsDir["_clients/ — Per-client"]
     SkillsDir --> DomainsDir["_domains/ — Tech stacks"]
 
-    CommonDir --> CR["code-review"]
+    CommonDir --> CR["structured-code-review"]
     CommonDir --> PL["planning"]
     CommonDir --> WG["workspace-guide"]
     CommonDir --> GW["git-workflow"]
     CommonDir --> TE["testing"]
     CommonDir --> DO["documentation"]
-    CommonDir --> DB["debug"]
+    CommonDir --> DB["root-cause-debugging"]
     CommonDir --> RF["refactoring"]
-    CommonDir --> SR["security-review"]
+    CommonDir --> SR["secure-code-review"]
     DomainsDir --> CU["cursor"]
     CU --> CW["cursor-workspace-migration"]
 
@@ -269,7 +269,7 @@ Skills are directories with a `SKILL.md` that the agent reads before performing 
 A skill directory can also contain reference files, templates, and examples:
 
 ```
-mesh/skills/_common/code-review/
+mesh/skills/_common/structured-code-review/
 └── SKILL.md         # Instructions for performing code reviews
 ```
 
