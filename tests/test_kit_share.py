@@ -239,3 +239,15 @@ def test_a_skill_naming_a_rule_left_behind_is_refused(tmp_path, source):
     assert "other-rule.mdc" in str(refusal.value)
     destination = share(tmp_path, source, only=["plain", "other-rule"])
     assert os.path.isfile(os.path.join(destination, "rules/_domains/ops/other-rule.mdc"))
+
+
+def test_except_leaves_out_a_skill_or_a_rule_of_what_is_shared(tmp_path, source):
+    skills, rules = generator.select(source, only=["ops"], exclude=["guarded", "other-rule"])
+    names = sorted(os.path.basename(path) for path in skills + rules)
+    assert names == ["base", "combo", "guard-rule.mdc"]
+
+
+def test_except_with_an_unknown_name_is_refused(tmp_path, source):
+    with pytest.raises(generator.LayerError) as refusal:
+        generator.select(source, only=["ops"], exclude=["not-there"])
+    assert "not-there" in str(refusal.value)

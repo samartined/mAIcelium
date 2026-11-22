@@ -157,11 +157,12 @@ def _sha256(path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def select(source, only=()):
-    """Skill folders and rule files of source to share: everything, or what `only` names.
+def select(source, only=(), exclude=()):
+    """Skill folders and rule files of source to share: everything, or what `only` names,
+    minus what `exclude` names.
 
-    Each name in `only` is `_common`, a domain (its skills and its rules), a skill folder
-    name or a rule name (with or without .mdc).
+    Each name is `_common`, a domain (its skills and its rules), a skill folder name or a
+    rule name (with or without .mdc).
     """
     source = os.path.realpath(source)
     skills_root, rules_root = os.path.join(source, "skills"), os.path.join(source, "rules")
@@ -170,10 +171,22 @@ def select(source, only=()):
     all_skills = [folder for folder, _, names in os.walk(skills_root) if "SKILL.md" in names]
     all_rules = [os.path.join(folder, name) for folder, _, names in os.walk(rules_root)
                  for name in names if name.endswith(".mdc")]
-    if not only:
-        return sorted(all_skills), sorted(all_rules)
+    if only:
+        skills, rules = _pick(source, only, all_skills, all_rules)
+    else:
+        skills, rules = set(all_skills), set(all_rules)
+    if exclude:
+        dropped_skills, dropped_rules = _pick(source, exclude, sorted(skills), sorted(rules))
+        skills -= dropped_skills
+        rules -= dropped_rules
+    return sorted(skills), sorted(rules)
+
+
+def _pick(source, names, all_skills, all_rules):
+    """The skills and rules among all_* that the names designate; refuses a name that designates none."""
+    skills_root, rules_root = os.path.join(source, "skills"), os.path.join(source, "rules")
     skills, rules = set(), set()
-    for name in only:
+    for name in names:
         name = name.strip().strip("/")
         if name == "_common":
             areas = [os.path.join(skills_root, "_common"), os.path.join(rules_root, "_common")]
@@ -189,7 +202,7 @@ def select(source, only=()):
             raise LayerError("%s has no domain, skill or rule called %s" % (source, name))
         skills.update(picked_skills)
         rules.update(picked_rules)
-    return sorted(skills), sorted(rules)
+    return skills, rules
 
 
 def _within(path, folder):

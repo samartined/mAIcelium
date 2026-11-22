@@ -107,7 +107,7 @@ work everywhere is the engine in its `claude/` folder, which comes from the laye
 
 ```bash
 mai kit create <folder>                                   # an empty kit
-mai kit share <folder> --from <your-repo> [--only <name>]  # your skills and rules, to give to someone
+mai kit share <folder> --from <your-repo> [--only <name>] [--except <name>]  # your skills and rules, to give to someone
 mai kit update <folder> [--force]                         # bring its engine up to this mAIcelium
 mai kit import plan <source> [--out map.json]             # map skills/rules kept in another tool's format
 mai kit import apply <map.json> <folder>                  # build the kit from the reviewed map
@@ -121,7 +121,7 @@ the kit belongs to.
   workspace. Inside the workspace each skill still loads once.
 - **`share`** copies skills and rules from `--from` in the same layout. Without `--only`
   it copies everything; each `--only` names `_common`, a domain (its skills and its
-  rules), a skill or a rule. Only files git tracks are copied. Skills bring, from the
+  rules), a skill or a rule, and each `--except` leaves one out the same way. Only files git tracks are copied. Skills bring, from the
   source's `claude/hooks/registry.json`, the hooks that serve them, the hooks those need,
   the skills they serve and the rules they read.
 - **The trace check** refuses the copy, and leaves nothing behind, when the copied content

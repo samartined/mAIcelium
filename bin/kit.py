@@ -7,10 +7,11 @@ machine (with or without mAIcelium) and that a mAIcelium workspace can mount as 
 Usage:
   kit.py create <folder> [--name <name>] [--owner "<name>"]
       An empty kit.
-  kit.py share <folder> --from <your-repo> [--only <name>]... [--name] [--owner] [--allow <word>]...
+  kit.py share <folder> --from <your-repo> [--only <name>]... [--except <name>]...
+               [--name] [--owner] [--allow <word>]...
       A kit holding your skills and rules, in the same layout, to give to someone else.
       Without --only it holds everything; each --only names `_common`, a domain (its
-      skills and its rules), a skill or a rule. Skills bring the hooks and rules their
+      skills and its rules), a skill or a rule, and --except leaves one out the same way. Skills bring the hooks and rules their
       hooks need. Nothing that identifies you may go in, and no copied text may name a
       skill or rule that stays behind: the copy is refused, saying where; --allow lets
       one word through.
@@ -63,6 +64,7 @@ def _parse(argv):
     share.add_argument("folder")
     share.add_argument("--from", dest="source", required=True, metavar="YOUR-REPO")
     share.add_argument("--only", action="append", default=[], metavar="NAME")
+    share.add_argument("--except", dest="exclude", action="append", default=[], metavar="NAME")
     share.add_argument("--allow", action="append", default=[], metavar="WORD")
     _identity_options(share)
     update = actions.add_parser("update", help="bring a repo's engine up to this mAIcelium")
@@ -105,7 +107,8 @@ def _share(args):
     folder = _caller_path(args.folder)
     name, owner = _name_and_owner(args, folder)
     only = [part for value in args.only for part in value.split(",") if part]
-    skills, rules = generator.select(_caller_path(args.source), only=only)
+    exclude = [part for value in args.exclude for part in value.split(",") if part]
+    skills, rules = generator.select(_caller_path(args.source), only=only, exclude=exclude)
     report = generator.create(folder, name=name, owner=owner, with_skills=skills, with_rules=rules, allow=args.allow)
     _print_created(report, name, owner)
 
