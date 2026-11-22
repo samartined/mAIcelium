@@ -60,6 +60,8 @@ verbatim to the target script — `mai sync --check-only`, `mai sync --help`, an
 | `set-flag` | `set-project-flag`, `set_project_flag` | `bin/set_project_flag.py` | Set a project flag |
 | `list` | `ls`, `list-projects`, `list_projects` | `mesh/commands/scripts/list_projects.py` | List all linked projects |
 | `health` | `project-health`, `project_health` | `mesh/commands/scripts/project_health.py` | Run health checks across all linked projects |
+| `new-layer` | `new_layer` | `bin/new_layer.py` | Create a new skills repo (mesh layer + Claude Code engine) |
+| `import-layer` | `import_layer` | `bin/import_layer.py` | Convert a repo of skills and rules into a skills repo (plan, then apply) |
 
 **Note on `add` / `remove`:** these target the deterministic `bin/` writers, not the
 `mesh/commands/scripts/` fuzzy-matching variants used by IDE slash commands.
@@ -95,6 +97,43 @@ messages if you need to distinguish the cases.
 is broken. Broken-symlink details are always printed in the report text regardless of exit code.
 
 ---
+
+### Skills repos: `new-layer` and `import-layer`
+
+A **skills repo** is a mesh layer (`skills/_common`, `skills/_domains/<domain>`,
+`rules/_domains/<domain>`) that also carries the engine in `claude/`, so its skills and
+hooks reach every Claude Code session on a machine, with or without mAIcelium. The
+engine comes from the layer kit in `bin/_lib/layer_kit/`, which owns it.
+
+```bash
+mai new-layer <folder> [--name <plugin>] [--owner "<name>"]      # empty repo
+mai new-layer <folder> --with <skill-folder> [--with ...]        # start with skills from another repo
+mai new-layer <repo> --upgrade [--force]                         # bring a repo's engine up to the kit
+mai import-layer plan <source> [--out layer-map.json]           # map a repo in another agent's format
+mai import-layer apply <layer-map.json> <folder> [--owner ...]  # build the repo from the edited map
+```
+
+- **The result** is a git repo with no commit. Its owner pushes it and runs
+  `python3 <repo>/claude/doctor.py --fix` once per machine; `mai add-layer` mounts it
+  in a workspace. Inside the workspace each skill still loads once.
+- **`--with`** copies the tracked files of each skill and, from the source repo's
+  `claude/hooks/registry.json`, the hooks that serve it, the hooks those need, the skills
+  they serve and the rules they read.
+- **The trace check** refuses the copy, and leaves nothing behind, when the copied
+  content carries the builder's git name or email, their home path, the source repo's
+  name or remote owner, its plugin name or author, or the name of a source skill that was
+  not copied. The new owner's name is never a trace; `--allow <word>` lets another through.
+- **`--upgrade`** replaces only the engine files recorded in `claude/engine.json` and the
+  engine's hooks. It stops when an engine file was edited in the repo (or the record is
+  missing) unless `--force` is given, and refuses to leave a wired hook the registry does
+  not declare.
+- **`import-layer`** recognises skill folders (`SKILL.md`), Cursor rules (`.mdc`), Claude
+  Code commands, Windsurf rules, Cline rules, Copilot instructions and single instruction
+  files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, split by `## ` section,
+  with project-context sections proposed as skip). Everything else is listed as unknown.
+  `plan` only reads the source; `apply` follows the map, never a guess.
+- **Platforms:** the engine needs Linux or macOS (`fcntl`, symlinks); the two commands
+  themselves run anywhere.
 
 ## Scripts
 

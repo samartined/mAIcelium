@@ -142,6 +142,8 @@ mai <verb> --help   # forwarded to the target script (shows its own help if it s
 | `set-flag` | `set-project-flag` | Set a project flag |
 | `list` | `ls`, `list-projects` | List all linked projects |
 | `health` | `project-health` | Run health checks across all linked projects |
+| `new-layer` | `new_layer` | Create a new skills repo, start it with skills from another repo, or upgrade its engine |
+| `import-layer` | `import_layer` | Convert a repo of skills and rules, in any agent's format, into a skills repo |
 
 Global flags (must appear **before** the verb): `--root <path>`, `--version` / `-V`, `--help` / `-h`.
 

@@ -91,7 +91,7 @@ class TestUNIT1:
         expected_verbs = {
             "init", "add", "remove", "sync", "separate-git",
             "add-mcp", "remove-mcp", "add-layer", "remove-layer",
-            "set-flag", "list", "health",
+            "set-flag", "list", "health", "new-layer", "import-layer",
         }
         assert set(maicelium_cli.VERBS.keys()) == expected_verbs, (
             f"VERBS keys: {set(maicelium_cli.VERBS.keys())}"
@@ -460,7 +460,7 @@ class TestUNIT5:
         expected_verbs = [
             "init", "add", "remove", "sync", "separate-git",
             "add-mcp", "remove-mcp", "add-layer", "remove-layer",
-            "set-flag", "list", "health",
+            "set-flag", "list", "health", "new-layer", "import-layer",
         ]
         for verb in expected_verbs:
             assert verb in out, f"Expected verb '{verb}' in help output"
@@ -690,6 +690,27 @@ class TestUNIT8:
 
         env = captured["kwargs"].get("env", {})
         assert env.get("MAICELIUM_ROOT") == str(ws)
+
+    def test_dispatch_env_keeps_the_callers_directory(self, monkeypatch, tmp_path):
+        """The child runs in the workspace root, so it needs the caller's cwd to read relative paths."""
+        cli = self._import_cli()
+        ws = _make_fake_ws(tmp_path)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["kwargs"] = kwargs
+
+            class FakeResult:
+                returncode = 0
+            return FakeResult()
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+        cli.dispatch("new-layer", ["acme"], str(ws))
+
+        assert captured["kwargs"]["env"].get("MAICELIUM_CALLER_CWD") == str(elsewhere)
 
     def test_dispatch_check_is_false(self, monkeypatch, tmp_path):
         """UNIT-8: check=False so router owns returncode handling."""
