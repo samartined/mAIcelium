@@ -62,10 +62,10 @@ def create(destination, name, owner, with_skills=(), with_rules=(), allow=(), po
             _copy_selection(staging, selection)
             left_behind = (leaks.left_behind_skills(selection["source"], sorted(selection["skills"]))
                            + leaks.left_behind_rules(selection["source"], sorted(selection["rules"])))
-            refuse_traces(staging, selection["source"], left_behind, keep=[owner, *allow])
+            refuse_traces(staging, selection["source"], left_behind, allow=allow)
         if populate:
             source, left_behind = populate(staging)
-            refuse_traces(staging, source, left_behind, keep=[owner, *allow])
+            refuse_traces(staging, source, left_behind, allow=allow)
         _git_init(staging)
         if os.path.isdir(destination):
             os.rmdir(destination)
@@ -342,13 +342,20 @@ def _tracked_files(source, relative_folder):
     return files
 
 
-def refuse_traces(root, source, left_behind, keep):
-    """Raise when anything under root carries a trace of source or its owner."""
-    words = leaks.denylist([source], keep=keep)
-    kept = {word.lower() for word in keep}
+def refuse_traces(root, source, left_behind, allow=()):
+    """Raise when anything copied from source carries a trace of it or of whoever copies it.
+
+    Only the copied content is read: the engine and the files the kit writes for the new
+    owner (who may be the builder, by name) are the kit's own. Nothing is let through but
+    the words passed in `allow`.
+    """
+    words = leaks.denylist([source], keep=allow)
+    kept = {word.lower() for word in allow}
     behind = [name for name in left_behind if name.lower() not in kept]
-    engine = {"claude/" + relative.replace(os.sep, "/") for relative in engine_files()}
-    findings = leaks.scan(root, words, skill_names=behind, names_ignored_in=engine)
+    own = {"claude/" + relative.replace(os.sep, "/") for relative in engine_files()}
+    own |= {relative.replace(os.sep, "/") for relative in TEMPLATED}
+    own |= {"claude/.claude-plugin/plugin.json", "claude/engine.json"}
+    findings = leaks.scan(root, words, skill_names=behind, skip=own)
     if findings:
         raise LayerError(
             "the copied content carries traces of its source, so nothing was created:\n%s\n"
