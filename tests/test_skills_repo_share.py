@@ -175,3 +175,10 @@ def test_the_new_repo_keeps_its_invariants(tmp_path, source):
     completed = subprocess.run([sys.executable, os.path.join(destination, "claude/tests/test_repo_invariants.py")],
                                capture_output=True, text=True)
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_a_folder_that_is_a_skill_and_holds_skills_brings_them_all(source):
+    skill(source, "_domains/ops")
+    found = generator.expand_skill_folders([os.path.join(source, "skills", "_domains", "ops")])
+    names = sorted(os.path.relpath(path, os.path.realpath(os.path.join(source, "skills"))) for path in found)
+    assert names == ["_domains/ops", "_domains/ops/base", "_domains/ops/combo", "_domains/ops/guarded"]

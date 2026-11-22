@@ -156,13 +156,10 @@ def _sha256(path):
 
 
 def expand_skill_folders(paths):
-    """Each path as skill folders: itself when it holds a SKILL.md, else every skill below it."""
+    """Each path as skill folders: every folder at or below it that holds a SKILL.md."""
     found = []
     for path in paths:
         path = os.path.realpath(path)
-        if os.path.isfile(os.path.join(path, "SKILL.md")):
-            found.append(path)
-            continue
         below = [folder for folder, _, names in os.walk(path) if "SKILL.md" in names]
         if not below:
             raise LayerError("%s holds no skill (no SKILL.md in it or below it)" % path)
