@@ -1,0 +1,41 @@
+name: Public text
+
+# This repo is public. Fails when tracked files or the commits of a pull request
+# carry personal or client traces: home paths, real emails, AI attribution,
+# identities that are not a GitHub noreply address, or a name listed in the
+# PRIVATE_WORDS secret (never written to the repo). Pull requests from forks do
+# not receive the secret and run the generic checks only.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  public-text:
+    name: public-text
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check tracked files
+        env:
+          PRIVATE_WORDS: ${{ secrets.PRIVATE_WORDS }}
+        run: python bin/check_public_text.py
+
+      - name: Check the pull request's commits
+        if: github.event_name == 'pull_request'
+        env:
+          PRIVATE_WORDS: ${{ secrets.PRIVATE_WORDS }}
+        run: >-
+          python bin/check_public_text.py
+          --commits "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
