@@ -23,6 +23,9 @@
 /mesh/rules/_clients/*
 !/mesh/rules/_clients/.gitkeep
 
+# Kits made with `mai kit` (each is its own repo, often private)
+/kits/
+
 # Local registry (contains user-specific paths)
 /repos/_registry.yaml
 !/repos/_registry.yaml.example

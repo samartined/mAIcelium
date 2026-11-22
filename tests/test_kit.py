@@ -123,15 +123,20 @@ class TestScan:
 
 
 class TestCommandLine:
+    @pytest.fixture(autouse=True)
+    def workspace(self, tmp_path):
+        self.ws = tmp_path / "ws"
+        (self.ws / "bin").mkdir(parents=True)
+
     def run(self, *args, cwd, env=None):
-        environment = dict(os.environ, **(env or {}))
+        environment = dict(os.environ, MAICELIUM_ROOT=str(self.ws), **(env or {}))
         return subprocess.run([sys.executable, SCRIPT, *args], cwd=cwd, env=environment,
                               capture_output=True, text=True)
 
     def test_creates_the_repo_relative_to_the_callers_directory(self, tmp_path):
         caller = tmp_path / "caller"
         caller.mkdir()
-        completed = self.run("create", "acme-skills", "--owner", "Ada", cwd=str(tmp_path),
+        completed = self.run("create", "./acme-skills", "--owner", "Ada", cwd=str(tmp_path),
                              env={"MAICELIUM_CALLER_CWD": str(caller)})
         assert completed.returncode == 0, completed.stderr
         manifest = json.loads((caller / "acme-skills" / "claude/.claude-plugin/plugin.json").read_text())
@@ -139,7 +144,7 @@ class TestCommandLine:
         assert "doctor.py --fix" in completed.stdout
 
     def test_share_takes_the_source_relative_to_the_caller(self, builder, tmp_path):
-        completed = self.run("share", "acme-skills", "--owner", "Ada",
+        completed = self.run("share", "./acme-skills", "--owner", "Ada",
                              "--from", "graces-private-skills", "--only", "compiler-tips",
                              cwd=str(tmp_path / "home"), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 0, completed.stderr
@@ -147,7 +152,7 @@ class TestCommandLine:
         assert "Skills: _common/compiler-tips" in completed.stdout
 
     def test_share_only_takes_a_whole_area(self, builder, tmp_path):
-        completed = self.run("share", "acme-skills", "--owner", "Ada",
+        completed = self.run("share", "./acme-skills", "--owner", "Ada",
                              "--from", "graces-private-skills", "--only", "_common",
                              cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 0, completed.stderr
@@ -155,32 +160,50 @@ class TestCommandLine:
             ".gitkeep", "compiler-tips", "secret-sauce"]
 
     def test_share_except_leaves_things_out(self, builder, tmp_path):
-        completed = self.run("share", "acme-skills", "--owner", "Ada", "--from", "graces-private-skills",
+        completed = self.run("share", "./acme-skills", "--owner", "Ada", "--from", "graces-private-skills",
                              "--only", "_common", "--except", "secret-sauce",
                              cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 0, completed.stderr
         assert sorted(os.listdir(tmp_path / "acme-skills/skills/_common")) == [".gitkeep", "compiler-tips"]
 
     def test_share_needs_the_new_owner(self, builder, tmp_path):
-        completed = self.run("share", "acme-skills", "--from", "graces-private-skills",
+        completed = self.run("share", "./acme-skills", "--from", "graces-private-skills",
                              cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 2 and "--owner" in completed.stderr
 
     def test_share_needs_a_source_repo(self, tmp_path):
-        completed = self.run("share", "acme-skills", "--owner", "Ada", cwd=str(tmp_path),
+        completed = self.run("share", "./acme-skills", "--owner", "Ada", cwd=str(tmp_path),
                              env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 2
 
     def test_a_source_without_skills_or_rules_is_refused(self, builder, tmp_path):
         (tmp_path / "empty").mkdir()
-        completed = self.run("share", "acme-skills", "--owner", "Ada", "--from", "empty",
+        completed = self.run("share", "./acme-skills", "--owner", "Ada", "--from", "empty",
                              cwd=str(tmp_path), env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 2 and "no skills/ or rules/" in completed.stderr
+
+    def test_a_bare_name_goes_to_the_workspaces_kits_folder(self, tmp_path):
+        completed = self.run("create", "acme-skills", "--owner", "Ada", cwd=str(tmp_path),
+                             env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
+        assert completed.returncode == 0, completed.stderr
+        assert (self.ws / "kits" / "acme-skills" / "claude" / "doctor.py").is_file()
+        assert not (tmp_path / "acme-skills").exists()
+
+    def test_a_path_inside_the_workspace_but_outside_kits_is_refused(self, tmp_path):
+        completed = self.run("create", "docs/acme-skills", "--owner", "Ada", cwd=str(self.ws),
+                             env={"MAICELIUM_CALLER_CWD": str(self.ws)})
+        assert completed.returncode == 2 and "kits/" in completed.stderr
+        assert not (self.ws / "docs" / "acme-skills").exists()
+
+    def test_a_path_inside_kits_is_accepted(self, tmp_path):
+        completed = self.run("create", "kits/acme-skills", "--owner", "Ada", cwd=str(self.ws),
+                             env={"MAICELIUM_CALLER_CWD": str(self.ws)})
+        assert completed.returncode == 0, completed.stderr
 
     def test_a_refusal_exits_2_with_the_reason(self, tmp_path):
         (tmp_path / "taken").mkdir()
         (tmp_path / "taken" / "x").write_text("x")
-        completed = self.run("create", "taken", "--owner", "Ada", cwd=str(tmp_path),
+        completed = self.run("create", "./taken", "--owner", "Ada", cwd=str(tmp_path),
                              env={"MAICELIUM_CALLER_CWD": str(tmp_path)})
         assert completed.returncode == 2
         assert "not empty" in completed.stderr

@@ -25,7 +25,10 @@ Usage:
       Cline, Copilot, CLAUDE.md and the like). `plan` writes a map to review and edit;
       `apply` builds the repo from it. The source is only read.
 
-Paths are read relative to the directory `mai` was called from. --name defaults to the
+Where kits go: a bare name (`devops-ines`) means `<workspace>/kits/devops-ines`, a folder
+git ignores, so a kit never ends up in the workspace's own (public) repo. A path is read
+relative to the directory `mai` was called from; inside the workspace it must be under
+kits/. The same holds for the map of `import`. --name defaults to the
 folder name, --owner to git's user.name. Exit 2 when a request is refused.
 """
 import _bootstrap  # noqa: F401
@@ -37,11 +40,33 @@ import subprocess
 import sys
 
 from _lib.layer_kit import generator, importer
+from _lib.platform import resolve_root
+
+KITS = "kits"
 
 
 def _caller_path(path):
     return os.path.abspath(os.path.join(os.environ.get("MAICELIUM_CALLER_CWD") or os.getcwd(),
                                         os.path.expanduser(path)))
+
+
+def _kit_path(path):
+    """Where a kit (or an import map) given on the command line goes."""
+    root = os.path.realpath(resolve_root())
+    kits = os.path.join(root, KITS)
+    if not os.path.isabs(path) and not os.path.dirname(path) and not path.startswith("~") and path not in (".", ".."):
+        os.makedirs(kits, exist_ok=True)
+        return os.path.join(kits, path)
+    full = os.path.realpath(_caller_path(path))
+    if _inside(full, root) and not _inside(full, kits):
+        raise generator.LayerError(
+            "%s is inside the mAIcelium workspace, whose own git repo may be public. Put kits in "
+            "%s/ (a bare name goes there) or outside the workspace." % (full, kits))
+    return full
+
+
+def _inside(path, folder):
+    return path == folder or path.startswith(folder + os.sep)
 
 
 def _git_user():
@@ -99,13 +124,13 @@ def _print_created(report, name, owner):
 
 
 def _create(args):
-    folder = _caller_path(args.folder)
+    folder = _kit_path(args.folder)
     name, owner = _name_and_owner(args, folder)
     _print_created(generator.create(folder, name=name, owner=owner), name, owner)
 
 
 def _share(args):
-    folder = _caller_path(args.folder)
+    folder = _kit_path(args.folder)
     name, owner = _name_and_owner(args, folder)
     only = [part for value in args.only for part in value.split(",") if part]
     exclude = [part for value in args.exclude for part in value.split(",") if part]
@@ -115,7 +140,7 @@ def _share(args):
 
 
 def _update(args):
-    report = generator.upgrade(_caller_path(args.folder), force=args.force)
+    report = generator.upgrade(_kit_path(args.folder), force=args.force)
     for key, label in (("updated", "Updated"), ("added", "Added"), ("removed", "Removed")):
         if report[key]:
             print("%s: %s" % (label, ", ".join(report[key])))
@@ -125,7 +150,7 @@ def _update(args):
 def _import(args):
     if args.step == "plan":
         mapping = importer.plan(_caller_path(args.source))
-        out = _caller_path(args.out)
+        out = _kit_path(args.out)
         importer.save(mapping, out)
         counts = collections.Counter(entry["kind"] for entry in mapping["items"])
         print("Mapped %d items from %s:" % (len(mapping["items"]), mapping["source"]))
@@ -134,9 +159,9 @@ def _import(args):
         print("Map written to %s. Review it (targets, domains, skipped sections), then run:" % out)
         print("  mai kit import apply %s <new-folder>" % args.out)
         return
-    folder = _caller_path(args.folder)
+    folder = _kit_path(args.folder)
     name, owner = _name_and_owner(args, folder)
-    report = importer.apply(importer.load(_caller_path(args.map)), folder, name=name, owner=owner, allow=args.allow)
+    report = importer.apply(importer.load(_kit_path(args.map)), folder, name=name, owner=owner, allow=args.allow)
     _print_created(report, name, owner)
 
 

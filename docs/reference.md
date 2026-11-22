@@ -113,8 +113,13 @@ mai kit import plan <source> [--out map.json]             # map skills/rules kep
 mai kit import apply <map.json> <folder>                  # build the kit from the reviewed map
 ```
 
-`--name` (default: the folder name) and `--owner` (default: git's `user.name`) set who
-the kit belongs to.
+`--name` (default: the folder name) and `--owner` (default: git's `user.name`; required by
+`share`) set who the kit belongs to.
+
+**Where kits go.** A bare name (`devops-ines`) means `<workspace>/kits/devops-ines`, a
+folder git ignores, so a kit never ends up in the workspace's own repo. A path is read
+relative to the directory `mai` was called from and, inside the workspace, must be under
+`kits/`. The import map follows the same rule (`layer-map.json` lands in `kits/`).
 
 - **The result** is a git repo with no commit. Its owner pushes it and runs
   `python3 <kit>/claude/doctor.py --fix` once per machine; `mai add-layer` mounts it in a
