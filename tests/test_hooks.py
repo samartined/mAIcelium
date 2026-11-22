@@ -2191,3 +2191,41 @@ def test_settings_hook_commands_without_project_dir_use_cwd(matcher, payload):
     )
     assert result.returncode == 0, result.stderr
     assert _is_block(result), (result.stdout, result.stderr)
+
+
+# Cursor accepts "ask" on preToolUse but does not enforce it (#49, decision a):
+# when Cursor runs the guards, an ask becomes a deny. Claude Code keeps the ask.
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [(".claude", "settings.json"), ("bin", "hooks", "guard_write.py")],
+)
+def test_guard_write_cursor_turns_ask_into_deny(tmp_path, rel):
+    target = str(tmp_path.joinpath(*rel))
+    env = {"MAICELIUM_ROOT": str(tmp_path)}
+    claude = {"tool_name": "Write", "tool_input": {"file_path": target}, "hook_event_name": "PreToolUse"}
+    assert _decision(_run_hook(GUARD_WRITE, claude, env=env)) == "ask"
+
+    cursor = _run_hook(GUARD_WRITE, _cursor_payload("Write", {"file_path": target}, tmp_path), env=env)
+    assert _is_block(cursor)
+    assert "Cursor" in _reason(cursor)
+
+
+def test_guard_bash_cursor_turns_ask_into_deny(tmp_path):
+    env = {"MAICELIUM_ROOT": str(tmp_path)}
+    payload = _cursor_payload("Shell", {"command": "./tool.py > .env"}, tmp_path)
+    result = _run_hook(GUARD_BASH, payload, env=env)
+    assert _is_block(result)
+    assert "Cursor" in _reason(result)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"cursor_version": "2.0.0"}, {"hook_event_name": "preToolUse"}],
+)
+def test_cursor_runner_detected_by_either_field(tmp_path, extra):
+    target = str(tmp_path / ".claude" / "settings.json")
+    payload = {"tool_name": "Write", "tool_input": {"file_path": target}, **extra}
+    result = _run_hook(GUARD_WRITE, payload, env={"MAICELIUM_ROOT": str(tmp_path)})
+    assert _is_block(result)

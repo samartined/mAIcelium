@@ -120,8 +120,28 @@ def render(decision):
     )
 
 
-def emit(decision):
-    out = render(decision)
+def runner_enforces_ask(payload):
+    """False when the hook runs under Cursor, which accepts "ask" on
+    preToolUse but does not enforce it (#49). Cursor's payload carries
+    ``cursor_version`` and a lower-case ``preToolUse`` event name; Claude Code
+    sends ``PreToolUse``."""
+    if not isinstance(payload, dict):
+        return True
+    return "cursor_version" not in payload and payload.get("hook_event_name") != "preToolUse"
+
+
+def for_runner(decision, payload):
+    """Turn an ask into a deny where the runner would not ask anyone."""
+    if decision.kind != ASK or runner_enforces_ask(payload):
+        return decision
+    return deny(
+        f"{decision.reason} Cursor does not enforce confirmation on this hook, "
+        f"so it is denied here: make this change by hand or from Claude Code."
+    )
+
+
+def emit(decision, payload=None):
+    out = render(for_runner(decision, payload))
     if out:
         print(out)
 
